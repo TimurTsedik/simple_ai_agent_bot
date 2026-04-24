@@ -18,6 +18,7 @@ class FinalOutputModel(BaseModel):
     type: Literal["final"]
     reason: str
     final_answer: str
+    memory_candidates: list[str] | None = None
 
 
 class StopOutputModel(BaseModel):
@@ -25,6 +26,13 @@ class StopOutputModel(BaseModel):
     type: Literal["stop"]
     reason: str
     final_answer: str
+    memory_candidates: list[str] | None = None
+
+
+class LegacyToolCallOutputModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tool: str
+    args: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,7 @@ class ParsedOutputModel:
     action: str | None
     args: dict[str, Any] | None
     finalAnswer: str | None
+    memoryCandidates: list[str] | None
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,8 @@ class OutputParser:
                 ret = self._parseFinal(in_payload=decodedValue)
             elif outputType == "stop":
                 ret = self._parseStop(in_payload=decodedValue)
+            elif "tool" in decodedValue and "args" in decodedValue:
+                ret = self._parseLegacyToolCall(in_payload=decodedValue)
             else:
                 ret = ParseResultModel(
                     isValid=False,
@@ -95,6 +106,34 @@ class OutputParser:
                 action=validated.action,
                 args=validated.args,
                 finalAnswer=None,
+                memoryCandidates=None,
+            )
+            ret = ParseResultModel(
+                isValid=True,
+                parsedOutput=parsed,
+                errorCode=None,
+                errorMessage=None,
+            )
+        except ValidationError as in_exc:
+            ret = ParseResultModel(
+                isValid=False,
+                parsedOutput=None,
+                errorCode="INVALID_SCHEMA",
+                errorMessage=str(in_exc),
+            )
+        return ret
+
+    def _parseLegacyToolCall(self, in_payload: dict[str, Any]) -> ParseResultModel:
+        ret: ParseResultModel
+        try:
+            validated = LegacyToolCallOutputModel.model_validate(in_payload)
+            parsed = ParsedOutputModel(
+                outputType="tool_call",
+                reason="legacy_tool_call",
+                action=validated.tool,
+                args=validated.args,
+                finalAnswer=None,
+                memoryCandidates=None,
             )
             ret = ParseResultModel(
                 isValid=True,
@@ -121,6 +160,7 @@ class OutputParser:
                 action=None,
                 args=None,
                 finalAnswer=validated.final_answer,
+                memoryCandidates=validated.memory_candidates,
             )
             ret = ParseResultModel(
                 isValid=True,
@@ -147,6 +187,7 @@ class OutputParser:
                 action=None,
                 args=None,
                 finalAnswer=validated.final_answer,
+                memoryCandidates=validated.memory_candidates,
             )
             ret = ParseResultModel(
                 isValid=True,

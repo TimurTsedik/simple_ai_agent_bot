@@ -1,3 +1,5 @@
+import time
+from threading import Event
 from typing import Any
 
 import requests
@@ -18,6 +20,7 @@ class TelegramPollingRunner:
         self._logger = in_logger
         self._updateHandler = in_updateHandler
         self._lastUpdateId = 0
+        self._stopEvent = Event()
 
     def pollOnce(self) -> None:
         apiUrl = (
@@ -38,6 +41,15 @@ class TelegramPollingRunner:
             self._handleUpdatesPayload(in_payload=payload)
         except requests.RequestException as in_exc:
             self._logger.error(f"telegram_polling_error {in_exc}")
+
+    def runForever(self) -> None:
+        self._stopEvent.clear()
+        while self._stopEvent.is_set() is False:
+            self.pollOnce()
+            time.sleep(0.2)
+
+    def stop(self) -> None:
+        self._stopEvent.set()
 
     def _handleUpdatesPayload(self, in_payload: dict[str, Any]) -> None:
         updates = in_payload.get("result", [])

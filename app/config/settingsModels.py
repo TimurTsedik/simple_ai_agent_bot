@@ -49,6 +49,17 @@ class LoggingSettings(BaseModel):
     backupCount: int = Field(ge=1, le=20)
 
 
+class SkillsSettings(BaseModel):
+    skillsDirPath: str = "./app/skills/assets"
+
+
+class MemorySettings(BaseModel):
+    memoryRootPath: str = "./data/memory"
+    longTermFileName: str = "long_term.md"
+    sessionSummaryFileName: str = "summary.md"
+    recentMessagesFileName: str = "recent.md"
+
+
 class SettingsModel(BaseModel):
     app: AppSettings
     telegram: TelegramSettings
@@ -56,6 +67,8 @@ class SettingsModel(BaseModel):
     runtime: RuntimeSettings
     security: SecuritySettings
     logging: LoggingSettings
+    skills: SkillsSettings = Field(default_factory=SkillsSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
 
     telegramBotToken: str = Field(min_length=1)
     openRouterApiKey: str = Field(min_length=1)

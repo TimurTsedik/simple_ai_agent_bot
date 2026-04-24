@@ -28,6 +28,19 @@ def testParseValidToolCallOutput() -> None:
     assert result.parsedOutput.action == "digest_news"
 
 
+def testParseLegacyToolCallOutput() -> None:
+    parser = OutputParser()
+    rawText = '{"tool":"digest_telegram_news","args":{"keywords":["ai"],"maxItems":3}}'
+
+    result = parser.parse(in_rawText=rawText)
+
+    assert result.isValid is True
+    assert result.parsedOutput is not None
+    assert result.parsedOutput.outputType == "tool_call"
+    assert result.parsedOutput.action == "digest_telegram_news"
+    assert result.parsedOutput.reason == "legacy_tool_call"
+
+
 def testParseInvalidJsonOutput() -> None:
     parser = OutputParser()
     rawText = '{"type":"final","reason":"x","final_answer":"y"'

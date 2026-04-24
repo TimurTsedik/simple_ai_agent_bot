@@ -3,6 +3,10 @@ from app.domain.policies.stopPolicy import StopPolicy
 from app.runtime.agentLoop import AgentLoop
 from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
+from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
+from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
+from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
+from pydantic import BaseModel, ConfigDict
 
 
 class SequenceLlmClient:
@@ -49,6 +53,33 @@ def _makeModelSettings() -> ModelSettings:
     return ret
 
 
+class EmptyArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _echoTool(in_args: dict) -> dict:
+    ret = {"echo": in_args}
+    return ret
+
+
+def _makeToolExecutionCoordinator(in_maxToolOutputChars: int) -> ToolExecutionCoordinator:
+    ret = ToolExecutionCoordinator(
+        in_toolRegistry=ToolRegistry(
+            in_toolDefinitions=[
+                ToolDefinitionModel(
+                    name="a",
+                    description="test tool",
+                    argsModel=EmptyArgsModel,
+                    timeoutSeconds=1,
+                    executeCallable=_echoTool,
+                )
+            ]
+        ),
+        in_maxToolOutputChars=in_maxToolOutputChars,
+    )
+    return ret
+
+
 def testAgentLoopReturnsFinalAnswer() -> None:
     runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
     llmClient = SequenceLlmClient(
@@ -60,9 +91,18 @@ def testAgentLoopReturnsFinalAnswer() -> None:
         in_outputParser=OutputParser(),
         in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
         in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(in_toolDefinitions=[]),
     )
 
-    result = loop.run(in_userMessage="Привет")
+    result = loop.run(
+        in_userMessage="Привет",
+        in_skillsBlock="",
+        in_memoryBlock="",
+    )
 
     assert result.completionReason == "final_answer"
     assert result.finalAnswer == "Финал"
@@ -79,9 +119,18 @@ def testAgentLoopStopsOnMalformedJson() -> None:
         in_outputParser=OutputParser(),
         in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
         in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(in_toolDefinitions=[]),
     )
 
-    result = loop.run(in_userMessage="Привет")
+    result = loop.run(
+        in_userMessage="Привет",
+        in_skillsBlock="",
+        in_memoryBlock="",
+    )
 
     assert result.completionReason == "stop_response"
     assert "невалидный JSON" in result.finalAnswer
@@ -102,9 +151,28 @@ def testAgentLoopStopsByMaxSteps() -> None:
         in_outputParser=OutputParser(),
         in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
         in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(
+            in_toolDefinitions=[
+                ToolDefinitionModel(
+                    name="a",
+                    description="test tool",
+                    argsModel=EmptyArgsModel,
+                    timeoutSeconds=1,
+                    executeCallable=_echoTool,
+                )
+            ]
+        ),
     )
 
-    result = loop.run(in_userMessage="Привет")
+    result = loop.run(
+        in_userMessage="Привет",
+        in_skillsBlock="",
+        in_memoryBlock="",
+    )
 
     assert result.completionReason == "max_steps_exceeded"
     assert result.stepCount == 2

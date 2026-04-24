@@ -45,3 +45,12 @@ logging:
   appLogsFileName: "app.log"
   maxBytes: 10485760
   backupCount: 5
+
+skills:
+  skillsDirPath: "./app/skills/assets"
+
+memory:
+  memoryRootPath: "./data/memory"
+  longTermFileName: "long_term.md"
+  sessionSummaryFileName: "summary.md"
+  recentMessagesFileName: "recent.md"

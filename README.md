@@ -2,7 +2,7 @@
 
 Монолитный MVP AI-агент с управляемым agentic loop, Telegram transport, fallback по OpenRouter и read-only admin surface.
 
-## Что уже сделано (Этапы 1-2)
+## Что уже сделано (Этапы 1-5)
 
 - каркас layered-архитектуры;
 - typed-конфиг с fail-fast загрузкой;
@@ -12,8 +12,31 @@
 - strict JSON output parser (`tool_call` / `final` / `stop`);
 - базовый agent loop с лимитами шагов/времени/tool calls и controlled stop;
 - skeleton prompt builder с ограничением размера;
+- tools subsystem: registry, schemas, metadata renderer, execution coordinator;
+- standardized tool result envelope и стандартные error-codes;
+- read-only tools:
+  - `digest_telegram_news`
+  - `read_memory_file`;
+- OpenRouter client integration;
+- retries + fallback policy по primary/secondary/tertiary;
+- raw provider response logging и fallback events в JSONL;
+- markdown skills store и rule-based skill selection;
+- markdown memory store:
+  - recent messages
+  - session summary
+  - long-term memory;
+- memory policy для отбора `memory_candidates`;
+- обновление summary/long-term после завершения run;
 - внутренний endpoint для отладки запуска loop: `POST /internal/run`;
-- unit-тесты на конфиг, Telegram authorization behavior, parser и loop.
+- web просмотр логов:
+  - `GET /logs`
+  - `GET /internal/logs`;
+- Telegram polling подключен в lifecycle FastAPI (`startup/shutdown`);
+- Telegram команды:
+  - `/start`
+  - `/health`
+  - `/reset`;
+- unit-тесты на конфиг, Telegram authorization behavior, parser, loop, tool executor, llm fallback, skills и memory.
 
 ## Локальный запуск
 

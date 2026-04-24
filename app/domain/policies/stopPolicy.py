@@ -29,7 +29,7 @@ class StopPolicy:
                 completionReason="max_steps_exceeded",
                 finalAnswer="Остановка: достигнут лимит шагов.",
             )
-        elif in_toolCallCount > self._runtimeSettings.maxToolCalls:
+        elif in_toolCallCount >= self._runtimeSettings.maxToolCalls:
             ret = StopDecisionModel(
                 shouldStop=True,
                 completionReason="max_tool_calls_exceeded",

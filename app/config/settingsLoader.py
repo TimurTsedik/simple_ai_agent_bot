@@ -1,0 +1,75 @@
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+from dotenv import dotenv_values
+from pydantic import ValidationError
+
+from app.config.defaults import DEFAULT_ENV_PATH
+from app.config.settingsModels import SettingsModel
+
+
+class SettingsLoadError(RuntimeError):
+    pass
+
+
+def _readYamlFile(in_path: Path) -> dict[str, Any]:
+    ret: dict[str, Any]
+    if not in_path.exists():
+        raise SettingsLoadError(f"Config file is not found: {in_path}")
+    with in_path.open("r", encoding="utf-8") as fileHandle:
+        loadedData = yaml.safe_load(fileHandle) or {}
+    if not isinstance(loadedData, dict):
+        raise SettingsLoadError("Config root must be a mapping")
+    ret = loadedData
+    return ret
+
+
+def _readDotEnvFile(in_path: Path) -> dict[str, str]:
+    ret: dict[str, str]
+    if in_path.exists():
+        loadedValues = dotenv_values(in_path)
+        normalizedValues = {
+            key: value
+            for key, value in loadedValues.items()
+            if isinstance(key, str) and isinstance(value, str)
+        }
+        ret = normalizedValues
+    else:
+        ret = {}
+    return ret
+
+
+def _applyEnvOverrides(
+    in_configData: dict[str, Any],
+    in_dotEnvValues: dict[str, str],
+) -> dict[str, Any]:
+    ret = dict(in_configData)
+    ret["telegramBotToken"] = os.getenv(
+        "TELEGRAM_BOT_TOKEN", in_dotEnvValues.get("TELEGRAM_BOT_TOKEN", "")
+    )
+    ret["openRouterApiKey"] = os.getenv(
+        "OPENROUTER_API_KEY", in_dotEnvValues.get("OPENROUTER_API_KEY", "")
+    )
+    ret["sessionCookieSecret"] = os.getenv(
+        "SESSION_COOKIE_SECRET", in_dotEnvValues.get("SESSION_COOKIE_SECRET", "")
+    )
+    return ret
+
+
+def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> SettingsModel:
+    ret: SettingsModel
+    configPath = Path(in_configPath)
+    envPath = Path(in_envPath)
+    configData = _readYamlFile(in_path=configPath)
+    dotEnvValues = _readDotEnvFile(in_path=envPath)
+    mergedData = _applyEnvOverrides(
+        in_configData=configData,
+        in_dotEnvValues=dotEnvValues,
+    )
+    try:
+        ret = SettingsModel.model_validate(mergedData)
+    except ValidationError as in_exc:
+        raise SettingsLoadError(f"Invalid settings: {in_exc}") from in_exc
+    return ret

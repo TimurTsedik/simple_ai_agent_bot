@@ -51,13 +51,20 @@ def _writeConfigFile(in_path: Path) -> None:
     )
 
 
-def _writeEnvFile(in_path: Path, in_token: str, in_apiKey: str, in_cookieSecret: str) -> None:
+def _writeEnvFile(
+    in_path: Path,
+    in_token: str,
+    in_apiKey: str,
+    in_cookieSecret: str,
+    in_adminRawTokens: str = "token-one",
+) -> None:
     in_path.write_text(
         "\n".join(
             [
                 f"TELEGRAM_BOT_TOKEN={in_token}",
                 f"OPENROUTER_API_KEY={in_apiKey}",
                 f"SESSION_COOKIE_SECRET={in_cookieSecret}",
+                f"ADMIN_RAW_TOKENS={in_adminRawTokens}",
             ]
         ),
         encoding="utf-8",
@@ -99,6 +106,7 @@ def testLoadSettingsSuccess() -> None:
     assert settings.app.appName == "test-app"
     assert settings.telegramBotToken == "tg-token-dotenv"
     assert settings.openRouterApiKey == "or-key-dotenv"
+    assert settings.adminRawTokens == ["token-one"]
 
 
 def testEnvironmentVariablesOverrideDotEnv() -> None:
@@ -155,6 +163,89 @@ def testLoadSettingsFailFastWhenEnvMissing() -> None:
             loadSettings(
                 in_configPath=str(configPath),
                 in_envPath=str(Path(tempDir) / "missing.env"),
+            )
+        except SettingsLoadError:
+            didRaise = True
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+
+    assert didRaise is True
+
+
+def testLoadSettingsFailFastWhenAdminTokensMissing() -> None:
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(in_path=configPath)
+        envPath.write_text(
+            "\n".join(
+                [
+                    "TELEGRAM_BOT_TOKEN=tg-token-dotenv",
+                    "OPENROUTER_API_KEY=or-key-dotenv",
+                    "SESSION_COOKIE_SECRET=cookie-secret-dotenv",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        didRaise = False
+        try:
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
+            )
+        except SettingsLoadError:
+            didRaise = True
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+
+    assert didRaise is True
+
+
+def testLoadSettingsFailFastWhenAdminTokensLimitExceeded() -> None:
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(in_path=configPath)
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv",
+            in_adminRawTokens="a,b,c,d",
+        )
+        didRaise = False
+        try:
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
             )
         except SettingsLoadError:
             didRaise = True

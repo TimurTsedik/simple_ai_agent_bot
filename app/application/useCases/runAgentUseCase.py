@@ -115,5 +115,6 @@ class RunAgentUseCase:
         snapshot["telegramBotToken"] = "***"
         snapshot["openRouterApiKey"] = "***"
         snapshot["sessionCookieSecret"] = "***"
+        snapshot["adminRawTokens"] = ["***" for _item in self._settings.adminRawTokens]
         ret = snapshot
         return ret

@@ -55,6 +55,16 @@ def _applyEnvOverrides(
     ret["sessionCookieSecret"] = os.getenv(
         "SESSION_COOKIE_SECRET", in_dotEnvValues.get("SESSION_COOKIE_SECRET", "")
     )
+    rawAdminTokens = os.getenv(
+        "ADMIN_RAW_TOKENS", in_dotEnvValues.get("ADMIN_RAW_TOKENS", "")
+    )
+    ret["adminRawTokens"] = _parseAdminTokens(in_rawValue=rawAdminTokens)
+    return ret
+
+
+def _parseAdminTokens(in_rawValue: str) -> list[str]:
+    ret: list[str]
+    ret = [item.strip() for item in in_rawValue.split(",") if item.strip()]
     return ret
 
 
@@ -72,4 +82,12 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         ret = SettingsModel.model_validate(mergedData)
     except ValidationError as in_exc:
         raise SettingsLoadError(f"Invalid settings: {in_exc}") from in_exc
+    if len(ret.adminRawTokens) == 0:
+        raise SettingsLoadError(
+            "Invalid settings: ADMIN_RAW_TOKENS is required for web auth."
+        )
+    if len(ret.adminRawTokens) > ret.security.maxAdminTokens:
+        raise SettingsLoadError(
+            "Invalid settings: ADMIN_RAW_TOKENS count exceeds security.maxAdminTokens."
+        )
     return ret

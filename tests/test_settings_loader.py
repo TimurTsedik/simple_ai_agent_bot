@@ -56,7 +56,7 @@ def _writeEnvFile(
     in_token: str,
     in_apiKey: str,
     in_cookieSecret: str,
-    in_adminRawTokens: str = "token-one",
+    in_adminRawTokens: str = "token-one-12345678",
 ) -> None:
     in_path.write_text(
         "\n".join(
@@ -83,7 +83,7 @@ def testLoadSettingsSuccess() -> None:
             in_path=envPath,
             in_token="tg-token-dotenv",
             in_apiKey="or-key-dotenv",
-            in_cookieSecret="cookie-secret-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
         settings = loadSettings(
             in_configPath=str(configPath),
@@ -106,7 +106,7 @@ def testLoadSettingsSuccess() -> None:
     assert settings.app.appName == "test-app"
     assert settings.telegramBotToken == "tg-token-dotenv"
     assert settings.openRouterApiKey == "or-key-dotenv"
-    assert settings.adminRawTokens == ["token-one"]
+    assert settings.adminRawTokens == ["token-one-12345678"]
 
 
 def testEnvironmentVariablesOverrideDotEnv() -> None:
@@ -121,11 +121,11 @@ def testEnvironmentVariablesOverrideDotEnv() -> None:
             in_path=envPath,
             in_token="tg-token-dotenv",
             in_apiKey="or-key-dotenv",
-            in_cookieSecret="cookie-secret-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
         os.environ["TELEGRAM_BOT_TOKEN"] = "tg-token-env"
         os.environ["OPENROUTER_API_KEY"] = "or-key-env"
-        os.environ["SESSION_COOKIE_SECRET"] = "cookie-secret-env"
+        os.environ["SESSION_COOKIE_SECRET"] = "cookie-secret-env-0123456789abcdef"
         settings = loadSettings(
             in_configPath=str(configPath),
             in_envPath=str(envPath),
@@ -187,16 +187,21 @@ def testLoadSettingsFailFastWhenAdminTokensMissing() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
     with TemporaryDirectory() as tempDir:
         configPath = Path(tempDir) / "config.yaml"
         envPath = Path(tempDir) / ".env"
         _writeConfigFile(in_path=configPath)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
         envPath.write_text(
             "\n".join(
                 [
                     "TELEGRAM_BOT_TOKEN=tg-token-dotenv",
                     "OPENROUTER_API_KEY=or-key-dotenv",
-                    "SESSION_COOKIE_SECRET=cookie-secret-dotenv",
+                    "SESSION_COOKIE_SECRET=cookie-secret-dotenv-0123456789abcdef",
                 ]
             ),
             encoding="utf-8",
@@ -222,6 +227,10 @@ def testLoadSettingsFailFastWhenAdminTokensMissing() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
 
     assert didRaise is True
 
@@ -230,16 +239,24 @@ def testLoadSettingsFailFastWhenAdminTokensLimitExceeded() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
     with TemporaryDirectory() as tempDir:
         configPath = Path(tempDir) / "config.yaml"
         envPath = Path(tempDir) / ".env"
         _writeConfigFile(in_path=configPath)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
         _writeEnvFile(
             in_path=envPath,
             in_token="tg-token-dotenv",
             in_apiKey="or-key-dotenv",
-            in_cookieSecret="cookie-secret-dotenv",
-            in_adminRawTokens="a,b,c,d",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+            in_adminRawTokens=(
+                "token-one-12345678,token-two-12345678,"
+                "token-three-123456,token-four-1234567"
+            ),
         )
         didRaise = False
         try:
@@ -262,5 +279,156 @@ def testLoadSettingsFailFastWhenAdminTokensLimitExceeded() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
+
+    assert didRaise is True
+
+
+def testLoadSettingsFailFastWhenAdminTokenTooShort() -> None:
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(in_path=configPath)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+            in_adminRawTokens="short-token",
+        )
+        didRaise = False
+        try:
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
+            )
+        except SettingsLoadError:
+            didRaise = True
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
+
+    assert didRaise is True
+
+
+def testLoadSettingsFailFastWhenAdminTokenHasInvalidSymbols() -> None:
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(in_path=configPath)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+            in_adminRawTokens="token-one-12345678,token*bad*1234567",
+        )
+        didRaise = False
+        try:
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
+            )
+        except SettingsLoadError:
+            didRaise = True
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
+
+    assert didRaise is True
+
+
+def testLoadSettingsFailFastWhenAdminTokensDuplicate() -> None:
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(in_path=configPath)
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+            in_adminRawTokens="token-one-12345678,token-one-12345678",
+        )
+        didRaise = False
+        try:
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
+            )
+        except SettingsLoadError:
+            didRaise = True
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
 
     assert didRaise is True

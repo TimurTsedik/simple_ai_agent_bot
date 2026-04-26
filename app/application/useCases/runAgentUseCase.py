@@ -37,7 +37,25 @@ class RunAgentUseCase:
             in_userMessage=in_inputMessage,
             in_skillsBlock=skillsBlock,
             in_memoryBlock=memoryBlock,
+            in_allowToolCalls=self._skillService.isToolLikelyRequired(
+                in_userMessage=in_inputMessage
+            ),
         )
+        toolCalls = [
+            item.get("toolCall")
+            for item in loopResult.stepTraces
+            if item.get("toolCall") is not None
+        ]
+        toolResults = [
+            item.get("toolResult")
+            for item in loopResult.stepTraces
+            if item.get("toolResult") is not None
+        ]
+        observations = [
+            item.get("observation")
+            for item in loopResult.stepTraces
+            if item.get("observation") is not None
+        ]
         self._memoryService.updateAfterRun(
             in_sessionId=in_sessionId,
             in_userMessage=in_inputMessage,
@@ -59,7 +77,9 @@ class RunAgentUseCase:
             "completionReason": loopResult.completionReason,
             "selectedModel": loopResult.selectedModel,
             "selectedSkills": selectionResult.selectedSkillIds,
-            "effectiveConfigSnapshot": self._buildEffectiveConfigSnapshot(),
+            "effectiveConfigSnapshot": self._buildEffectiveConfigSnapshot(
+                in_includeToolConfig=len(toolCalls) > 0
+            ),
             "promptSnapshot": loopResult.promptSnapshot,
             "rawModelResponses": [
                 item.get("rawModelResponse")
@@ -71,21 +91,9 @@ class RunAgentUseCase:
                 for item in loopResult.stepTraces
                 if item.get("parsedModelResponse") is not None
             ],
-            "toolCalls": [
-                item.get("toolCall")
-                for item in loopResult.stepTraces
-                if item.get("toolCall") is not None
-            ],
-            "toolResults": [
-                item.get("toolResult")
-                for item in loopResult.stepTraces
-                if item.get("toolResult") is not None
-            ],
-            "observations": [
-                item.get("observation")
-                for item in loopResult.stepTraces
-                if item.get("observation") is not None
-            ],
+            "toolCalls": toolCalls,
+            "toolResults": toolResults,
+            "observations": observations,
             "fallbackEvents": [],
             "finalAnswer": loopResult.finalAnswer,
             "memoryCandidates": loopResult.memoryCandidates,
@@ -109,12 +117,14 @@ class RunAgentUseCase:
         )
         return ret
 
-    def _buildEffectiveConfigSnapshot(self) -> dict:
+    def _buildEffectiveConfigSnapshot(self, in_includeToolConfig: bool) -> dict:
         ret: dict
         snapshot = self._settings.model_dump(mode="python")
         snapshot["telegramBotToken"] = "***"
         snapshot["openRouterApiKey"] = "***"
         snapshot["sessionCookieSecret"] = "***"
         snapshot["adminRawTokens"] = ["***" for _item in self._settings.adminRawTokens]
+        if in_includeToolConfig is False:
+            snapshot.pop("telegram", None)
         ret = snapshot
         return ret

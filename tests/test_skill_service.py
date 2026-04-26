@@ -27,3 +27,21 @@ def testSkillServiceSelectsDefaultAndNewsSkills() -> None:
 
     assert "Skill: Default" in block
     assert "Skill: News" in block
+
+
+def testSkillServiceDetectsWhenToolsAreNotRequired() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        isRequired = service.isToolLikelyRequired(in_userMessage="кто ты?")
+
+    assert isRequired is False

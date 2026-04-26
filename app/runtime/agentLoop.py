@@ -52,6 +52,7 @@ class AgentLoop:
         in_userMessage: str,
         in_skillsBlock: str,
         in_memoryBlock: str,
+        in_allowToolCalls: bool = True,
     ) -> AgentLoopResultModel:
         ret: AgentLoopResultModel
         startedAtMonotonicSeconds = monotonic()
@@ -63,8 +64,10 @@ class AgentLoop:
         selectedModel = self._modelSettings.primaryModel
         isFinished = False
         memoryCandidates: list[str] = []
-        toolsDescription = self._toolMetadataRenderer.renderForPrompt(
-            in_toolRegistry=self._toolRegistry
+        toolsDescription = (
+            self._toolMetadataRenderer.renderForPrompt(in_toolRegistry=self._toolRegistry)
+            if in_allowToolCalls is True
+            else ""
         )
         stepTraces: list[dict[str, Any]] = []
         lastPromptSnapshot = ""
@@ -142,6 +145,24 @@ class AgentLoop:
                         stepTrace["status"] = "stop"
                         isFinished = True
                     else:
+                        if in_allowToolCalls is False:
+                            blockedObservation = (
+                                "Tool calls are disabled for this request. "
+                                "Answer directly without using any tool."
+                            )
+                            observations.append(blockedObservation)
+                            stepTrace["status"] = "tool_call_blocked"
+                            stepTrace["toolCall"] = {
+                                "toolName": parsedOutput.action or "unknown_tool",
+                                "args": parsedOutput.args or {},
+                            }
+                            stepTrace["observation"] = blockedObservation
+                            completionReason = "running"
+                            finalAnswer = ""
+                            isFinished = False
+                            stepTraces.append(stepTrace)
+                            stepCount += 1
+                            continue
                         toolCallCount += 1
                         toolName = parsedOutput.action or "unknown_tool"
                         toolArgs = parsedOutput.args or {}

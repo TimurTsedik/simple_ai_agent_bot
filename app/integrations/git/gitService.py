@@ -1,5 +1,5 @@
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any, Callable
 
 from app.common.truncation import truncateText
@@ -10,18 +10,22 @@ CommandRunnerType = Callable[[list[str], str], tuple[int, str, str]]
 
 def _defaultCommandRunner(in_args: list[str], in_workingDirectory: str) -> tuple[int, str, str]:
     ret: tuple[int, str, str]
-    completedProcess = subprocess.run(
-        in_args,
-        cwd=in_workingDirectory,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    ret = (
-        int(completedProcess.returncode),
-        completedProcess.stdout or "",
-        completedProcess.stderr or "",
-    )
+    try:
+        completedProcess = subprocess.run(
+            in_args,
+            cwd=in_workingDirectory,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        ret = (
+            int(completedProcess.returncode),
+            completedProcess.stdout or "",
+            completedProcess.stderr or "",
+        )
+    except subprocess.TimeoutExpired:
+        ret = (124, "", "git command timed out")
     return ret
 
 
@@ -186,5 +190,8 @@ class GitService:
     def _runGitCommand(self, in_gitArgs: list[str]) -> tuple[int, str, str]:
         ret: tuple[int, str, str]
         args = ["git"] + in_gitArgs
-        ret = self._commandRunner(args, self._repoRootPath)
+        try:
+            ret = self._commandRunner(args, self._repoRootPath)
+        except Exception as in_exception:
+            ret = (1, "", f"git command failed: {in_exception}")
         return ret

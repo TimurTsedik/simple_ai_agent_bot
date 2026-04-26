@@ -91,9 +91,14 @@ cp .env.example .env
 ```env
 TELEGRAM_BOT_TOKEN=...
 OPENROUTER_API_KEY=...
-SESSION_COOKIE_SECRET=...
-ADMIN_RAW_TOKENS=token1,token2
+SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
+ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
 ```
+
+Требования к web auth значениям:
+- `SESSION_COOKIE_SECRET` — минимум 32 символа;
+- `ADMIN_RAW_TOKENS` — CSV, 1..`security.maxAdminTokens` токенов;
+- каждый admin token — минимум 16 символов, только `A-Z a-z 0-9 . _ -`, без дублей.
 
 5. Запустить приложение:
 

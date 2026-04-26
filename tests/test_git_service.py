@@ -67,3 +67,21 @@ def testGitServiceNonGitRepo() -> None:
 
     assert status["isGitRepo"] is False
     assert diff["isGitRepo"] is False
+
+
+def testGitServiceHandlesCommandRunnerException() -> None:
+    def runner(in_args: list[str], in_workingDirectory: str) -> tuple[int, str, str]:
+        _ = in_args
+        _ = in_workingDirectory
+        raise RuntimeError("runner crashed")
+
+    service = GitService(
+        in_repoRootPath=".",
+        in_commandRunner=runner,
+    )
+
+    status = service.getStatus()
+    diff = service.getDiff()
+
+    assert status["isGitRepo"] is False
+    assert diff["isGitRepo"] is False

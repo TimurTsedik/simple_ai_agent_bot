@@ -2,10 +2,9 @@ from app.skills.services.skillModels import SkillModel
 
 
 class SkillSelectorRules:
-    def selectRelevantSkillIds(self, in_userMessage: str) -> list[str]:
-        ret: list[str]
+    def isToolLikelyRequired(self, in_userMessage: str) -> bool:
+        ret: bool
         loweredMessage = in_userMessage.lower()
-        selectedIds: list[str] = ["default_assistant"]
         newsKeywords = [
             "news",
             "digest",
@@ -13,10 +12,20 @@ class SkillSelectorRules:
             "дайджест",
             "telegram",
             "телеграм",
-            "ai",
-            "ии",
+            "рынок",
+            "рынку",
+            "сводка",
+            "обзор",
         ]
-        if any(item in loweredMessage for item in newsKeywords):
+        ret = any(item in loweredMessage for item in newsKeywords)
+        return ret
+
+    def selectRelevantSkillIds(self, in_userMessage: str) -> list[str]:
+        ret: list[str]
+        loweredMessage = in_userMessage.lower()
+        selectedIds: list[str] = ["default_assistant"]
+        _ = loweredMessage
+        if self.isToolLikelyRequired(in_userMessage=in_userMessage):
             selectedIds.append("telegram_news_digest")
         ret = selectedIds
         return ret

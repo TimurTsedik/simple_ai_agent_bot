@@ -1,0 +1,89 @@
+import importlib
+
+from fastapi.testclient import TestClient
+
+
+def _buildClient(in_monkeypatch) -> TestClient:
+    ret: TestClient
+    in_monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg-token-test")
+    in_monkeypatch.setenv("OPENROUTER_API_KEY", "or-key-test")
+    in_monkeypatch.setenv("SESSION_COOKIE_SECRET", "cookie-secret-test-0123456789abcdef")
+    in_monkeypatch.setenv("ADMIN_RAW_TOKENS", "token-one-12345678")
+    mainModule = importlib.import_module("app.main")
+    mainModule = importlib.reload(mainModule)
+    mainModule.app.state.telegramPollingRunner.runForever = lambda: None
+    mainModule.app.state.telegramPollingRunner.stop = lambda: None
+    ret = TestClient(mainModule.app)
+    return ret
+
+
+def testWebEndpointsRequireLogin(monkeypatch) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch)
+
+    response = client.get("/runs", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == "/login"
+
+
+def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch)
+    mainModule = importlib.import_module("app.main")
+
+    loginResponse = client.post(
+        "/login",
+        data={"adminToken": "token-one-12345678"},
+        follow_redirects=False,
+    )
+    assert loginResponse.status_code == 303
+    assert loginResponse.headers.get("location") == "/"
+
+    def fakeGitStatusExecute(in_limit: int = 200) -> dict:
+        ret = {
+            "isGitRepo": True,
+            "branch": "main<script>alert(1)</script>",
+            "isClean": False,
+            "items": [" M app/main.py<script>"],
+            "error": "",
+        }
+        _ = in_limit
+        return ret
+
+    def fakeGitDiffExecute(
+        in_offset: int = 0,
+        in_limit: int = 5,
+        in_filePath: str = "",
+        in_maxCharsPerFile: int = 30000,
+    ) -> dict:
+        ret = {
+            "isGitRepo": True,
+            "totalFiles": 1,
+            "offset": in_offset,
+            "limit": in_limit,
+            "files": [
+                {
+                    "filePath": "app/main.py<script>",
+                    "diff": "+line<script>",
+                    "truncated": False,
+                }
+            ],
+            "error": "",
+        }
+        _ = in_filePath
+        _ = in_maxCharsPerFile
+        return ret
+
+    mainModule.app.state.getGitStatusUseCase.execute = fakeGitStatusExecute
+    mainModule.app.state.getGitDiffUseCase.execute = fakeGitDiffExecute
+
+    runsResponse = client.get("/runs")
+    statusResponse = client.get("/git/status")
+    diffResponse = client.get("/git/diff")
+
+    assert runsResponse.status_code == 200
+    assert statusResponse.status_code == 200
+    assert diffResponse.status_code == 200
+    assert "<script>" not in statusResponse.text
+    assert "<script>" not in diffResponse.text
+    assert "&lt;script&gt;" in statusResponse.text
+    assert "&lt;script&gt;" in diffResponse.text

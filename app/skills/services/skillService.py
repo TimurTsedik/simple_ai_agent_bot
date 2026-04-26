@@ -46,3 +46,8 @@ class SkillService:
         selectionResult = self.buildSkillsSelection(in_userMessage=in_userMessage)
         ret = selectionResult.skillsBlock
         return ret
+
+    def isToolLikelyRequired(self, in_userMessage: str) -> bool:
+        ret: bool
+        ret = self._skillSelectorRules.isToolLikelyRequired(in_userMessage=in_userMessage)
+        return ret

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -68,6 +69,25 @@ def _parseAdminTokens(in_rawValue: str) -> list[str]:
     return ret
 
 
+def _validateAdminTokens(in_tokens: list[str]) -> None:
+    tokenPattern = re.compile(r"^[A-Za-z0-9._-]+$")
+    seenTokens: set[str] = set()
+    for tokenValue in in_tokens:
+        if len(tokenValue) < 16:
+            raise SettingsLoadError(
+                "Invalid settings: each ADMIN_RAW_TOKENS value must be at least 16 chars."
+            )
+        if tokenPattern.fullmatch(tokenValue) is None:
+            raise SettingsLoadError(
+                "Invalid settings: ADMIN_RAW_TOKENS has unsupported characters."
+            )
+        if tokenValue in seenTokens:
+            raise SettingsLoadError(
+                "Invalid settings: ADMIN_RAW_TOKENS contains duplicate values."
+            )
+        seenTokens.add(tokenValue)
+
+
 def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> SettingsModel:
     ret: SettingsModel
     configPath = Path(in_configPath)
@@ -90,4 +110,5 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         raise SettingsLoadError(
             "Invalid settings: ADMIN_RAW_TOKENS count exceeds security.maxAdminTokens."
         )
+    _validateAdminTokens(in_tokens=ret.adminRawTokens)
     return ret

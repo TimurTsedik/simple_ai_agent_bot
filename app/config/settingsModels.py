@@ -74,5 +74,5 @@ class SettingsModel(BaseModel):
 
     telegramBotToken: str = Field(min_length=1)
     openRouterApiKey: str = Field(min_length=1)
-    sessionCookieSecret: str = Field(min_length=1)
+    sessionCookieSecret: str = Field(min_length=32)
     adminRawTokens: list[str] = Field(default_factory=list)

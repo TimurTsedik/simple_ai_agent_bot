@@ -260,3 +260,46 @@ def testAgentLoopStopsOnRepeatedSameToolNameWithDifferentArgs() -> None:
     )
 
     assert result.completionReason == "repeated_tool_call_loop"
+
+
+def testAgentLoopBlocksToolCallWhenToolsDisabled() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"a","args":{}}',
+            '{"type":"final","reason":"done","final_answer":"Прямой ответ без инструмента"}',
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(
+            in_toolDefinitions=[
+                ToolDefinitionModel(
+                    name="a",
+                    description="test tool",
+                    argsModel=EmptyArgsModel,
+                    timeoutSeconds=1,
+                    executeCallable=_echoTool,
+                )
+            ]
+        ),
+    )
+
+    result = loop.run(
+        in_userMessage="кто ты?",
+        in_skillsBlock="",
+        in_memoryBlock="",
+        in_allowToolCalls=False,
+    )
+
+    assert result.completionReason == "final_answer"
+    assert result.finalAnswer == "Прямой ответ без инструмента"
+    assert result.toolCallCount == 0

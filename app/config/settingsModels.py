@@ -12,6 +12,8 @@ class TelegramSettings(BaseModel):
     allowedUserIds: list[int]
     denyMessageText: str
     digestChannelUsernames: list[str]
+    portfolioTickers: list[str] = Field(default_factory=list)
+    digestSemanticKeywords: list[str] = Field(default_factory=list)
 
 
 class ModelSettings(BaseModel):

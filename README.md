@@ -2,7 +2,7 @@
 
 Монолитный MVP AI-агент с управляемым agentic loop, Telegram transport, fallback по OpenRouter и read-only admin surface.
 
-## Что уже сделано (Этапы 1-5)
+## Что уже сделано (Этапы 1-6.2)
 
 - каркас layered-архитектуры;
 - typed-конфиг с fail-fast загрузкой;
@@ -36,6 +36,23 @@
   - `/start`
   - `/health`
   - `/reset`;
+- run persistence model:
+  - `data/runs/<runId>.json`
+  - `data/runs/index.jsonl`;
+- в run trace сохраняются:
+  - prompt snapshot
+  - raw/parsed model responses
+  - tool calls/results
+  - observations
+  - effective config snapshot (masked);
+- run read API:
+  - `GET /internal/runs`
+  - `GET /internal/runs/{runId}`
+  - `GET /internal/runs/{runId}/steps`;
+- web страницы runs:
+  - `GET /runs`
+  - `GET /runs/{runId}`
+  - `GET /runs/{runId}/steps`;
 - unit-тесты на конфиг, Telegram authorization behavior, parser, loop, tool executor, llm fallback, skills и memory.
 
 ## Локальный запуск

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+import json
 from time import monotonic
+from typing import Any
 
 from app.config.settingsModels import ModelSettings
 from app.domain.policies.stopPolicy import StopPolicy
@@ -19,6 +21,9 @@ class AgentLoopResultModel:
     toolCallCount: int
     selectedModel: str
     memoryCandidates: list[str]
+    executionDurationMs: int
+    stepTraces: list[dict[str, Any]]
+    promptSnapshot: str
 
 
 class AgentLoop:
@@ -61,6 +66,12 @@ class AgentLoop:
         toolsDescription = self._toolMetadataRenderer.renderForPrompt(
             in_toolRegistry=self._toolRegistry
         )
+        stepTraces: list[dict[str, Any]] = []
+        lastPromptSnapshot = ""
+        lastToolSignature = ""
+        repeatedToolCallCount = 0
+        lastToolName = ""
+        repeatedSameToolNameCount = 0
 
         while isFinished is False:
             stopDecision = self._stopPolicy.evaluate(
@@ -82,41 +93,127 @@ class AgentLoop:
                     in_skillsBlock=in_skillsBlock,
                     in_memoryBlock=in_memoryBlock,
                 )
+                lastPromptSnapshot = promptText
                 rawModelOutput = self._llmClient.complete(
                     in_modelName=selectedModel,
                     in_promptText=promptText,
                 )
                 parseResult = self._outputParser.parse(in_rawText=rawModelOutput)
+                stepTrace: dict[str, Any] = {
+                    "stepIndex": stepCount + 1,
+                    "promptSnapshot": promptText,
+                    "rawModelResponse": rawModelOutput,
+                    "parsedModelResponse": None,
+                    "toolCall": None,
+                    "toolResult": None,
+                    "observation": None,
+                    "status": "running",
+                }
                 if parseResult.isValid is False or parseResult.parsedOutput is None:
                     completionReason = "stop_response"
                     finalAnswer = "Остановка: модель вернула невалидный JSON."
+                    stepTrace["status"] = "parse_error"
+                    stepTrace["parsedModelResponse"] = {
+                        "isValid": False,
+                        "errorCode": parseResult.errorCode,
+                        "errorMessage": parseResult.errorMessage,
+                    }
                     isFinished = True
                 else:
                     parsedOutput = parseResult.parsedOutput
+                    stepTrace["parsedModelResponse"] = {
+                        "outputType": parsedOutput.outputType,
+                        "reason": parsedOutput.reason,
+                        "action": parsedOutput.action,
+                        "args": parsedOutput.args,
+                        "finalAnswer": parsedOutput.finalAnswer,
+                        "memoryCandidates": parsedOutput.memoryCandidates,
+                    }
                     if parsedOutput.outputType == "final":
                         completionReason = "final_answer"
                         finalAnswer = parsedOutput.finalAnswer or ""
                         memoryCandidates = parsedOutput.memoryCandidates or []
+                        stepTrace["status"] = "final"
                         isFinished = True
                     elif parsedOutput.outputType == "stop":
                         completionReason = "stop_response"
                         finalAnswer = parsedOutput.finalAnswer or ""
                         memoryCandidates = parsedOutput.memoryCandidates or []
+                        stepTrace["status"] = "stop"
                         isFinished = True
                     else:
                         toolCallCount += 1
                         toolName = parsedOutput.action or "unknown_tool"
                         toolArgs = parsedOutput.args or {}
+                        toolSignature = json.dumps(
+                            {"toolName": toolName, "args": toolArgs},
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        )
+                        if toolSignature == lastToolSignature:
+                            repeatedToolCallCount += 1
+                        else:
+                            repeatedToolCallCount = 1
+                            lastToolSignature = toolSignature
+                        if toolName == lastToolName:
+                            repeatedSameToolNameCount += 1
+                        else:
+                            repeatedSameToolNameCount = 1
+                            lastToolName = toolName
+                        if repeatedToolCallCount >= 3:
+                            completionReason = "repeated_tool_call_loop"
+                            finalAnswer = (
+                                "Остановка: обнаружен повторяющийся вызов одного и того же инструмента."
+                            )
+                            stepTrace["status"] = "repeated_tool_call_loop"
+                            stepTrace["toolCall"] = {
+                                "toolName": toolName,
+                                "args": toolArgs,
+                            }
+                            isFinished = True
+                            stepTraces.append(stepTrace)
+                            stepCount += 1
+                            break
+                        if repeatedSameToolNameCount >= 3:
+                            completionReason = "repeated_tool_call_loop"
+                            finalAnswer = (
+                                "Остановка: обнаружены повторные вызовы одного инструмента."
+                            )
+                            stepTrace["status"] = "repeated_tool_call_loop"
+                            stepTrace["toolCall"] = {
+                                "toolName": toolName,
+                                "args": toolArgs,
+                            }
+                            isFinished = True
+                            stepTraces.append(stepTrace)
+                            stepCount += 1
+                            break
                         toolResult = self._toolExecutionCoordinator.execute(
                             in_toolName=toolName,
                             in_rawArgs=toolArgs,
                         )
-                        observations.append(str(toolResult))
+                        observationText = str(toolResult)
+                        observations.append(observationText)
+                        stepTrace["status"] = "tool_call"
+                        stepTrace["toolCall"] = {
+                            "toolName": toolName,
+                            "args": toolArgs,
+                        }
+                        stepTrace["toolResult"] = {
+                            "ok": toolResult.ok,
+                            "tool_name": toolResult.tool_name,
+                            "data": toolResult.data,
+                            "error": toolResult.error,
+                            "meta": toolResult.meta,
+                        }
+                        stepTrace["observation"] = observationText
                         completionReason = "running"
                         finalAnswer = ""
                         isFinished = False
+                stepTraces.append(stepTrace)
                 stepCount += 1
 
+        executionDurationMs = int((monotonic() - startedAtMonotonicSeconds) * 1000)
         ret = AgentLoopResultModel(
             completionReason=completionReason,
             finalAnswer=finalAnswer,
@@ -124,5 +221,8 @@ class AgentLoop:
             toolCallCount=toolCallCount,
             selectedModel=selectedModel,
             memoryCandidates=memoryCandidates,
+            executionDurationMs=executionDurationMs,
+            stepTraces=stepTraces,
+            promptSnapshot=lastPromptSnapshot,
         )
         return ret

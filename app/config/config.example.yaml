@@ -9,8 +9,34 @@ telegram:
     - 123456789
   denyMessageText: "Доступ запрещён"
   digestChannelUsernames:
-    - "channel_one"
-    - "channel_two"
+    - "markettwits"
+    - "headlines_for_traders"
+    - "cbrstocks"
+  portfolioTickers:
+    - "POSI"
+    - "X5"
+    - "T-технологии"
+    - "BELU"
+    - "YANDEX"
+    - "Русгидро"
+    - "ТГК-14"
+    - "ГТЛК"
+    - "Полипласт"
+    - "ГМК Норникель"
+    - "ВИС"
+    - "ОФЗ"
+  digestSemanticKeywords:
+    - "россия"
+    - "рф"
+    - "цб"
+    - "банк россии"
+    - "ключевая ставка"
+    - "процентная ставка"
+    - "инфляция"
+    - "денежно-кредитная политика"
+    - "монетарная политика"
+    - "офз"
+    - "минфин"
 
 models:
   openRouterBaseUrl: "https://openrouter.ai/api/v1"
@@ -22,9 +48,9 @@ models:
   returnToPrimaryCooldownSeconds: 300
 
 runtime:
-  maxSteps: 12
-  maxToolCalls: 8
-  maxExecutionSeconds: 120
+  maxSteps: 8
+  maxToolCalls: 4
+  maxExecutionSeconds: 180
   maxToolOutputChars: 8000
   maxPromptChars: 24000
   recentMessagesLimit: 12

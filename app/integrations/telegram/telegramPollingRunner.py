@@ -6,6 +6,7 @@ import requests
 
 from app.config.settingsModels import SettingsModel
 from app.domain.protocols.loggerProtocol import LoggerProtocol
+from app.integrations.telegram.channelPostStore import ChannelPostStore
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
 
 
@@ -21,6 +22,9 @@ class TelegramPollingRunner:
         self._updateHandler = in_updateHandler
         self._lastUpdateId = 0
         self._stopEvent = Event()
+        self._channelPostStore = ChannelPostStore(
+            in_dataRootPath=in_settings.app.dataRootPath
+        )
 
     def pollOnce(self) -> None:
         apiUrl = (
@@ -61,9 +65,15 @@ class TelegramPollingRunner:
             updateId = itemData.get("update_id", 0)
             if isinstance(updateId, int):
                 self._lastUpdateId = max(self._lastUpdateId, updateId)
+            self._persistChannelPostIfPresent(in_updateData=itemData)
             chatId, outgoingText = self._updateHandler.handleUpdate(in_updateData=itemData)
             if chatId is not None and outgoingText is not None:
                 self._sendMessage(in_chatId=chatId, in_text=outgoingText)
+
+    def _persistChannelPostIfPresent(self, in_updateData: dict[str, Any]) -> None:
+        channelPost = in_updateData.get("channel_post")
+        if isinstance(channelPost, dict):
+            self._channelPostStore.appendChannelPost(in_channelPostData=channelPost)
 
     def _sendMessage(self, in_chatId: int, in_text: str) -> None:
         apiUrl = (

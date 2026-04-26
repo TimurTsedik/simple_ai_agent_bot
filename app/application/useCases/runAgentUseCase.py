@@ -1,6 +1,9 @@
 from app.common.ids import generateId
+from app.common.timeProvider import getUtcNowIso
+from app.config.settingsModels import SettingsModel
 from app.domain.entities.agentRun import AgentRunModel
 from app.memory.services.memoryService import MemoryService
+from app.observability.stores.jsonRunRepository import JsonRunRepository
 from app.runtime.agentLoop import AgentLoop
 from app.skills.services.skillService import SkillService
 
@@ -11,16 +14,24 @@ class RunAgentUseCase:
         in_agentLoop: AgentLoop,
         in_skillService: SkillService,
         in_memoryService: MemoryService,
+        in_runRepository: JsonRunRepository,
+        in_settings: SettingsModel,
     ) -> None:
         self._agentLoop = in_agentLoop
         self._skillService = in_skillService
         self._memoryService = in_memoryService
+        self._runRepository = in_runRepository
+        self._settings = in_settings
 
     def execute(self, in_sessionId: str, in_inputMessage: str) -> AgentRunModel:
         ret: AgentRunModel
         traceId = generateId()
         runId = generateId()
-        skillsBlock = self._skillService.buildSkillsBlock(in_userMessage=in_inputMessage)
+        createdAt = getUtcNowIso()
+        selectionResult = self._skillService.buildSkillsSelection(
+            in_userMessage=in_inputMessage
+        )
+        skillsBlock = selectionResult.skillsBlock
         memoryBlock = self._memoryService.buildMemoryBlock(in_sessionId=in_sessionId)
         loopResult = self._agentLoop.run(
             in_userMessage=in_inputMessage,
@@ -33,6 +44,59 @@ class RunAgentUseCase:
             in_finalAnswer=loopResult.finalAnswer,
             in_memoryCandidates=loopResult.memoryCandidates,
         )
+        finishedAt = getUtcNowIso()
+        runRecord = {
+            "traceId": traceId,
+            "runId": runId,
+            "sessionId": in_sessionId,
+            "sourceType": "telegram_or_internal",
+            "inputMessage": in_inputMessage,
+            "createdAt": createdAt,
+            "finishedAt": finishedAt,
+            "runStatus": "completed"
+            if loopResult.completionReason in {"final_answer", "stop_response"}
+            else "stopped",
+            "completionReason": loopResult.completionReason,
+            "selectedModel": loopResult.selectedModel,
+            "selectedSkills": selectionResult.selectedSkillIds,
+            "effectiveConfigSnapshot": self._buildEffectiveConfigSnapshot(),
+            "promptSnapshot": loopResult.promptSnapshot,
+            "rawModelResponses": [
+                item.get("rawModelResponse")
+                for item in loopResult.stepTraces
+                if item.get("rawModelResponse") is not None
+            ],
+            "parsedResponses": [
+                item.get("parsedModelResponse")
+                for item in loopResult.stepTraces
+                if item.get("parsedModelResponse") is not None
+            ],
+            "toolCalls": [
+                item.get("toolCall")
+                for item in loopResult.stepTraces
+                if item.get("toolCall") is not None
+            ],
+            "toolResults": [
+                item.get("toolResult")
+                for item in loopResult.stepTraces
+                if item.get("toolResult") is not None
+            ],
+            "observations": [
+                item.get("observation")
+                for item in loopResult.stepTraces
+                if item.get("observation") is not None
+            ],
+            "fallbackEvents": [],
+            "finalAnswer": loopResult.finalAnswer,
+            "memoryCandidates": loopResult.memoryCandidates,
+            "stepTraces": loopResult.stepTraces,
+            "timing": {
+                "executionDurationMs": loopResult.executionDurationMs,
+                "stepCount": loopResult.stepCount,
+                "toolCallCount": loopResult.toolCallCount,
+            },
+        }
+        self._runRepository.saveRun(in_runRecord=runRecord)
         ret = AgentRunModel(
             traceId=traceId,
             runId=runId,
@@ -43,4 +107,13 @@ class RunAgentUseCase:
             finalAnswer=loopResult.finalAnswer,
             selectedModel=loopResult.selectedModel,
         )
+        return ret
+
+    def _buildEffectiveConfigSnapshot(self) -> dict:
+        ret: dict
+        snapshot = self._settings.model_dump(mode="python")
+        snapshot["telegramBotToken"] = "***"
+        snapshot["openRouterApiKey"] = "***"
+        snapshot["sessionCookieSecret"] = "***"
+        ret = snapshot
         return ret

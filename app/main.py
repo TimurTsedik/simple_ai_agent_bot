@@ -1,9 +1,13 @@
 import html
+import json
 from threading import Thread
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 
+from app.application.useCases.getRunDetailsUseCase import GetRunDetailsUseCase
+from app.application.useCases.getRunListUseCase import GetRunListUseCase
 from app.application.useCases.getLogsUseCase import GetLogsUseCase
 from app.application.useCases.handleIncomingTelegramMessageUseCase import (
     HandleIncomingTelegramMessageUseCase,
@@ -21,6 +25,7 @@ from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.models.providers.openRouterClient import OpenRouterClient
 from app.models.services.llmService import LlmService
+from app.observability.stores.jsonRunRepository import JsonRunRepository
 from app.runtime.agentLoop import AgentLoop
 from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
@@ -70,6 +75,7 @@ def _buildApp() -> FastAPI:
         in_recentMessagesLimit=settings.runtime.recentMessagesLimit,
         in_sessionSummaryMaxChars=settings.runtime.sessionSummaryMaxChars,
     )
+    runRepository = JsonRunRepository(in_dataRootPath=settings.app.dataRootPath)
     agentLoop = AgentLoop(
         in_llmClient=llmClient,
         in_promptBuilder=promptBuilder,
@@ -84,6 +90,8 @@ def _buildApp() -> FastAPI:
         in_agentLoop=agentLoop,
         in_skillService=skillService,
         in_memoryService=memoryService,
+        in_runRepository=runRepository,
+        in_settings=settings,
     )
     handleIncomingTelegramMessageUseCase = HandleIncomingTelegramMessageUseCase(
         in_allowedUserIds=settings.telegram.allowedUserIds,
@@ -101,6 +109,8 @@ def _buildApp() -> FastAPI:
         in_updateHandler=updateHandler,
     )
     getLogsUseCase = GetLogsUseCase(in_loggingSettings=settings.logging)
+    getRunListUseCase = GetRunListUseCase(in_runRepository=runRepository)
+    getRunDetailsUseCase = GetRunDetailsUseCase(in_runRepository=runRepository)
 
     appInstance = FastAPI(title="simple-ai-agent-bot")
     appInstance.state.settings = settings
@@ -108,6 +118,8 @@ def _buildApp() -> FastAPI:
     appInstance.state.telegramUpdateHandler = updateHandler
     appInstance.state.runAgentUseCase = runAgentUseCase
     appInstance.state.getLogsUseCase = getLogsUseCase
+    appInstance.state.getRunListUseCase = getRunListUseCase
+    appInstance.state.getRunDetailsUseCase = getRunDetailsUseCase
     appInstance.state.telegramPollingRunner = telegramPollingRunner
     appInstance.state.telegramPollingThread = None
 
@@ -148,6 +160,7 @@ def _buildApp() -> FastAPI:
             "<ul>"
             "<li><a href='/health'>/health</a> — статус сервиса</li>"
             "<li><a href='/docs'>/docs</a> — Swagger UI</li>"
+            "<li><a href='/runs'>/runs</a> — список запусков</li>"
             "<li><a href='/logs'>/logs</a> — просмотр последних логов</li>"
             "</ul>"
             "</body></html>"
@@ -190,6 +203,31 @@ def _buildApp() -> FastAPI:
         retLogs = {"count": len(logItems), "items": logItems}
         return retLogs
 
+    @appInstance.get("/internal/runs")
+    def getInternalRuns(limit: int = 50, offset: int = 0) -> dict[str, object]:
+        runItems = getRunListUseCase.execute(in_limit=limit, in_offset=offset)
+        retRuns = {"count": len(runItems), "items": runItems}
+        return retRuns
+
+    @appInstance.get("/internal/runs/{runId}")
+    def getInternalRunDetails(runId: str) -> dict[str, object]:
+        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        if runItem is None:
+            raise HTTPException(status_code=404, detail="Run is not found")
+        retRun = {"item": runItem}
+        return retRun
+
+    @appInstance.get("/internal/runs/{runId}/steps")
+    def getInternalRunSteps(runId: str) -> dict[str, object]:
+        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        if runItem is None:
+            raise HTTPException(status_code=404, detail="Run is not found")
+        stepItems = runItem.get("stepTraces", [])
+        if not isinstance(stepItems, list):
+            stepItems = []
+        retSteps = {"runId": runId, "count": len(stepItems), "items": stepItems}
+        return retSteps
+
     @appInstance.get("/logs", response_class=HTMLResponse)
     def getLogsPage(limit: int = 100) -> str:
         logItems = getLogsUseCase.execute(in_limit=limit)
@@ -205,6 +243,120 @@ def _buildApp() -> FastAPI:
             "<html><head><title>Logs</title></head><body>"
             "<h1>Run Logs</h1>"
             f"<p>Показаны последние {len(logItems)} записей.</p>"
+            + content
+            + "</body></html>"
+        )
+        return ret
+
+    @appInstance.get("/runs", response_class=HTMLResponse)
+    def getRunsPage(limit: int = 50, offset: int = 0) -> str:
+        runItems = getRunListUseCase.execute(in_limit=limit, in_offset=offset)
+        rows: list[str] = []
+        for runItem in runItems:
+            runId = str(runItem.get("runId", "unknown"))
+            sessionId = str(runItem.get("sessionId", ""))
+            status = str(runItem.get("runStatus", ""))
+            reason = str(runItem.get("completionReason", ""))
+            createdAt = str(runItem.get("createdAt", ""))
+            rows.append(
+                "<tr>"
+                f"<td><a href='/runs/{html.escape(runId)}'>{html.escape(runId)}</a></td>"
+                f"<td>{html.escape(sessionId)}</td>"
+                f"<td>{html.escape(status)}</td>"
+                f"<td>{html.escape(reason)}</td>"
+                f"<td>{html.escape(createdAt)}</td>"
+                "</tr>"
+            )
+        bodyRows = "".join(rows) if rows else "<tr><td colspan='5'>Запусков пока нет.</td></tr>"
+        ret = (
+            "<html><head><title>Runs</title></head><body>"
+            "<h1>Runs</h1>"
+            f"<p>Показаны последние {len(runItems)} запусков.</p>"
+            "<table border='1' cellspacing='0' cellpadding='6'>"
+            "<thead><tr><th>runId</th><th>sessionId</th><th>status</th>"
+            "<th>completionReason</th><th>createdAt</th></tr></thead>"
+            f"<tbody>{bodyRows}</tbody>"
+            "</table>"
+            "</body></html>"
+        )
+        return ret
+
+    @appInstance.get("/runs/{runId}", response_class=HTMLResponse)
+    def getRunDetailsPage(runId: str) -> str:
+        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        if runItem is None:
+            raise HTTPException(status_code=404, detail="Run is not found")
+        prettyJson = json.dumps(runItem, ensure_ascii=False, indent=2)
+        ret = (
+            "<html><head><title>Run Details</title></head><body>"
+            f"<h1>Run {html.escape(runId)}</h1>"
+            f"<p><a href='/runs/{html.escape(runId)}/steps'>Открыть шаги agentic loop</a></p>"
+            "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+            + html.escape(prettyJson)
+            + "</pre>"
+            "</body></html>"
+        )
+        return ret
+
+    @appInstance.get("/runs/{runId}/steps", response_class=HTMLResponse)
+    def getRunStepsPage(runId: str) -> str:
+        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        if runItem is None:
+            raise HTTPException(status_code=404, detail="Run is not found")
+        stepItems = runItem.get("stepTraces", [])
+        if not isinstance(stepItems, list):
+            stepItems = []
+
+        renderedBlocks: list[str] = []
+        for stepItem in stepItems:
+            if not isinstance(stepItem, dict):
+                continue
+            stepIndex = str(stepItem.get("stepIndex", ""))
+            status = str(stepItem.get("status", ""))
+            toolCallJson = json.dumps(stepItem.get("toolCall"), ensure_ascii=False, indent=2)
+            toolResultJson = json.dumps(
+                stepItem.get("toolResult"), ensure_ascii=False, indent=2
+            )
+            parsedJson = json.dumps(
+                stepItem.get("parsedModelResponse"), ensure_ascii=False, indent=2
+            )
+            promptText = str(stepItem.get("promptSnapshot", ""))
+            rawResponse = str(stepItem.get("rawModelResponse", ""))
+            renderedBlocks.append(
+                "<div style='border:1px solid #ddd;padding:10px;border-radius:8px;margin:12px 0;'>"
+                f"<h3>Step {html.escape(stepIndex)} — {html.escape(status)}</h3>"
+                "<details><summary>Prompt sent to LLM</summary>"
+                "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+                + html.escape(promptText)
+                + "</pre></details>"
+                "<details><summary>Raw model response</summary>"
+                "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+                + html.escape(rawResponse)
+                + "</pre></details>"
+                "<details><summary>Parsed model response</summary>"
+                "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+                + html.escape(parsedJson)
+                + "</pre></details>"
+                "<details><summary>Tool call</summary>"
+                "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+                + html.escape(toolCallJson)
+                + "</pre></details>"
+                "<details><summary>Tool result</summary>"
+                "<pre style='white-space:pre-wrap;background:#f7f7f7;padding:8px;border-radius:6px;'>"
+                + html.escape(toolResultJson)
+                + "</pre></details>"
+                "</div>"
+            )
+
+        content = (
+            "".join(renderedBlocks)
+            if renderedBlocks
+            else "<p>Для этого запуска шаги не найдены.</p>"
+        )
+        ret = (
+            "<html><head><title>Run Steps</title></head><body>"
+            f"<h1>Run {html.escape(runId)} — Agentic Loop Steps</h1>"
+            f"<p><a href='/runs/{html.escape(runId)}'>Назад к полному run</a></p>"
             + content
             + "</body></html>"
         )

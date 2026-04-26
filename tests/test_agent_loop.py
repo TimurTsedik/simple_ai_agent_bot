@@ -176,3 +176,87 @@ def testAgentLoopStopsByMaxSteps() -> None:
 
     assert result.completionReason == "max_steps_exceeded"
     assert result.stepCount == 2
+
+
+def testAgentLoopStopsOnRepeatedSameToolCall() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v"}}',
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(
+            in_toolDefinitions=[
+                ToolDefinitionModel(
+                    name="a",
+                    description="test tool",
+                    argsModel=EmptyArgsModel,
+                    timeoutSeconds=1,
+                    executeCallable=_echoTool,
+                )
+            ]
+        ),
+    )
+
+    result = loop.run(
+        in_userMessage="Привет",
+        in_skillsBlock="",
+        in_memoryBlock="",
+    )
+
+    assert result.completionReason == "repeated_tool_call_loop"
+
+
+def testAgentLoopStopsOnRepeatedSameToolNameWithDifferentArgs() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v1"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v2"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v3"}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{"k":"v4"}}',
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(
+            in_toolDefinitions=[
+                ToolDefinitionModel(
+                    name="a",
+                    description="test tool",
+                    argsModel=EmptyArgsModel,
+                    timeoutSeconds=1,
+                    executeCallable=_echoTool,
+                )
+            ]
+        ),
+    )
+
+    result = loop.run(
+        in_userMessage="Привет",
+        in_skillsBlock="",
+        in_memoryBlock="",
+    )
+
+    assert result.completionReason == "repeated_tool_call_loop"

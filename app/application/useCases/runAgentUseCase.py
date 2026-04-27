@@ -125,6 +125,14 @@ class RunAgentUseCase:
         snapshot["sessionCookieSecret"] = "***"
         snapshot["emailAppPassword"] = "***" if self._settings.emailAppPassword else ""
         snapshot["adminRawTokens"] = ["***" for _item in self._settings.adminRawTokens]
+        toolsSnapshot = snapshot.get("tools")
+        if isinstance(toolsSnapshot, dict):
+            toolsSnapshot.pop("telegramNewsDigest", None)
+        telegramSnapshot = snapshot.get("telegram")
+        if isinstance(telegramSnapshot, dict):
+            telegramSnapshot.pop("digestChannelUsernames", None)
+            telegramSnapshot.pop("portfolioTickers", None)
+            telegramSnapshot.pop("digestSemanticKeywords", None)
         if in_includeToolConfig is False:
             snapshot.pop("telegram", None)
         ret = snapshot

@@ -215,4 +215,8 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
     assert repository.savedRunRecord is not None
     configSnapshot = repository.savedRunRecord["effectiveConfigSnapshot"]
     assert "telegram" in configSnapshot
+    assert "digestChannelUsernames" not in configSnapshot["telegram"]
+    assert "portfolioTickers" not in configSnapshot["telegram"]
+    assert "digestSemanticKeywords" not in configSnapshot["telegram"]
+    assert "telegramNewsDigest" not in configSnapshot["tools"]
     assert len(repository.savedRunRecord["fallbackEvents"]) == 1

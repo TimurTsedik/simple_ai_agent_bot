@@ -61,6 +61,7 @@ from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.services.toolFactory import buildToolRegistry
 from app.config.settingsModels import EmailReaderToolSettings, TelegramNewsDigestToolSettings
+from app.scheduler.schedulerRunner import SchedulerRunner
 
 
 def _buildApp() -> FastAPI:
@@ -119,6 +120,19 @@ def _buildApp() -> FastAPI:
         in_runRepository=runRepository,
         in_settings=settings,
     )
+    schedulerRunner: SchedulerRunner | None
+    if settings.scheduler.enabled is True:
+        schedulerRunner = SchedulerRunner(
+            in_schedulerSettings=settings.scheduler,
+            in_loggingSettings=settings.logging,
+            in_dataRootPath=settings.app.dataRootPath,
+            in_runInternalCallable=lambda sessionId, message: runAgentUseCase.execute(
+                in_sessionId=sessionId,
+                in_inputMessage=message,
+            ).runId,
+        )
+    else:
+        schedulerRunner = None
     handleIncomingTelegramMessageUseCase = HandleIncomingTelegramMessageUseCase(
         in_allowedUserIds=settings.telegram.allowedUserIds,
         in_denyMessageText=settings.telegram.denyMessageText,
@@ -156,9 +170,34 @@ def _buildApp() -> FastAPI:
             in_eventType="telegram_polling_started",
             in_payload={},
         )
+        schedulerThread = None
+        if in_app.state.schedulerRunner is not None:
+            schedulerThread = Thread(
+                target=in_app.state.schedulerRunner.runForever,
+                name="schedulerThread",
+                daemon=True,
+            )
+            in_app.state.schedulerThread = schedulerThread
+            in_app.state.schedulerThread.start()
+            writeJsonlEvent(
+                in_loggingSettings=settings.logging,
+                in_eventType="scheduler_thread_started",
+                in_payload={},
+            )
         try:
             yield
         finally:
+            if in_app.state.schedulerRunner is not None:
+                in_app.state.schedulerRunner.stop()
+            currentSchedulerThread = in_app.state.schedulerThread
+            if currentSchedulerThread is not None:
+                currentSchedulerThread.join(timeout=2)
+            if in_app.state.schedulerRunner is not None:
+                writeJsonlEvent(
+                    in_loggingSettings=settings.logging,
+                    in_eventType="scheduler_thread_stopped",
+                    in_payload={},
+                )
             in_app.state.telegramPollingRunner.stop()
             currentThread = in_app.state.telegramPollingThread
             if currentThread is not None:
@@ -181,6 +220,8 @@ def _buildApp() -> FastAPI:
     appInstance.state.getGitDiffUseCase = getGitDiffUseCase
     appInstance.state.telegramPollingRunner = telegramPollingRunner
     appInstance.state.telegramPollingThread = None
+    appInstance.state.schedulerRunner = schedulerRunner
+    appInstance.state.schedulerThread = None
     appInstance.state.webSessionCookieName = "admin_session"
     appInstance.state.adminTokenHashes = {
         hashAdminToken(
@@ -333,11 +374,15 @@ def _buildApp() -> FastAPI:
             "maxPromptChars": settings.runtime.maxPromptChars,
             "maxToolOutputChars": settings.runtime.maxToolOutputChars,
             "maxExecutionSeconds": settings.runtime.maxExecutionSeconds,
+            "primaryModel": settings.models.primaryModel,
+            "secondaryModel": settings.models.secondaryModel,
+            "tertiaryModel": settings.models.tertiaryModel,
             "lastRunId": str(lastRun.get("runId", "")),
             "lastRunSessionId": lastSessionId,
             "lastRunStatus": str(lastRun.get("runStatus", "—")),
             "lastRunReason": str(lastRun.get("completionReason", "—")),
             "lastRunCreatedAt": str(lastRun.get("createdAt", "—")),
+            "lastRunSelectedModel": str(lastRun.get("selectedModel", "—")),
             "toolsYamlInfo": _fileInfo(in_filePath=toolsYamlPath),
             "memoryInfo": _dirInfo(in_dirPath=memoryRoot),
             "logsInfo": _dirInfo(in_dirPath=logsRoot),

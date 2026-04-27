@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.config.defaults import DEFAULT_ENV_PATH
 from app.config.settingsModels import (
     EmailReaderToolSettings,
+    SchedulerSettings,
     SettingsModel,
     TelegramNewsDigestToolSettings,
 )
@@ -167,4 +168,19 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             )
         }
     )
+    # Scheduler settings (schedules.yaml). Optional unless scheduler.enabled=true.
+    schedulesPath = Path(ret.scheduler.schedulesConfigPath)
+    if schedulesPath.is_absolute() is False:
+        schedulesPath = schedulesPath.resolve()
+    if ret.scheduler.enabled is True:
+        if schedulesPath.exists() is False:
+            raise SettingsLoadError(f"Scheduler is enabled but schedules file is missing: {schedulesPath}")
+        loadedSchedulesData = _readYamlFile(in_path=schedulesPath)
+        try:
+            parsedScheduler = SchedulerSettings.model_validate(
+                {"enabled": True, **loadedSchedulesData} if isinstance(loadedSchedulesData, dict) else {"enabled": True}
+            )
+        except ValidationError as in_exc:
+            raise SettingsLoadError(f"Invalid scheduler settings: {in_exc}") from in_exc
+        ret = ret.model_copy(update={"scheduler": parsedScheduler})
     return ret

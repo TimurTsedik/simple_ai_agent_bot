@@ -60,3 +60,8 @@ memory:
   longTermFileName: "long_term.md"
   sessionSummaryFileName: "summary.md"
   recentMessagesFileName: "recent.md"
+
+scheduler:
+  enabled: false
+  schedulesConfigPath: "./app/config/schedules.yaml"
+  tickSeconds: 1

@@ -55,6 +55,28 @@ def testSkillServiceSelectsWebResearchSkill() -> None:
     assert "Skill: Web Research" in block
 
 
+def testSkillServiceSelectsReadAndAnalyzeEmailSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "read_and_analyze_email.md").write_text(
+            "# Read and Analyze Email\nemail",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        block = service.buildSkillsBlock(in_userMessage="Проверь почту и проанализируй письма")
+
+    assert "Skill: Read and Analyze Email" in block
+
+
 def testSkillServiceDetectsWhenToolsAreNotRequired() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)

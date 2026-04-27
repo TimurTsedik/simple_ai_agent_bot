@@ -68,6 +68,33 @@ class MemorySettings(BaseModel):
     recentMessagesFileName: str = "recent.md"
 
 
+class SchedulerJobInternalRunAction(BaseModel):
+    sessionId: str = "scheduler:default"
+    message: str = ""
+
+
+class SchedulerJobSchedule(BaseModel):
+    intervalSeconds: int = Field(default=3600, ge=5, le=604800)
+    allowedHourStart: int | None = Field(default=None, ge=0, le=23)
+    allowedHourEnd: int | None = Field(default=None, ge=0, le=23)
+
+
+class SchedulerJobSettings(BaseModel):
+    jobId: str
+    enabled: bool = True
+    schedule: SchedulerJobSchedule = Field(default_factory=SchedulerJobSchedule)
+    actionInternalRun: SchedulerJobInternalRunAction = Field(
+        default_factory=SchedulerJobInternalRunAction
+    )
+
+
+class SchedulerSettings(BaseModel):
+    enabled: bool = False
+    schedulesConfigPath: str = "./app/config/schedules.yaml"
+    tickSeconds: int = Field(default=1, ge=1, le=30)
+    jobs: list[SchedulerJobSettings] = Field(default_factory=list)
+
+
 class TelegramNewsDigestToolSettings(BaseModel):
     digestChannelUsernames: list[str] = Field(default_factory=list)
     portfolioTickers: list[str] = Field(default_factory=list)
@@ -103,6 +130,7 @@ class SettingsModel(BaseModel):
     logging: LoggingSettings
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
     telegramBotToken: str = Field(min_length=1)
     openRouterApiKey: str = Field(min_length=1)

@@ -22,6 +22,8 @@ class PromptBuilder:
             "You are an AI runtime. Respond ONLY with one valid JSON object.\n"
             "Do not include markdown fences or any text outside JSON.\n"
             f"Current date/time: {nowUtcText}\n"
+            "IMPORTANT JSON rule: Do NOT use literal newline characters inside JSON strings. "
+            "If you need line breaks in final_answer, use the two-character sequence \\n.\n"
             "Allowed output schemas only:\n"
             '1) {"type":"tool_call","reason":"short","action":"tool_name","args":{}}\n'
             '2) {"type":"final","reason":"short","final_answer":"text"}\n'
@@ -52,6 +54,8 @@ class PromptBuilder:
         promptText = (
             "You are an AI runtime. Your previous output was INVALID.\n"
             "Respond ONLY with one valid JSON object. No markdown fences, no text outside JSON.\n"
+            "IMPORTANT JSON rule: Do NOT use literal newline characters inside JSON strings. "
+            "If you need line breaks in final_answer, use the two-character sequence \\n.\n"
             "Allowed output schemas only:\n"
             '1) {"type":"tool_call","reason":"short","action":"tool_name","args":{}}\n'
             '2) {"type":"final","reason":"short","final_answer":"text"}\n'

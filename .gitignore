@@ -13,6 +13,7 @@ env/
 .env.*
 !.env.example
 app/config/config.yaml
+app/config/tools.yaml
 
 # --- Packaging / build ---
 build/

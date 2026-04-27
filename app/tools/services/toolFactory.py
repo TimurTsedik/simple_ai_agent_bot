@@ -1,10 +1,12 @@
 from app.config.settingsModels import SettingsModel
 from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsTool
+from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
     DigestTelegramNewsArgsModel,
+    ReadEmailArgsModel,
     ReadMemoryFileArgsModel,
     WebSearchArgsModel,
 )
@@ -34,6 +36,10 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
     readMemoryFileTool = ReadMemoryFileTool(
         in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths
     )
+    readEmailTool = ReadEmailTool(
+        in_emailSettings=in_settings.tools.emailReader,
+        in_password=in_settings.emailAppPassword,
+    )
     webSearchTool = WebSearchTool()
     toolDefinitions = [
         ToolDefinitionModel(
@@ -54,6 +60,15 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
             argsModel=ReadMemoryFileArgsModel,
             timeoutSeconds=5,
             executeCallable=readMemoryFileTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="read_email",
+            description=(
+                "Читает письма из почтового ящика по IMAP (например, последние непрочитанные)."
+            ),
+            argsModel=ReadEmailArgsModel,
+            timeoutSeconds=25,
+            executeCallable=readEmailTool.execute,
         ),
         ToolDefinitionModel(
             name="web_search",

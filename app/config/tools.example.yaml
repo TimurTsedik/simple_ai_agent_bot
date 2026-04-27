@@ -32,7 +32,7 @@ telegramNewsDigest:
 
 emailReader:
   accountName: "gmail"
-  email: "timur.tsedik@gmail.com"
+  email: "your.email@example.com"
   imapHost: "imap.gmail.com"
   imapPort: 993
   imapSsl: true

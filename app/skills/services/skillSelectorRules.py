@@ -40,6 +40,8 @@ class SkillSelectorRules:
         selectedIds: list[str] = ["default_assistant"]
         if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
             selectedIds.append("web_research")
+        if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
+            selectedIds.append("compose_digest")
         if any(item in loweredMessage for item in ["news", "digest", "новост", "дайджест", "рынок", "обзор", "сводка", "телеграм", "telegram"]):
             selectedIds.append("telegram_news_digest")
         ret = selectedIds

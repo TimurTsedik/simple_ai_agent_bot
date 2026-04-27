@@ -10,6 +10,8 @@ instructions:
 allowed_tools:
 - digest_telegram_news
 - read_memory_file
+- read_email
+- web_search
 limitations:
 - не выполнять небезопасные действия;
 - не пытаться писать в файлы.

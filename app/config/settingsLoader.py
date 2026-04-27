@@ -8,7 +8,11 @@ from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from app.config.defaults import DEFAULT_ENV_PATH
-from app.config.settingsModels import SettingsModel, TelegramNewsDigestToolSettings
+from app.config.settingsModels import (
+    EmailReaderToolSettings,
+    SettingsModel,
+    TelegramNewsDigestToolSettings,
+)
 
 
 class SettingsLoadError(RuntimeError):
@@ -55,6 +59,9 @@ def _applyEnvOverrides(
     )
     ret["sessionCookieSecret"] = os.getenv(
         "SESSION_COOKIE_SECRET", in_dotEnvValues.get("SESSION_COOKIE_SECRET", "")
+    )
+    ret["emailAppPassword"] = os.getenv(
+        "EMAIL_APP_PASSWORD", in_dotEnvValues.get("EMAIL_APP_PASSWORD", "")
     )
     rawAdminTokens = os.getenv(
         "ADMIN_RAW_TOKENS", in_dotEnvValues.get("ADMIN_RAW_TOKENS", "")
@@ -133,8 +140,10 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         digestSemanticKeywords=list(baseSettings.telegram.digestSemanticKeywords),
     )
     effectiveDigest: TelegramNewsDigestToolSettings
+    effectiveEmail: EmailReaderToolSettings
     if toolsData is None:
         effectiveDigest = legacyDigest
+        effectiveEmail = EmailReaderToolSettings()
     else:
         try:
             parsedDigest = TelegramNewsDigestToolSettings.model_validate(
@@ -143,11 +152,18 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             effectiveDigest = parsedDigest
         except ValidationError:
             effectiveDigest = legacyDigest
+        try:
+            parsedEmail = EmailReaderToolSettings.model_validate(
+                toolsData.get("emailReader", {}) if isinstance(toolsData, dict) else {}
+            )
+            effectiveEmail = parsedEmail
+        except ValidationError:
+            effectiveEmail = EmailReaderToolSettings()
 
     ret = baseSettings.model_copy(
         update={
             "tools": baseSettings.tools.model_copy(
-                update={"telegramNewsDigest": effectiveDigest}
+                update={"telegramNewsDigest": effectiveDigest, "emailReader": effectiveEmail}
             )
         }
     )

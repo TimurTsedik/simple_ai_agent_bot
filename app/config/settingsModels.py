@@ -74,11 +74,23 @@ class TelegramNewsDigestToolSettings(BaseModel):
     digestSemanticKeywords: list[str] = Field(default_factory=list)
 
 
+class EmailReaderToolSettings(BaseModel):
+    accountName: str = "gmail"
+    email: str = ""
+    imapHost: str = "imap.gmail.com"
+    imapPort: int = Field(default=993, ge=1, le=65535)
+    imapSsl: bool = True
+    smtpHost: str = "smtp.gmail.com"
+    smtpPort: int = Field(default=465, ge=1, le=65535)
+    smtpSsl: bool = True
+
+
 class ToolsSettings(BaseModel):
     toolsConfigPath: str = "./app/config/tools.yaml"
     telegramNewsDigest: TelegramNewsDigestToolSettings = Field(
         default_factory=TelegramNewsDigestToolSettings
     )
+    emailReader: EmailReaderToolSettings = Field(default_factory=EmailReaderToolSettings)
 
 
 class SettingsModel(BaseModel):
@@ -95,4 +107,5 @@ class SettingsModel(BaseModel):
     telegramBotToken: str = Field(min_length=1)
     openRouterApiKey: str = Field(min_length=1)
     sessionCookieSecret: str = Field(min_length=32)
+    emailAppPassword: str = Field(default="")
     adminRawTokens: list[str] = Field(default_factory=list)

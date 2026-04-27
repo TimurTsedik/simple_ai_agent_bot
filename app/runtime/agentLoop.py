@@ -68,6 +68,7 @@ class AgentLoop:
         memoryCandidates: list[str] = []
         successfulToolNames: set[str] = set()
         toolNameToLastOkResult: dict[str, ToolResultEnvelopeModel] = {}
+        toolNameToLastOkArgs: dict[str, dict[str, Any]] = {}
         toolsDescription = (
             self._toolMetadataRenderer.renderForPrompt(in_toolRegistry=self._toolRegistry)
             if in_allowToolCalls is True
@@ -213,38 +214,60 @@ class AgentLoop:
                         toolArgs = parsedOutput.args or {}
 
                         if toolName in successfulToolNames:
-                            blockedToolCallIterations += 1
                             previousOkResult = toolNameToLastOkResult.get(toolName)
-                            blockedPayload: dict[str, Any] = {
-                                "kind": "tool_call_blocked",
-                                "tool_name": toolName,
-                                "reason": "tool_already_succeeded_in_this_run",
-                                "message": "Инструмент уже был успешно вызван в этом run. "
-                                "Сформируй final-ответ по последним данным, без повторного вызова.",
-                            }
-                            if previousOkResult is not None:
-                                blockedPayload["previous_observation"] = json.loads(
-                                    self._buildToolObservationText(in_toolResult=previousOkResult)
-                                )
-                            blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
-                            observations.append(blockedObservation)
-                            stepTrace["status"] = "tool_call_blocked"
-                            stepTrace["toolCall"] = {"toolName": toolName, "args": toolArgs}
-                            stepTrace["observation"] = blockedObservation
-                            completionReason = "running"
-                            finalAnswer = ""
-                            isFinished = False
-                            stepTraces.append(stepTrace)
-                            stepCount += 1
-                            maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
-                            if blockedToolCallIterations >= maxBlocked:
-                                completionReason = "tool_call_blocked_limit"
-                                finalAnswer = (
-                                    "Остановка: модель многократно запрашивала повтор инструмента "
-                                    "после успешного результата."
-                                )
-                                isFinished = True
-                            continue
+                            previousOkArgs = toolNameToLastOkArgs.get(toolName, {})
+                            allowRepeat = False
+                            if toolName == "read_email" and previousOkResult is not None:
+                                try:
+                                    prevData = json.loads(str(previousOkResult.data or "{}"))
+                                    prevCount = int(prevData.get("count", 0)) if isinstance(prevData, dict) else 0
+                                except Exception:
+                                    prevCount = 0
+                                requestedMaxItems = int(toolArgs.get("maxItems", previousOkArgs.get("maxItems", 10) or 10))
+                                if prevCount < requestedMaxItems:
+                                    prevUnreadOnly = bool(previousOkArgs.get("unreadOnly", True)) is True
+                                    newUnreadOnly = bool(toolArgs.get("unreadOnly", prevUnreadOnly)) is True
+                                    prevSinceHours = int(previousOkArgs.get("sinceHours", 24) or 24)
+                                    newSinceHours = int(toolArgs.get("sinceHours", prevSinceHours) or prevSinceHours)
+                                    isBroader = (prevUnreadOnly is True and newUnreadOnly is False) or (
+                                        newSinceHours > prevSinceHours
+                                    )
+                                    if isBroader is True:
+                                        allowRepeat = True
+                            if allowRepeat is True:
+                                blockedToolCallIterations = 0
+                            else:
+                                blockedToolCallIterations += 1
+                                blockedPayload: dict[str, Any] = {
+                                    "kind": "tool_call_blocked",
+                                    "tool_name": toolName,
+                                    "reason": "tool_already_succeeded_in_this_run",
+                                    "message": "Инструмент уже был успешно вызван в этом run. "
+                                    "Сформируй final-ответ по последним данным, без повторного вызова.",
+                                }
+                                if previousOkResult is not None:
+                                    blockedPayload["previous_observation"] = json.loads(
+                                        self._buildToolObservationText(in_toolResult=previousOkResult)
+                                    )
+                                blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
+                                observations.append(blockedObservation)
+                                stepTrace["status"] = "tool_call_blocked"
+                                stepTrace["toolCall"] = {"toolName": toolName, "args": toolArgs}
+                                stepTrace["observation"] = blockedObservation
+                                completionReason = "running"
+                                finalAnswer = ""
+                                isFinished = False
+                                stepTraces.append(stepTrace)
+                                stepCount += 1
+                                maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
+                                if blockedToolCallIterations >= maxBlocked:
+                                    completionReason = "tool_call_blocked_limit"
+                                    finalAnswer = (
+                                        "Остановка: модель многократно запрашивала повтор инструмента "
+                                        "после успешного результата."
+                                    )
+                                    isFinished = True
+                                continue
 
                         blockedToolCallIterations = 0
                         toolCallCount += 1
@@ -318,6 +341,7 @@ class AgentLoop:
                         if toolResult.ok is True:
                             successfulToolNames.add(toolName)
                             toolNameToLastOkResult[toolName] = toolResult
+                            toolNameToLastOkArgs[toolName] = dict(toolArgs)
                         self._appendToolSignatureWindow(
                             io_window=toolSignatureWindow,
                             in_signature=toolSignature,
@@ -491,6 +515,28 @@ class AgentLoop:
                             "sampleResultUrls": sampleResultUrls,
                             "sampleFetchedUrls": sampleFetchedUrls,
                         }
+                if isinstance(parsedValue, dict) and in_toolResult.tool_name == "read_email":
+                    itemsValue = parsedValue.get("items", [])
+                    emailPreviewItems: list[dict[str, Any]] = []
+                    if isinstance(itemsValue, list):
+                        for oneItem in itemsValue[:5]:
+                            if isinstance(oneItem, dict):
+                                emailPreviewItems.append(
+                                    {
+                                        "uid": str(oneItem.get("uid", ""))[:64],
+                                        "from": str(oneItem.get("from", ""))[:160],
+                                        "subject": str(oneItem.get("subject", ""))[:200],
+                                        "date": str(oneItem.get("date", ""))[:120],
+                                        "dateUnixTs": oneItem.get("dateUnixTs"),
+                                        "snippet": str(oneItem.get("snippet", ""))[:240],
+                                        "langHint": str(oneItem.get("langHint", ""))[:16],
+                                    }
+                                )
+                    payload["email_preview"] = {
+                        "count": parsedValue.get("count"),
+                        "sinceUnixTsUsed": parsedValue.get("sinceUnixTsUsed"),
+                        "items_preview": emailPreviewItems,
+                    }
             except json.JSONDecodeError:
                 payload["data_note"] = "non_json_tool_payload"
         ret = json.dumps(payload, ensure_ascii=False)

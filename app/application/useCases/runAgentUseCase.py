@@ -123,6 +123,7 @@ class RunAgentUseCase:
         snapshot["telegramBotToken"] = "***"
         snapshot["openRouterApiKey"] = "***"
         snapshot["sessionCookieSecret"] = "***"
+        snapshot["emailAppPassword"] = "***" if self._settings.emailAppPassword else ""
         snapshot["adminRawTokens"] = ["***" for _item in self._settings.adminRawTokens]
         if in_includeToolConfig is False:
             snapshot.pop("telegram", None)

@@ -60,7 +60,7 @@ from app.skills.services.skillService import SkillService
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.services.toolFactory import buildToolRegistry
-from app.config.settingsModels import TelegramNewsDigestToolSettings
+from app.config.settingsModels import EmailReaderToolSettings, TelegramNewsDigestToolSettings
 
 
 def _buildApp() -> FastAPI:
@@ -241,6 +241,9 @@ def _buildApp() -> FastAPI:
             raise ValidationError.from_exception_data("tools_yaml", [])
         _ = TelegramNewsDigestToolSettings.model_validate(
             loaded.get("telegramNewsDigest", {}) if isinstance(loaded, dict) else {}
+        )
+        _ = EmailReaderToolSettings.model_validate(
+            loaded.get("emailReader", {}) if isinstance(loaded, dict) else {}
         )
 
     def _formatBytes(in_sizeBytes: int) -> str:

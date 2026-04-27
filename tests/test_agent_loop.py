@@ -78,6 +78,14 @@ class SingleFieldArgsModel(BaseModel):
     k: str
 
 
+class ReadEmailArgsForTestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    maxItems: int = 10
+    unreadOnly: bool = True
+    sinceHours: int = 24
+
+
 def _echoTool(in_args: dict) -> dict:
     ret = {"echo": in_args}
     return ret
@@ -173,6 +181,57 @@ def testAgentLoopBlocksRepeatToolCallAfterSuccess() -> None:
     assert result.toolCallCount == 1
     blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
     assert len(blockedSteps) == 1
+
+
+def testAgentLoopAllowsSecondReadEmailCallWhenInsufficientItems() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8, in_maxBlocked=2)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"read_email","args":{"maxItems":5}}',
+            '{"type":"tool_call","reason":"x","action":"read_email","args":{"maxItems":5,"unreadOnly":false,"sinceHours":168}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    callCount: dict[str, int] = {"read_email": 0}
+
+    def _readEmailTool(in_args: dict) -> dict:
+        callCount["read_email"] += 1
+        unreadOnly = bool(in_args.get("unreadOnly", True)) is True
+        countValue = 1 if unreadOnly is True else 5
+        ret = {"count": countValue, "sinceUnixTsUsed": 0, "items": [{"uid": "1"} for _ in range(countValue)]}
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="read_email",
+                description="email",
+                argsModel=ReadEmailArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_readEmailTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    assert result.completionReason == "final_answer"
+    assert callCount["read_email"] == 2
+    blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
+    assert len(blockedSteps) == 0
 
 
 def testAgentLoopReturnsFinalAnswer() -> None:

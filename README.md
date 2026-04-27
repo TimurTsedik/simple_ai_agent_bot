@@ -17,7 +17,8 @@
 - read-only tools:
   - `digest_telegram_news`
   - `web_search`
-  - `read_memory_file`;
+  - `read_memory_file`
+  - `read_email`;
 - OpenRouter client integration;
 - retries + fallback policy по primary/secondary/tertiary;
 - raw provider response logging и fallback events в JSONL;
@@ -69,10 +70,21 @@
 
 Часть настроек, относящихся к конкретным инструментам, вынесена в отдельный файл: `app/config/tools.yaml`.
 
-Сейчас там настраивается дайджест новостей (`digest_telegram_news`):
+Рекомендуемый подход:
+- держать в git файл-пример `app/config/tools.example.yaml`
+- локально копировать его в `app/config/tools.yaml` (он добавлен в `.gitignore`)
+
+Сейчас там настраивается:
+
+- дайджест новостей (`digest_telegram_news`):
 - `telegramNewsDigest.digestChannelUsernames`
 - `telegramNewsDigest.portfolioTickers`
 - `telegramNewsDigest.digestSemanticKeywords`
+
+- чтение почты (`read_email`):
+  - `emailReader.*` (host/port/ssl/email и т.д.)
+  - пароль хранится **только в env**: `EMAIL_APP_PASSWORD`
+  - стратегия для «дайджеста писем»: сначала `unreadOnly=true` (UNSEEN), если писем < N — повторить с `unreadOnly=false` и большим `sinceHours` (например, 168)
 
 Путь к `tools.yaml` задаётся в `app/config/config.yaml`:
 
@@ -122,6 +134,7 @@ TELEGRAM_BOT_TOKEN=...
 OPENROUTER_API_KEY=...
 SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
 ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
+EMAIL_APP_PASSWORD=your_gmail_app_password
 ```
 
 Требования к web auth значениям:

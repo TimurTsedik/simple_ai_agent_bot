@@ -70,4 +70,31 @@ def testMemoryServiceSkipsServiceAnswersInRecentAndSummary() -> None:
 
     assert "assistant: Есть новости по рынку РФ" in memoryBlock
     assert "assistant: Извините, достигнут лимит вызовов инструментов" not in memoryBlock
-    assert "Последний ответ ассистента: Есть новости по рынку РФ" in memoryBlock
+    assert "Есть новости по рынку РФ" in memoryBlock
+    assert "Сделай дайджест" in memoryBlock
+
+
+def testMemoryServiceSkipsWebSearchAccessDeniedInRecentAndSummary() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=10,
+            in_sessionSummaryMaxChars=2000,
+        )
+        service.updateAfterRun(
+            in_sessionId="telegram:1",
+            in_userMessage="Поищи в интернете про кошек",
+            in_finalAnswer="Не удалось выполнить поиск в интернете из-за ошибки доступа (ACCESS_DENIED).",
+            in_memoryCandidates=[],
+        )
+        memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
+
+    assert "assistant: Не удалось выполнить поиск в интернете" not in memoryBlock

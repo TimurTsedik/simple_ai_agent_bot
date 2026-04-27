@@ -1,3 +1,4 @@
+from app.common.timeProvider import getUtcNowIso
 from app.common.truncation import truncateText
 from app.domain.policies.memoryPolicy import MemoryPolicy
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
@@ -78,14 +79,20 @@ class MemoryService:
     ) -> None:
         isServiceAnswer = self._isServiceAssistantAnswer(in_finalAnswer=in_finalAnswer)
         if isServiceAnswer is False:
-            summaryText = (
-                "Последний запрос пользователя: "
-                + in_userMessage
-                + "\nПоследний ответ ассистента: "
-                + in_finalAnswer
+            previousSummary = self._memoryStore.readSessionSummary(
+                in_sessionId=in_sessionId
             )
+            timestampText = getUtcNowIso()
+            newEntry = (
+                f"### {timestampText}\n"
+                f"Пользователь: {in_userMessage}\n"
+                f"Ассистент: {in_finalAnswer}\n\n"
+            )
+            combinedSummary = newEntry
+            if previousSummary.strip():
+                combinedSummary = newEntry + previousSummary.strip()
             truncatedSummary, _isTruncated = truncateText(
-                in_text=summaryText,
+                in_text=combinedSummary,
                 in_maxChars=self._sessionSummaryMaxChars,
             )
             self._memoryStore.writeSessionSummary(
@@ -118,6 +125,11 @@ class MemoryService:
             "max_steps",
             "max execution",
             "невалидный json",
+            "tool_call_blocked",
+            "отключённых tool",
+            "access_denied",
+            "web search access denied",
+            "не удалось выполнить поиск в интернете",
         ]
         ret = any(item in loweredAnswer for item in serviceMarkers)
         return ret

@@ -94,7 +94,7 @@ class RunAgentUseCase:
             "toolCalls": toolCalls,
             "toolResults": toolResults,
             "observations": observations,
-            "fallbackEvents": [],
+            "fallbackEvents": list(loopResult.fallbackEvents),
             "finalAnswer": loopResult.finalAnswer,
             "memoryCandidates": loopResult.memoryCandidates,
             "stepTraces": loopResult.stepTraces,

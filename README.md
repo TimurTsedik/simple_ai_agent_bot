@@ -16,6 +16,7 @@
 - standardized tool result envelope и стандартные error-codes;
 - read-only tools:
   - `digest_telegram_news`
+  - `web_search`
   - `read_memory_file`;
 - OpenRouter client integration;
 - retries + fallback policy по primary/secondary/tertiary;
@@ -64,6 +65,34 @@
   - внутренние API: `GET /internal/git/status`, `GET /internal/git/diff`;
 - unit-тесты на конфиг, Telegram authorization behavior, parser, loop, tool executor, llm fallback, skills и memory.
 
+## Tool settings (`tools.yaml`)
+
+Часть настроек, относящихся к конкретным инструментам, вынесена в отдельный файл: `app/config/tools.yaml`.
+
+Сейчас там настраивается дайджест новостей (`digest_telegram_news`):
+- `telegramNewsDigest.digestChannelUsernames`
+- `telegramNewsDigest.portfolioTickers`
+- `telegramNewsDigest.digestSemanticKeywords`
+
+Путь к `tools.yaml` задаётся в `app/config/config.yaml`:
+
+```yaml
+tools:
+  toolsConfigPath: "./app/config/tools.yaml"
+```
+
+Изменения в `tools.yaml` применяются **без перезапуска** (инструмент читает актуальные значения при выполнении).
+
+## Админка: tools/skills и редактирование
+
+Дополнительные страницы:
+- `GET /tools` — список доступных tools + args schema
+- `GET /skills` — список skills
+- `GET /skills/{skillId}` — просмотр/редактирование skill markdown
+- `GET /config/tools` — просмотр/редактирование `tools.yaml`
+
+Важное ограничение безопасности:
+- редактирование включается флагом `security.adminWritesEnabled` в `app/config/config.yaml`.\n
 ## Локальный запуск
 
 1. Установить зависимости:

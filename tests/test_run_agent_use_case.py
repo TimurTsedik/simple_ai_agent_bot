@@ -107,6 +107,8 @@ def _buildSettings() -> SettingsModel:
             recentMessagesLimit=12,
             sessionSummaryMaxChars=2000,
             skillSelectionMaxCount=4,
+            extraSecondsPerLlmError=0,
+            maxExtraSecondsTotal=0,
         ),
         security=SecuritySettings(
             webSessionCookieTtlSeconds=3600,
@@ -154,6 +156,7 @@ def testRunAgentUseCaseDropsToolConfigWhenNoToolCalls() -> None:
             }
         ],
         promptSnapshot="prompt",
+        fallbackEvents=(),
     )
     repository = FakeRunRepository()
     useCase = RunAgentUseCase(
@@ -169,6 +172,7 @@ def testRunAgentUseCaseDropsToolConfigWhenNoToolCalls() -> None:
     assert repository.savedRunRecord is not None
     configSnapshot = repository.savedRunRecord["effectiveConfigSnapshot"]
     assert "telegram" not in configSnapshot
+    assert repository.savedRunRecord["fallbackEvents"] == []
 
 
 def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
@@ -190,6 +194,9 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
             }
         ],
         promptSnapshot="prompt",
+        fallbackEvents=(
+            {"event": "model_error", "model": "m1", "errorCode": "TIMEOUT", "errorMessage": "x"},
+        ),
     )
     repository = FakeRunRepository()
     useCase = RunAgentUseCase(
@@ -208,3 +215,4 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
     assert repository.savedRunRecord is not None
     configSnapshot = repository.savedRunRecord["effectiveConfigSnapshot"]
     assert "telegram" in configSnapshot
+    assert len(repository.savedRunRecord["fallbackEvents"]) == 1

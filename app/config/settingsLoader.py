@@ -8,7 +8,7 @@ from dotenv import dotenv_values
 from pydantic import ValidationError
 
 from app.config.defaults import DEFAULT_ENV_PATH
-from app.config.settingsModels import SettingsModel
+from app.config.settingsModels import SettingsModel, TelegramNewsDigestToolSettings
 
 
 class SettingsLoadError(RuntimeError):
@@ -99,16 +99,56 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         in_dotEnvValues=dotEnvValues,
     )
     try:
-        ret = SettingsModel.model_validate(mergedData)
+        baseSettings = SettingsModel.model_validate(mergedData)
     except ValidationError as in_exc:
         raise SettingsLoadError(f"Invalid settings: {in_exc}") from in_exc
-    if len(ret.adminRawTokens) == 0:
+    if len(baseSettings.adminRawTokens) == 0:
         raise SettingsLoadError(
             "Invalid settings: ADMIN_RAW_TOKENS is required for web auth."
         )
-    if len(ret.adminRawTokens) > ret.security.maxAdminTokens:
+    if len(baseSettings.adminRawTokens) > baseSettings.security.maxAdminTokens:
         raise SettingsLoadError(
             "Invalid settings: ADMIN_RAW_TOKENS count exceeds security.maxAdminTokens."
         )
-    _validateAdminTokens(in_tokens=ret.adminRawTokens)
+    _validateAdminTokens(in_tokens=baseSettings.adminRawTokens)
+
+    # Tool-specific settings (tools.yaml) with backward compatibility:
+    # - If tools.yaml exists, prefer it.
+    # - Otherwise, fallback to legacy telegram.* fields.
+    toolsConfigPath = Path(baseSettings.tools.toolsConfigPath)
+    if toolsConfigPath.is_absolute() is False:
+        # Resolve relative to current working directory.
+        # `toolsConfigPath` can be "./app/config/tools.yaml" and should not be joined with
+        # config directory (would duplicate "app/config").
+        toolsConfigPath = toolsConfigPath.resolve()
+
+    toolsData: dict[str, Any] | None = None
+    if toolsConfigPath.exists():
+        loadedToolsData = _readYamlFile(in_path=toolsConfigPath)
+        toolsData = loadedToolsData if isinstance(loadedToolsData, dict) else None
+
+    legacyDigest = TelegramNewsDigestToolSettings(
+        digestChannelUsernames=list(baseSettings.telegram.digestChannelUsernames),
+        portfolioTickers=list(baseSettings.telegram.portfolioTickers),
+        digestSemanticKeywords=list(baseSettings.telegram.digestSemanticKeywords),
+    )
+    effectiveDigest: TelegramNewsDigestToolSettings
+    if toolsData is None:
+        effectiveDigest = legacyDigest
+    else:
+        try:
+            parsedDigest = TelegramNewsDigestToolSettings.model_validate(
+                toolsData.get("telegramNewsDigest", {}) if isinstance(toolsData, dict) else {}
+            )
+            effectiveDigest = parsedDigest
+        except ValidationError:
+            effectiveDigest = legacyDigest
+
+    ret = baseSettings.model_copy(
+        update={
+            "tools": baseSettings.tools.model_copy(
+                update={"telegramNewsDigest": effectiveDigest}
+            )
+        }
+    )
     return ret

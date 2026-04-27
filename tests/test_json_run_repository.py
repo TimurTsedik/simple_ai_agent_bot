@@ -71,3 +71,25 @@ def testJsonRunRepositoryReadsListAndDetails() -> None:
     assert runItem is not None
     assert runItem["runId"] == "r1"
     assert missingItem is None
+
+
+def testJsonRunRepositorySkipsCorruptIndexLines() -> None:
+    with TemporaryDirectory() as tempDir:
+        runsDir = Path(tempDir) / "runs"
+        runsDir.mkdir(parents=True)
+        indexPath = runsDir / "index.jsonl"
+        indexPath.write_text(
+            '{"runId":"good","traceId":"t","sessionId":"s","runStatus":"completed",'
+            '"completionReason":"final_answer","selectedModel":"m",'
+            '"createdAt":"2026-01-01","finishedAt":"2026-01-01"}\n'
+            "not valid json line\n"
+            '{"runId":"good2","traceId":"t2","sessionId":"s2","runStatus":"completed",'
+            '"completionReason":"final_answer","selectedModel":"m",'
+            '"createdAt":"2026-01-02","finishedAt":"2026-01-02"}\n',
+            encoding="utf-8",
+        )
+        repository = JsonRunRepository(in_dataRootPath=tempDir)
+        listItems = repository.listRuns(in_limit=10, in_offset=0)
+
+    assert len(listItems) == 2
+    assert {item["runId"] for item in listItems} == {"good2", "good"}

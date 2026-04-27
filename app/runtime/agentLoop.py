@@ -1,14 +1,15 @@
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
 from app.config.settingsModels import ModelSettings
+from app.domain.entities.llmCompletionResult import LlmCompletionResultModel
 from app.domain.policies.stopPolicy import StopPolicy
 from app.domain.protocols.llmClientProtocol import LlmClientProtocol
 from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
-from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
+from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator, ToolResultEnvelopeModel
 from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.registry.toolRegistry import ToolRegistry
 
@@ -24,6 +25,7 @@ class AgentLoopResultModel:
     executionDurationMs: int
     stepTraces: list[dict[str, Any]]
     promptSnapshot: str
+    fallbackEvents: tuple[dict[str, Any], ...]
 
 
 class AgentLoop:
@@ -64,6 +66,8 @@ class AgentLoop:
         selectedModel = self._modelSettings.primaryModel
         isFinished = False
         memoryCandidates: list[str] = []
+        successfulToolNames: set[str] = set()
+        toolNameToLastOkResult: dict[str, ToolResultEnvelopeModel] = {}
         toolsDescription = (
             self._toolMetadataRenderer.renderForPrompt(in_toolRegistry=self._toolRegistry)
             if in_allowToolCalls is True
@@ -75,12 +79,17 @@ class AgentLoop:
         repeatedToolCallCount = 0
         lastToolName = ""
         repeatedSameToolNameCount = 0
+        toolSignatureWindow: list[str] = []
+        blockedToolCallIterations = 0
+        loopFallbackEvents: list[dict[str, Any]] = []
+        llmErrorCount = 0
 
         while isFinished is False:
             stopDecision = self._stopPolicy.evaluate(
                 in_stepCount=stepCount,
                 in_toolCallCount=toolCallCount,
                 in_startedAtMonotonicSeconds=startedAtMonotonicSeconds,
+                in_llmErrorCount=llmErrorCount,
             )
             if stopDecision.shouldStop is True:
                 completionReason = stopDecision.completionReason or "fatal_runtime_error"
@@ -97,15 +106,40 @@ class AgentLoop:
                     in_memoryBlock=in_memoryBlock,
                 )
                 lastPromptSnapshot = promptText
-                rawModelOutput = self._llmClient.complete(
+                llmResult = self._invokeLlm(
                     in_modelName=selectedModel,
                     in_promptText=promptText,
+                    io_fallbackEvents=loopFallbackEvents,
                 )
+                llmErrorCount = sum(
+                    1
+                    for item in loopFallbackEvents
+                    if isinstance(item, dict) and item.get("event") == "model_error"
+                )
+                selectedModel = llmResult.selectedModel
+                rawModelOutput = llmResult.content
                 parseResult = self._outputParser.parse(in_rawText=rawModelOutput)
+                repairRawOutput: str | None = None
+                if parseResult.isValid is False or parseResult.parsedOutput is None:
+                    repairPromptText = self._promptBuilder.buildJsonRepairPrompt(
+                        in_previousRawOutput=rawModelOutput,
+                        in_parseErrorCode=parseResult.errorCode,
+                        in_parseErrorMessage=parseResult.errorMessage,
+                    )
+                    repairLlmResult = self._invokeLlm(
+                        in_modelName=selectedModel,
+                        in_promptText=repairPromptText,
+                        io_fallbackEvents=loopFallbackEvents,
+                    )
+                    selectedModel = repairLlmResult.selectedModel
+                    repairRawOutput = repairLlmResult.content
+                    parseResult = self._outputParser.parse(in_rawText=repairRawOutput)
+
                 stepTrace: dict[str, Any] = {
                     "stepIndex": stepCount + 1,
                     "promptSnapshot": promptText,
                     "rawModelResponse": rawModelOutput,
+                    "repairRawModelResponse": repairRawOutput,
                     "parsedModelResponse": None,
                     "toolCall": None,
                     "toolResult": None,
@@ -133,12 +167,14 @@ class AgentLoop:
                         "memoryCandidates": parsedOutput.memoryCandidates,
                     }
                     if parsedOutput.outputType == "final":
+                        blockedToolCallIterations = 0
                         completionReason = "final_answer"
                         finalAnswer = parsedOutput.finalAnswer or ""
                         memoryCandidates = parsedOutput.memoryCandidates or []
                         stepTrace["status"] = "final"
                         isFinished = True
                     elif parsedOutput.outputType == "stop":
+                        blockedToolCallIterations = 0
                         completionReason = "stop_response"
                         finalAnswer = parsedOutput.finalAnswer or ""
                         memoryCandidates = parsedOutput.memoryCandidates or []
@@ -146,6 +182,7 @@ class AgentLoop:
                         isFinished = True
                     else:
                         if in_allowToolCalls is False:
+                            blockedToolCallIterations += 1
                             blockedObservation = (
                                 "Tool calls are disabled for this request. "
                                 "Answer directly without using any tool."
@@ -162,15 +199,80 @@ class AgentLoop:
                             isFinished = False
                             stepTraces.append(stepTrace)
                             stepCount += 1
+                            maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
+                            if blockedToolCallIterations >= maxBlocked:
+                                completionReason = "tool_call_blocked_limit"
+                                finalAnswer = (
+                                    "Остановка: модель многократно запрашивала инструмент при "
+                                    "отключённых tool calls."
+                                )
+                                isFinished = True
                             continue
-                        toolCallCount += 1
+                        blockedToolCallIterations = 0
                         toolName = parsedOutput.action or "unknown_tool"
                         toolArgs = parsedOutput.args or {}
+
+                        if toolName in successfulToolNames:
+                            blockedToolCallIterations += 1
+                            previousOkResult = toolNameToLastOkResult.get(toolName)
+                            blockedPayload: dict[str, Any] = {
+                                "kind": "tool_call_blocked",
+                                "tool_name": toolName,
+                                "reason": "tool_already_succeeded_in_this_run",
+                                "message": "Инструмент уже был успешно вызван в этом run. "
+                                "Сформируй final-ответ по последним данным, без повторного вызова.",
+                            }
+                            if previousOkResult is not None:
+                                blockedPayload["previous_observation"] = json.loads(
+                                    self._buildToolObservationText(in_toolResult=previousOkResult)
+                                )
+                            blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
+                            observations.append(blockedObservation)
+                            stepTrace["status"] = "tool_call_blocked"
+                            stepTrace["toolCall"] = {"toolName": toolName, "args": toolArgs}
+                            stepTrace["observation"] = blockedObservation
+                            completionReason = "running"
+                            finalAnswer = ""
+                            isFinished = False
+                            stepTraces.append(stepTrace)
+                            stepCount += 1
+                            maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
+                            if blockedToolCallIterations >= maxBlocked:
+                                completionReason = "tool_call_blocked_limit"
+                                finalAnswer = (
+                                    "Остановка: модель многократно запрашивала повтор инструмента "
+                                    "после успешного результата."
+                                )
+                                isFinished = True
+                            continue
+
+                        blockedToolCallIterations = 0
+                        toolCallCount += 1
                         toolSignature = json.dumps(
                             {"toolName": toolName, "args": toolArgs},
                             ensure_ascii=False,
                             sort_keys=True,
                         )
+                        windowSize = self._stopPolicy.runtimeSettings.toolCallHistoryWindowSize
+                        maxInWindow = self._stopPolicy.runtimeSettings.maxSameToolSignatureInWindow
+                        signatureCountInWindow = self._countSignatureInWindow(
+                            in_window=toolSignatureWindow,
+                            in_signature=toolSignature,
+                        )
+                        if signatureCountInWindow >= maxInWindow - 1:
+                            completionReason = "repeated_tool_call_loop"
+                            finalAnswer = (
+                                "Остановка: слишком частые повторы одного и того же вызова инструмента."
+                            )
+                            stepTrace["status"] = "repeated_tool_call_loop"
+                            stepTrace["toolCall"] = {
+                                "toolName": toolName,
+                                "args": toolArgs,
+                            }
+                            isFinished = True
+                            stepTraces.append(stepTrace)
+                            stepCount += 1
+                            break
                         if toolSignature == lastToolSignature:
                             repeatedToolCallCount += 1
                         else:
@@ -213,7 +315,17 @@ class AgentLoop:
                             in_toolName=toolName,
                             in_rawArgs=toolArgs,
                         )
-                        observationText = str(toolResult)
+                        if toolResult.ok is True:
+                            successfulToolNames.add(toolName)
+                            toolNameToLastOkResult[toolName] = toolResult
+                        self._appendToolSignatureWindow(
+                            io_window=toolSignatureWindow,
+                            in_signature=toolSignature,
+                            in_maxSize=windowSize,
+                        )
+                        observationText = self._buildToolObservationText(
+                            in_toolResult=toolResult
+                        )
                         observations.append(observationText)
                         stepTrace["status"] = "tool_call"
                         stepTrace["toolCall"] = {
@@ -245,5 +357,141 @@ class AgentLoop:
             executionDurationMs=executionDurationMs,
             stepTraces=stepTraces,
             promptSnapshot=lastPromptSnapshot,
+            fallbackEvents=tuple(loopFallbackEvents),
         )
+        return ret
+
+    def _invokeLlm(
+        self,
+        in_modelName: str,
+        in_promptText: str,
+        io_fallbackEvents: list[dict[str, Any]],
+    ) -> LlmCompletionResultModel:
+        ret: LlmCompletionResultModel
+        llmResult = self._llmClient.complete(
+            in_modelName=in_modelName,
+            in_promptText=in_promptText,
+        )
+        io_fallbackEvents.extend(list(llmResult.fallbackEvents))
+        ret = llmResult
+        return ret
+
+    def _countSignatureInWindow(self, in_window: list[str], in_signature: str) -> int:
+        ret: int
+        countValue = 0
+        for oneSig in in_window:
+            if oneSig == in_signature:
+                countValue += 1
+        ret = countValue
+        return ret
+
+    def _appendToolSignatureWindow(
+        self,
+        io_window: list[str],
+        in_signature: str,
+        in_maxSize: int,
+    ) -> None:
+        io_window.append(in_signature)
+        while len(io_window) > in_maxSize:
+            io_window.pop(0)
+
+    def _buildToolObservationText(self, in_toolResult: ToolResultEnvelopeModel) -> str:
+        ret: str
+        payload: dict[str, Any] = {
+            "kind": "tool_observation",
+            "tool_name": in_toolResult.tool_name,
+            "ok": in_toolResult.ok,
+            "duration_ms": in_toolResult.meta.get("duration_ms"),
+            "truncated": in_toolResult.meta.get("truncated"),
+        }
+        if in_toolResult.error is not None:
+            payload["error"] = {
+                "code": in_toolResult.error.get("code", ""),
+                "message": in_toolResult.error.get("message", ""),
+            }
+        if in_toolResult.ok is True and in_toolResult.data is not None:
+            dataStr = str(in_toolResult.data)
+            payload["telegram_link_count"] = dataStr.count("https://t.me/")
+            sampleLinks: list[str] = []
+            try:
+                parsedValue = json.loads(dataStr)
+                if isinstance(parsedValue, dict) and isinstance(parsedValue.get("items"), list):
+                    itemList = parsedValue.get("items", [])
+                    for oneItem in itemList[:5]:
+                        if isinstance(oneItem, dict) and isinstance(oneItem.get("link"), str):
+                            sampleLinks.append(oneItem["link"])
+                    payload["sample_links"] = sampleLinks
+                    previewItems: list[dict[str, Any]] = []
+                    for oneItem in itemList[:3]:
+                        if isinstance(oneItem, dict):
+                            previewItems.append(
+                                {
+                                    "channel": oneItem.get("channel"),
+                                    "dateUnixTs": oneItem.get("dateUnixTs"),
+                                    "summary": str(oneItem.get("summary", ""))[:240],
+                                    "link": oneItem.get("link"),
+                                }
+                            )
+                    payload["data_preview"] = {
+                        "count": parsedValue.get("count"),
+                        "sinceUnixTsUsed": parsedValue.get("sinceUnixTsUsed"),
+                        "items_preview": previewItems,
+                        "channelErrorsCount": (
+                            len(parsedValue.get("channelErrors", {}))
+                            if isinstance(parsedValue.get("channelErrors"), dict)
+                            else None
+                        ),
+                    }
+                if (
+                    isinstance(parsedValue, dict)
+                    and in_toolResult.tool_name == "web_search"
+                ):
+                    isPreview = bool(parsedValue.get("_preview", False)) is True
+                    if isPreview is True and str(parsedValue.get("_tool_name", "")) == "web_search":
+                        payload["web_search_preview"] = {
+                            "query": parsedValue.get("query"),
+                            "resultsCount": parsedValue.get("resultsCount"),
+                            "fetchedPagesCount": parsedValue.get("fetchedPagesCount"),
+                            "blockedUrlsCount": parsedValue.get("blockedUrlsCount"),
+                            "fetchErrorsCount": parsedValue.get("fetchErrorsCount"),
+                            "sampleResultUrls": parsedValue.get("sampleResultUrls", []),
+                            "sampleFetchedUrls": parsedValue.get("sampleFetchedUrls", []),
+                        }
+                    else:
+                        results = parsedValue.get("results", [])
+                        fetchedPages = parsedValue.get("fetchedPages", [])
+                        blockedUrls = parsedValue.get("blockedUrls", [])
+                        fetchErrors = parsedValue.get("fetchErrors", [])
+                        sampleResultUrls: list[str] = []
+                        if isinstance(results, list):
+                            for oneItem in results[:5]:
+                                if isinstance(oneItem, dict) and isinstance(
+                                    oneItem.get("url"), str
+                                ):
+                                    sampleResultUrls.append(oneItem["url"])
+                        sampleFetchedUrls: list[str] = []
+                        if isinstance(fetchedPages, list):
+                            for oneItem in fetchedPages[:3]:
+                                if isinstance(oneItem, dict) and isinstance(
+                                    oneItem.get("url"), str
+                                ):
+                                    sampleFetchedUrls.append(oneItem["url"])
+                        payload["web_search_preview"] = {
+                            "query": parsedValue.get("query"),
+                            "resultsCount": len(results) if isinstance(results, list) else None,
+                            "fetchedPagesCount": (
+                                len(fetchedPages) if isinstance(fetchedPages, list) else None
+                            ),
+                            "blockedUrlsCount": (
+                                len(blockedUrls) if isinstance(blockedUrls, list) else None
+                            ),
+                            "fetchErrorsCount": (
+                                len(fetchErrors) if isinstance(fetchErrors, list) else None
+                            ),
+                            "sampleResultUrls": sampleResultUrls,
+                            "sampleFetchedUrls": sampleFetchedUrls,
+                        }
+            except json.JSONDecodeError:
+                payload["data_note"] = "non_json_tool_payload"
+        ret = json.dumps(payload, ensure_ascii=False)
         return ret

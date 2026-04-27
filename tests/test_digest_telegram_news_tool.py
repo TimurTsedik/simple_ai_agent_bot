@@ -17,8 +17,8 @@ def testDigestToolFiltersByChannelKeywordAndDate() -> None:
         """,
     }
     tool = DigestTelegramNewsTool(
-        digestChannelUsernames=["channel_one", "channel_two"],
-        defaultKeywords=[],
+        getDigestChannelUsernames=lambda: ["channel_one", "channel_two"],
+        getDefaultKeywords=lambda: [],
         fetchHtmlCallable=lambda in_url, _in_timeout: htmlByChannel[in_url],
     )
 
@@ -47,8 +47,8 @@ def testDigestToolUsesDefaultKeywordsWhenRequestKeywordsEmpty() -> None:
     </div>
     """
     tool = DigestTelegramNewsTool(
-        digestChannelUsernames=["cbrstocks"],
-        defaultKeywords=["офз", "минфин"],
+        getDigestChannelUsernames=lambda: ["cbrstocks"],
+        getDefaultKeywords=lambda: ["офз", "минфин"],
         fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
     )
 
@@ -77,8 +77,8 @@ def testDigestToolUsesTodayStartWhenSinceIsZero() -> None:
     </div>
     """
     tool = DigestTelegramNewsTool(
-        digestChannelUsernames=["markettwits"],
-        defaultKeywords=["рф"],
+        getDigestChannelUsernames=lambda: ["markettwits"],
+        getDefaultKeywords=lambda: ["рф"],
         todayStartUnixTsProvider=lambda: 100,
         fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
     )
@@ -96,6 +96,36 @@ def testDigestToolUsesTodayStartWhenSinceIsZero() -> None:
     assert result["sinceUnixTsUsed"] == 100
 
 
+def testDigestToolUsesSinceHoursWhenProvided() -> None:
+    htmlPage = """
+    <div data-post="markettwits/50">
+      <time datetime="2026-04-26T09:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">инфляция</div>
+    </div>
+    <div data-post="markettwits/51">
+      <time datetime="2026-04-26T11:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">инфляция снова</div>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["markettwits"],
+        getDefaultKeywords=lambda: ["инфляция"],
+        nowUnixTsProvider=lambda: 20000,
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "keywords": [],
+            "sinceHours": 1,
+            "maxItems": 10,
+        }
+    )
+
+    assert result["sinceUnixTsUsed"] == 16400
+    assert result["count"] == 2
+
+
 def testDigestToolMergesRequestedAndDefaultKeywords() -> None:
     htmlPage = """
     <div data-post="cbrstocks/100">
@@ -104,8 +134,8 @@ def testDigestToolMergesRequestedAndDefaultKeywords() -> None:
     </div>
     """
     tool = DigestTelegramNewsTool(
-        digestChannelUsernames=["cbrstocks"],
-        defaultKeywords=["цб", "инфляция"],
+        getDigestChannelUsernames=lambda: ["cbrstocks"],
+        getDefaultKeywords=lambda: ["цб", "инфляция"],
         fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
     )
 
@@ -119,3 +149,57 @@ def testDigestToolMergesRequestedAndDefaultKeywords() -> None:
 
     assert result["count"] == 1
     assert result["items"][0]["channel"] == "cbrstocks"
+    assert result.get("channelErrors") == {}
+
+
+def testDigestToolUsesFallbackPatternWhenPrimaryMissingTime() -> None:
+    htmlPage = """
+    <div data-post="cbrstocks/200">
+      <div class="tgme_widget_message_text js-message_text">ЦБ РФ и инфляция</div>
+      <time datetime="2026-04-26T12:00:00+00:00"></time>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["cbrstocks"],
+        getDefaultKeywords=lambda: ["инфляция"],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "keywords": [],
+            "sinceUnixTs": 1700000000,
+            "maxItems": 10,
+        }
+    )
+
+    assert result["count"] == 1
+    assert "инфляция" in result["items"][0]["summary"].lower()
+
+
+def testDigestToolRecordsChannelFetchErrors() -> None:
+    def failingFetch(in_url: str, in_timeout: int) -> str:
+        _ = in_timeout
+        if "bad_channel" in in_url:
+            raise ConnectionError("network down")
+        return (
+            '<div data-post="ok_ch/1">'
+            '<time datetime="2026-04-26T12:00:00+00:00"></time>'
+            '<div class="tgme_widget_message_text">инфляция растёт</div></div>'
+        )
+
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["bad_channel", "ok_ch"],
+        getDefaultKeywords=lambda: ["инфляция"],
+        fetchHtmlCallable=failingFetch,
+        todayStartUnixTsProvider=lambda: 0,
+        fetchRetryDelaysSeconds=(0.01, 0.01),
+        sleepCallable=lambda _s: None,
+    )
+
+    result = tool.execute(
+        in_args={"keywords": [], "sinceUnixTs": 0, "maxItems": 10}
+    )
+
+    assert "bad_channel" in result.get("channelErrors", {})
+    assert result["count"] >= 1

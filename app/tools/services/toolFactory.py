@@ -1,25 +1,40 @@
 from app.config.settingsModels import SettingsModel
 from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
+from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
     DigestTelegramNewsArgsModel,
     ReadMemoryFileArgsModel,
+    WebSearchArgsModel,
 )
 
 
 def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
     ret: ToolRegistry
-    defaultNewsKeywords = (
-        in_settings.telegram.portfolioTickers + in_settings.telegram.digestSemanticKeywords
-    )
+    def _getDigestChannels() -> list[str]:
+        retChannels = list(in_settings.tools.telegramNewsDigest.digestChannelUsernames)
+        if len(retChannels) == 0:
+            retChannels = list(in_settings.telegram.digestChannelUsernames)
+        return retChannels
+
+    def _getDefaultNewsKeywords() -> list[str]:
+        toolTickers = list(in_settings.tools.telegramNewsDigest.portfolioTickers)
+        toolKeywords = list(in_settings.tools.telegramNewsDigest.digestSemanticKeywords)
+        if len(toolTickers) == 0 and len(toolKeywords) == 0:
+            toolTickers = list(in_settings.telegram.portfolioTickers)
+            toolKeywords = list(in_settings.telegram.digestSemanticKeywords)
+        retKeywords = toolTickers + toolKeywords
+        return retKeywords
+
     digestTool = DigestTelegramNewsTool(
-        digestChannelUsernames=in_settings.telegram.digestChannelUsernames,
-        defaultKeywords=defaultNewsKeywords,
+        getDigestChannelUsernames=_getDigestChannels,
+        getDefaultKeywords=_getDefaultNewsKeywords,
     )
     readMemoryFileTool = ReadMemoryFileTool(
         in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths
     )
+    webSearchTool = WebSearchTool()
     toolDefinitions = [
         ToolDefinitionModel(
             name="digest_telegram_news",
@@ -39,6 +54,16 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
             argsModel=ReadMemoryFileArgsModel,
             timeoutSeconds=5,
             executeCallable=readMemoryFileTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="web_search",
+            description=(
+                "Ищет информацию в интернете по текстовому запросу (DuckDuckGo) и "
+                "может скачать top-N страниц для извлечения текста."
+            ),
+            argsModel=WebSearchArgsModel,
+            timeoutSeconds=30,
+            executeCallable=webSearchTool.execute,
         ),
     ]
     ret = ToolRegistry(in_toolDefinitions=toolDefinitions)

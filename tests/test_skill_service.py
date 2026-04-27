@@ -17,6 +17,10 @@ def testSkillServiceSelectsDefaultAndNewsSkills() -> None:
             "# News\nnews",
             encoding="utf-8",
         )
+        (skillsDirPath / "web_research.md").write_text(
+            "# Web Research\nweb",
+            encoding="utf-8",
+        )
         service = SkillService(
             in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
             in_skillSelectorRules=SkillSelectorRules(),
@@ -27,6 +31,28 @@ def testSkillServiceSelectsDefaultAndNewsSkills() -> None:
 
     assert "Skill: Default" in block
     assert "Skill: News" in block
+
+
+def testSkillServiceSelectsWebResearchSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "web_research.md").write_text(
+            "# Web Research\nweb",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        block = service.buildSkillsBlock(in_userMessage="Найди в интернете источники по теме")
+
+    assert "Skill: Web Research" in block
 
 
 def testSkillServiceDetectsWhenToolsAreNotRequired() -> None:

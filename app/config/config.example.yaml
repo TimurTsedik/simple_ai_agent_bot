@@ -8,35 +8,9 @@ telegram:
   allowedUserIds:
     - 123456789
   denyMessageText: "Доступ запрещён"
-  digestChannelUsernames:
-    - "markettwits"
-    - "headlines_for_traders"
-    - "cbrstocks"
-  portfolioTickers:
-    - "POSI"
-    - "X5"
-    - "T-технологии"
-    - "BELU"
-    - "YANDEX"
-    - "Русгидро"
-    - "ТГК-14"
-    - "ГТЛК"
-    - "Полипласт"
-    - "ГМК Норникель"
-    - "ВИС"
-    - "ОФЗ"
-  digestSemanticKeywords:
-    - "россия"
-    - "рф"
-    - "цб"
-    - "банк россии"
-    - "ключевая ставка"
-    - "процентная ставка"
-    - "инфляция"
-    - "денежно-кредитная политика"
-    - "монетарная политика"
-    - "офз"
-    - "минфин"
+
+tools:
+  toolsConfigPath: "./app/config/tools.yaml"
 
 models:
   openRouterBaseUrl: "https://openrouter.ai/api/v1"
@@ -56,10 +30,16 @@ runtime:
   recentMessagesLimit: 12
   sessionSummaryMaxChars: 2000
   skillSelectionMaxCount: 4
+  toolCallHistoryWindowSize: 8
+  maxSameToolSignatureInWindow: 3
+  maxToolCallBlockedIterations: 3
+  extraSecondsPerLlmError: 45
+  maxExtraSecondsTotal: 180
 
 security:
   webSessionCookieTtlSeconds: 43200
   maxAdminTokens: 3
+  adminWritesEnabled: false
   allowedReadOnlyPaths:
     - "./data/memory"
     - "./data/runs"

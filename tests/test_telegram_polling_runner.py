@@ -64,6 +64,8 @@ def _buildSettings() -> SettingsModel:
             recentMessagesLimit=12,
             sessionSummaryMaxChars=2000,
             skillSelectionMaxCount=4,
+            extraSecondsPerLlmError=0,
+            maxExtraSecondsTotal=0,
         ),
         security=SecuritySettings(
             webSessionCookieTtlSeconds=3600,

@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.config.settingsModels import LoggingSettings, ModelSettings
+from app.domain.entities.llmCompletionResult import LlmCompletionResultModel
 from app.models.providers.openRouterClient import OpenRouterClientError
 from app.models.services.llmService import LlmService
 
@@ -72,7 +73,10 @@ def testLlmServiceReturnsPrimaryResponse() -> None:
 
     result = service.complete(in_modelName="primary", in_promptText="test")
 
-    assert '"type":"final"' in result
+    assert isinstance(result, LlmCompletionResultModel)
+    assert '"type":"final"' in result.content
+    assert result.selectedModel == "primary"
+    assert any(one.get("event") == "model_success" for one in result.fallbackEvents)
 
 
 def testLlmServiceFallbacksToSecondary() -> None:
@@ -97,7 +101,9 @@ def testLlmServiceFallbacksToSecondary() -> None:
 
     result = service.complete(in_modelName="primary", in_promptText="test")
 
-    assert '"final_answer":"B"' in result
+    assert '"final_answer":"B"' in result.content
+    assert result.selectedModel == "secondary"
+    assert any(one.get("event") == "model_error" for one in result.fallbackEvents)
 
 
 def testLlmServiceReturnsStopWhenAllModelsFail() -> None:
@@ -116,8 +122,8 @@ def testLlmServiceReturnsStopWhenAllModelsFail() -> None:
 
     result = service.complete(in_modelName="primary", in_promptText="test")
 
-    assert '"type":"stop"' in result
-    assert "llm_unavailable" in result
+    assert '"type":"stop"' in result.content
+    assert "llm_unavailable" in result.content
 
 
 def testLlmServiceSanitizesReasoningInRawLogs() -> None:
@@ -146,7 +152,8 @@ def testLlmServiceSanitizesReasoningInRawLogs() -> None:
             in_loggingSettings=_makeLoggingSettings(in_logsDirPath=logsDirPath),
         )
 
-        _ = service.complete(in_modelName="primary", in_promptText="test")
+        completion = service.complete(in_modelName="primary", in_promptText="test")
+        _ = completion.content
         runLogPath = Path(logsDirPath) / "run.jsonl"
         lines = runLogPath.read_text(encoding="utf-8").splitlines()
         lastEvent = json.loads(lines[-1])

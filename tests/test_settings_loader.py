@@ -35,6 +35,8 @@ def _writeConfigFile(in_path: Path) -> None:
                 "  recentMessagesLimit: 12",
                 "  sessionSummaryMaxChars: 2000",
                 "  skillSelectionMaxCount: 4",
+                "  extraSecondsPerLlmError: 0",
+                "  maxExtraSecondsTotal: 0",
                 "security:",
                 "  webSessionCookieTtlSeconds: 3600",
                 "  maxAdminTokens: 3",

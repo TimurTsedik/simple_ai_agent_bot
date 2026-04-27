@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,10 @@ class JsonRunRepository:
     def saveRun(self, in_runRecord: dict[str, Any]) -> None:
         runId = str(in_runRecord.get("runId", "unknown"))
         runFilePath = self._runsDirPath / f"{runId}.json"
-        runFilePath.write_text(
-            json.dumps(in_runRecord, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payloadText = json.dumps(in_runRecord, ensure_ascii=False, indent=2)
+        tmpFilePath = runFilePath.with_suffix(f"{runFilePath.suffix}.tmp.{os.getpid()}")
+        tmpFilePath.write_text(payloadText, encoding="utf-8")
+        os.replace(str(tmpFilePath), str(runFilePath))
         indexRecord = {
             "runId": in_runRecord.get("runId"),
             "traceId": in_runRecord.get("traceId"),
@@ -28,6 +29,8 @@ class JsonRunRepository:
         }
         with self._indexFilePath.open("a", encoding="utf-8") as fileHandle:
             fileHandle.write(json.dumps(indexRecord, ensure_ascii=False) + "\n")
+            fileHandle.flush()
+            os.fsync(fileHandle.fileno())
 
     def getRunById(self, in_runId: str) -> dict[str, Any] | None:
         ret: dict[str, Any] | None
@@ -50,12 +53,14 @@ class JsonRunRepository:
         if self._indexFilePath.exists():
             lines = self._indexFilePath.read_text(encoding="utf-8").splitlines()
             for lineText in lines:
+                if not lineText.strip():
+                    continue
                 try:
                     parsedValue = json.loads(lineText)
                     if isinstance(parsedValue, dict):
                         records.append(parsedValue)
                 except json.JSONDecodeError:
-                    pass
+                    continue
         records.reverse()
         ret = records[boundedOffset : boundedOffset + boundedLimit]
         return ret

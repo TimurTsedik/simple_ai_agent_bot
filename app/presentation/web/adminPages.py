@@ -29,8 +29,22 @@ def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> st
         "th{color:#aab7d6;font-weight:600;}"
         "pre{white-space:pre-wrap;word-break:break-word;background:#0e1529;border:1px solid #273252;border-radius:10px;padding:10px;margin:8px 0;}"
         ".row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}"
+        ".grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;}"
+        ".col6{grid-column:span 6;}"
+        ".col4{grid-column:span 4;}"
+        ".col12{grid-column:span 12;}"
+        "@media(max-width:900px){.col6,.col4{grid-column:span 12;}}"
+        ".kpi{font-size:20px;font-weight:700;margin:0;}"
+        ".kv{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #273252;padding:8px 0;}"
+        ".kv:last-child{border-bottom:none;}"
+        ".kv .k{color:#aab7d6;}"
+        ".kv .v{color:#e8ecf6;max-width:65%;text-align:right;word-break:break-word;}"
         ".danger{color:#ffb4b4;}"
         ".warning{color:#ffd38a;}"
+        ".badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #2c3a63;background:#1a2442;color:#e8ecf6;}"
+        ".badge-ok{border-color:#2b6a4a;background:#123122;color:#bff7d5;}"
+        ".badge-warn{border-color:#7a5a1e;background:#2a1e0e;color:#ffd38a;}"
+        ".badge-bad{border-color:#6a2b2b;background:#2a1010;color:#ffb4b4;}"
         "details{margin:8px 0;}"
         "input[type='password']{padding:8px 10px;border:1px solid #2c3a63;border-radius:10px;background:#0e1529;color:#e8ecf6;min-width:260px;}"
         "ul{margin:8px 0 0 18px;padding:0;}"
@@ -56,6 +70,9 @@ def _renderNav() -> str:
         "<a href='/'>Главная</a>"
         "<a href='/runs'>Runs</a>"
         "<a href='/logs'>Logs</a>"
+        "<a href='/tools'>Tools</a>"
+        "<a href='/skills'>Skills</a>"
+        "<a href='/config/tools'>Tool config</a>"
         "<a href='/git/status'>Git Status</a>"
         "<a href='/git/diff'>Git Diff</a>"
         "<form method='post' action='/logout' style='margin:0;'>"
@@ -67,19 +84,64 @@ def _renderNav() -> str:
     return ret
 
 
-def renderIndexPage() -> str:
+def renderIndexPage(in_stats: dict[str, Any]) -> str:
     ret: str
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if bool(in_stats.get("adminWritesEnabled", False)) is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    lastRunId = str(in_stats.get("lastRunId", ""))
+    lastRunLink = (
+        f"<a href='/runs/{html.escape(lastRunId)}'>{html.escape(lastRunId)}</a>"
+        if lastRunId
+        else "<span class='muted'>—</span>"
+    )
     content = (
         "<h1 class='title'>simple-ai-agent-bot</h1>"
-        "<p class='muted'>Сервис запущен.</p>"
-        "<ul>"
-        "<li><a href='/health'>/health</a> — статус сервиса</li>"
-        "<li><a href='/docs'>/docs</a> — Swagger UI</li>"
-        "<li><a href='/runs'>/runs</a> — список запусков</li>"
-        "<li><a href='/logs'>/logs</a> — просмотр последних логов</li>"
-        "<li><a href='/git/status'>/git/status</a> — git status</li>"
-        "<li><a href='/git/diff'>/git/diff</a> — git diff</li>"
-        "</ul>"
+        "<p class='muted' style='margin-top:0;'>Admin dashboard</p>"
+        f"<div class='row'>{badge}<span class='muted'>security.adminWritesEnabled</span></div>"
+        "<div class='grid' style='margin-top:12px;'>"
+        "<div class='card col4'>"
+        "<p class='muted' style='margin:0;'>Tools</p>"
+        f"<p class='kpi'>{html.escape(str(in_stats.get('toolsCount','0')))}</p>"
+        "</div>"
+        "<div class='card col4'>"
+        "<p class='muted' style='margin:0;'>Skills</p>"
+        f"<p class='kpi'>{html.escape(str(in_stats.get('skillsCount','0')))}</p>"
+        "</div>"
+        "<div class='card col4'>"
+        "<p class='muted' style='margin:0;'>Runs (indexed)</p>"
+        f"<p class='kpi'>{html.escape(str(in_stats.get('runsCount','0')))}</p>"
+        "</div>"
+        "<div class='card col6'>"
+        "<h3 style='margin:0 0 8px 0;'>Runtime limits</h3>"
+        f"<div class='kv'><div class='k'>maxPromptChars</div><div class='v'>{html.escape(str(in_stats.get('maxPromptChars','')))}</div></div>"
+        f"<div class='kv'><div class='k'>maxToolOutputChars</div><div class='v'>{html.escape(str(in_stats.get('maxToolOutputChars','')))}</div></div>"
+        f"<div class='kv'><div class='k'>maxExecutionSeconds</div><div class='v'>{html.escape(str(in_stats.get('maxExecutionSeconds','')))}</div></div>"
+        "</div>"
+        "<div class='card col6'>"
+        "<h3 style='margin:0 0 8px 0;'>Last run</h3>"
+        f"<div class='kv'><div class='k'>runId</div><div class='v'>{lastRunLink}</div></div>"
+        f"<div class='kv'><div class='k'>sessionId</div><div class='v'>{html.escape(str(in_stats.get('lastRunSessionId','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>status</div><div class='v'>{html.escape(str(in_stats.get('lastRunStatus','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>reason</div><div class='v'>{html.escape(str(in_stats.get('lastRunReason','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>createdAt</div><div class='v'>{html.escape(str(in_stats.get('lastRunCreatedAt','—')))}</div></div>"
+        "</div>"
+        "<div class='card col6'>"
+        "<h3 style='margin:0 0 8px 0;'>Context size</h3>"
+        f"<div class='kv'><div class='k'>active (recent+summary)</div><div class='v'>{html.escape(str(in_stats.get('contextActive','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>recent.md</div><div class='v'>{html.escape(str(in_stats.get('contextRecent','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>summary.md</div><div class='v'>{html.escape(str(in_stats.get('contextSummary','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>long_term.md</div><div class='v'>{html.escape(str(in_stats.get('contextLongTerm','—')))}</div></div>"
+        "</div>"
+        "<div class='card col12'>"
+        "<h3 style='margin:0 0 8px 0;'>Storage</h3>"
+        f"<div class='kv'><div class='k'>tools.yaml</div><div class='v'>{html.escape(str(in_stats.get('toolsYamlInfo','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>memory dir</div><div class='v'>{html.escape(str(in_stats.get('memoryInfo','—')))}</div></div>"
+        f"<div class='kv'><div class='k'>logs dir</div><div class='v'>{html.escape(str(in_stats.get('logsInfo','—')))}</div></div>"
+        "</div>"
+        "</div>"
     )
     ret = _renderLayout(in_title="Admin", in_content=content, in_showNav=True)
     return ret
@@ -171,6 +233,47 @@ def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str
             continue
         stepIndex = str(stepItem.get("stepIndex", ""))
         status = str(stepItem.get("status", ""))
+        observationText = str(stepItem.get("observation", ""))
+        observationSummary = ""
+        if observationText:
+            try:
+                parsedObs = json.loads(observationText)
+                if isinstance(parsedObs, dict):
+                    kindValue = str(parsedObs.get("kind", ""))
+                    if kindValue == "tool_call_blocked":
+                        reasonValue = str(parsedObs.get("reason", ""))
+                        messageValue = str(parsedObs.get("message", ""))
+                        observationSummary = (
+                            "<div class='row'>"
+                            "<span class='badge badge-warn'>guard</span>"
+                            f"<span class='muted'>tool_call_blocked</span>"
+                            "</div>"
+                            f"<p class='muted'>reason: {html.escape(reasonValue)}</p>"
+                            f"<p>{html.escape(messageValue)}</p>"
+                        )
+                    elif kindValue == "tool_observation":
+                        toolValue = str(parsedObs.get("tool_name", ""))
+                        okValue = bool(parsedObs.get("ok", False))
+                        badgeClass = "badge-ok" if okValue is True else "badge-bad"
+                        observationSummary = (
+                            "<div class='row'>"
+                            f"<span class='badge {badgeClass}'>observation</span>"
+                            f"<span class='muted'>{html.escape(toolValue)}</span>"
+                            "</div>"
+                        )
+            except json.JSONDecodeError:
+                observationSummary = ""
+
+        badgeCss = "badge"
+        if status in ("final",):
+            badgeCss = "badge badge-ok"
+        elif status in ("tool_call", "running"):
+            badgeCss = "badge"
+        elif status in ("tool_call_blocked", "parse_error"):
+            badgeCss = "badge badge-warn"
+        else:
+            badgeCss = "badge badge-bad"
+
         toolCallJson = json.dumps(stepItem.get("toolCall"), ensure_ascii=False, indent=2)
         toolResultJson = json.dumps(stepItem.get("toolResult"), ensure_ascii=False, indent=2)
         parsedJson = json.dumps(
@@ -180,8 +283,12 @@ def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str
         rawResponse = str(stepItem.get("rawModelResponse", ""))
         blocks.append(
             "<div class='card'>"
-            f"<h3>Step {html.escape(stepIndex)} — {html.escape(status)}</h3>"
-            "<details><summary>Prompt sent to LLM</summary>"
+            "<div class='row'>"
+            f"<h3 style='margin:0;'>Step {html.escape(stepIndex)}</h3>"
+            f"<span class='{badgeCss}'>{html.escape(status)}</span>"
+            "</div>"
+            + (observationSummary if observationSummary else "")
+            + "<details><summary>Prompt sent to LLM</summary>"
             f"<pre>{html.escape(promptText)}</pre></details>"
             "<details><summary>Raw model response</summary>"
             f"<pre>{html.escape(rawResponse)}</pre></details>"
@@ -191,6 +298,8 @@ def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str
             f"<pre>{html.escape(toolCallJson)}</pre></details>"
             "<details><summary>Tool result</summary>"
             f"<pre>{html.escape(toolResultJson)}</pre></details>"
+            "<details><summary>Observation</summary>"
+            f"<pre>{html.escape(observationText)}</pre></details>"
             "</div>"
         )
     content = (
@@ -280,4 +389,134 @@ def renderGitDiffPage(
         + ("".join(renderedFiles) if renderedFiles else "<p>Diff data is empty.</p>")
     )
     ret = _renderLayout(in_title="Git Diff", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderToolsPage(in_toolItems: list[dict[str, Any]]) -> str:
+    ret: str
+    blocks: list[str] = []
+    for item in in_toolItems:
+        nameValue = str(item.get("name", ""))
+        descValue = str(item.get("description", ""))
+        schemaValue = item.get("argsSchema")
+        schemaJson = json.dumps(schemaValue, ensure_ascii=False, indent=2)
+        blocks.append(
+            "<div class='card'>"
+            f"<h3 style='margin:0 0 6px 0;'>{html.escape(nameValue)}</h3>"
+            f"<p class='muted' style='margin:0 0 8px 0;'>{html.escape(descValue)}</p>"
+            "<details><summary>Args schema</summary>"
+            f"<pre>{html.escape(schemaJson)}</pre></details>"
+            "</div>"
+        )
+    content = (
+        "<h1 class='title'>Tools</h1>"
+        f"<p class='muted'>Всего: {len(in_toolItems)}</p>"
+        + ("".join(blocks) if blocks else "<p>Инструменты не найдены.</p>")
+    )
+    ret = _renderLayout(in_title="Tools", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderSkillsPage(
+    in_skillItems: list[dict[str, str]], in_adminWritesEnabled: bool
+) -> str:
+    ret: str
+    rows: list[str] = []
+    for item in in_skillItems:
+        skillId = str(item.get("skillId", ""))
+        titleValue = str(item.get("title", ""))
+        editLink = f"/skills/{quote(skillId)}"
+        rows.append(
+            "<tr>"
+            f"<td>{html.escape(skillId)}</td>"
+            f"<td>{html.escape(titleValue)}</td>"
+            f"<td><a href='{html.escape(editLink)}'>Открыть</a></td>"
+            "</tr>"
+        )
+    bodyRows = (
+        "".join(rows) if rows else "<tr><td colspan='3'>Skills не найдены.</td></tr>"
+    )
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_adminWritesEnabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    content = (
+        "<h1 class='title'>Skills</h1>"
+        f"<div class='row'>{badge}<span class='muted'>Редактирование управляется security.adminWritesEnabled</span></div>"
+        "<table>"
+        "<thead><tr><th>skillId</th><th>title</th><th>action</th></tr></thead>"
+        f"<tbody>{bodyRows}</tbody>"
+        "</table>"
+    )
+    ret = _renderLayout(in_title="Skills", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderSkillEditPage(
+    in_skillId: str,
+    in_title: str,
+    in_contentText: str,
+    in_errorText: str,
+    in_adminWritesEnabled: bool,
+) -> str:
+    ret: str
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_adminWritesEnabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    errorBlock = (
+        f"<p class='danger'>{html.escape(in_errorText)}</p>" if in_errorText else ""
+    )
+    disabledAttr = "" if in_adminWritesEnabled is True else "disabled"
+    content = (
+        f"<h1 class='title'>Skill: {html.escape(in_title)}</h1>"
+        f"<p class='muted'>id: {html.escape(in_skillId)}</p>"
+        f"<div class='row'>{badge}</div>"
+        f"{errorBlock}"
+        "<form method='post'>"
+        f"<textarea name='content' rows='24' style='width:100%;padding:10px;border-radius:10px;border:1px solid #273252;background:#0e1529;color:#e8ecf6;' {disabledAttr}>"
+        f"{html.escape(in_contentText)}"
+        "</textarea>"
+        "<div class='row' style='margin-top:10px;'>"
+        f"<button class='btn' type='submit' {disabledAttr}>Сохранить</button>"
+        f"<a class='btn' href='/skills'>Назад</a>"
+        "</div>"
+        "</form>"
+    )
+    ret = _renderLayout(in_title="Edit Skill", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderToolsConfigEditPage(
+    in_toolsYamlText: str,
+    in_errorText: str,
+    in_adminWritesEnabled: bool,
+) -> str:
+    ret: str
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_adminWritesEnabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    errorBlock = (
+        f"<p class='danger'>{html.escape(in_errorText)}</p>" if in_errorText else ""
+    )
+    disabledAttr = "" if in_adminWritesEnabled is True else "disabled"
+    content = (
+        "<h1 class='title'>Tool settings (tools.yaml)</h1>"
+        f"<div class='row'>{badge}</div>"
+        f"{errorBlock}"
+        "<form method='post'>"
+        f"<textarea name='content' rows='24' style='width:100%;padding:10px;border-radius:10px;border:1px solid #273252;background:#0e1529;color:#e8ecf6;' {disabledAttr}>"
+        f"{html.escape(in_toolsYamlText)}"
+        "</textarea>"
+        "<div class='row' style='margin-top:10px;'>"
+        f"<button class='btn' type='submit' {disabledAttr}>Сохранить</button>"
+        f"<a class='btn' href='/'>Назад</a>"
+        "</div>"
+        "</form>"
+    )
+    ret = _renderLayout(in_title="Tool Config", in_content=content, in_showNav=True)
     return ret

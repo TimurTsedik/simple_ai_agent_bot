@@ -3,6 +3,7 @@ from typing import Any
 
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsModels import LoggingSettings, ModelSettings
+from app.domain.entities.llmCompletionResult import LlmCompletionResultModel
 from app.domain.policies.fallbackPolicy import FallbackPolicy
 from app.domain.protocols.llmClientProtocol import LlmClientProtocol
 from app.models.providers.openRouterClient import OpenRouterClient, OpenRouterClientError
@@ -21,8 +22,10 @@ class LlmService(LlmClientProtocol):
         self._fallbackPolicy = FallbackPolicy(in_modelSettings=in_modelSettings)
         self._primarySuppressedUntil: datetime | None = None
 
-    def complete(self, in_modelName: str, in_promptText: str) -> str:
-        ret: str
+    def complete(
+        self, in_modelName: str, in_promptText: str
+    ) -> LlmCompletionResultModel:
+        ret: LlmCompletionResultModel
         now = datetime.now(UTC)
         isPrimarySuppressed = (
             self._primarySuppressedUntil is not None and now < self._primarySuppressedUntil
@@ -33,8 +36,13 @@ class LlmService(LlmClientProtocol):
         ).modelOrder
         lastError: OpenRouterClientError | None = None
         didComplete = False
+        extractedText = ""
+        successModelName = in_modelName
+        fallbackEvents: list[dict[str, Any]] = []
+        lastModelName = in_modelName
 
         for modelName in modelOrder:
+            lastModelName = modelName
             for _attemptIndex in range(self._modelSettings.retryCountBeforeFallback + 1):
                 try:
                     rawResponse = self._openRouterClient.createChatCompletion(
@@ -54,10 +62,24 @@ class LlmService(LlmClientProtocol):
                     )
                     extractedText = self._extractAssistantText(in_responseData=rawResponse)
                     self._onModelSuccess(in_modelName=modelName)
-                    ret = extractedText
+                    successModelName = modelName
                     didComplete = True
+                    fallbackEvents.append(
+                        {
+                            "event": "model_success",
+                            "model": modelName,
+                        }
+                    )
                 except OpenRouterClientError as in_exc:
                     lastError = in_exc
+                    fallbackEvents.append(
+                        {
+                            "event": "model_error",
+                            "model": modelName,
+                            "errorCode": in_exc.code,
+                            "errorMessage": in_exc.message,
+                        }
+                    )
                     writeJsonlEvent(
                         in_loggingSettings=self._loggingSettings,
                         in_eventType="llm_fallback_event",
@@ -81,7 +103,14 @@ class LlmService(LlmClientProtocol):
                 + errorMessage
                 + '"}'
             )
-            ret = stopResponse
+            extractedText = stopResponse
+            successModelName = lastModelName
+
+        ret = LlmCompletionResultModel(
+            content=extractedText,
+            selectedModel=successModelName,
+            fallbackEvents=fallbackEvents,
+        )
         return ret
 
     def _extractAssistantText(self, in_responseData: dict[str, Any]) -> str:

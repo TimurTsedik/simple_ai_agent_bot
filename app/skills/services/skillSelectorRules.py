@@ -17,15 +17,30 @@ class SkillSelectorRules:
             "сводка",
             "обзор",
         ]
-        ret = any(item in loweredMessage for item in newsKeywords)
+        webKeywords = [
+            "поиск",
+            "найди",
+            "найти",
+            "в интернете",
+            "в сети",
+            "источник",
+            "источники",
+            "ссылк",
+            "проверь по",
+            "что пишут",
+            "google",
+            "duckduckgo",
+        ]
+        ret = any(item in loweredMessage for item in newsKeywords + webKeywords)
         return ret
 
     def selectRelevantSkillIds(self, in_userMessage: str) -> list[str]:
         ret: list[str]
         loweredMessage = in_userMessage.lower()
         selectedIds: list[str] = ["default_assistant"]
-        _ = loweredMessage
-        if self.isToolLikelyRequired(in_userMessage=in_userMessage):
+        if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
+            selectedIds.append("web_research")
+        if any(item in loweredMessage for item in ["news", "digest", "новост", "дайджест", "рынок", "обзор", "сводка", "телеграм", "telegram"]):
             selectedIds.append("telegram_news_digest")
         ret = selectedIds
         return ret

@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
+import json
 from time import monotonic
 from typing import Any
 
@@ -85,9 +86,9 @@ class ToolExecutionCoordinator:
                         in_startedAtMonotonic=startedAt,
                     )
                 else:
-                    serializedData = str(data)
-                    truncatedData, isTruncated = truncateText(
-                        in_text=serializedData,
+                    truncatedData, isTruncated = self._serializeToolData(
+                        in_toolName=in_toolName,
+                        in_data=data,
                         in_maxChars=self._maxToolOutputChars,
                     )
                     durationMs = int((monotonic() - startedAt) * 1000)
@@ -101,6 +102,103 @@ class ToolExecutionCoordinator:
                             "truncated": isTruncated,
                         },
                     )
+        return ret
+
+    def _serializeToolData(self, in_toolName: str, in_data: Any, in_maxChars: int) -> tuple[str, bool]:
+        ret: tuple[str, bool]
+        if isinstance(in_data, (dict, list)):
+            serializedData = json.dumps(in_data, ensure_ascii=False)
+            if len(serializedData) <= in_maxChars:
+                ret = (serializedData, False)
+            else:
+                previewObj = self._buildJsonPreview(in_toolName=in_toolName, in_data=in_data)
+                previewText = json.dumps(previewObj, ensure_ascii=False)
+                truncatedPreview, _isTruncated = truncateText(
+                    in_text=previewText,
+                    in_maxChars=in_maxChars,
+                )
+                ret = (truncatedPreview, True)
+        else:
+            serializedData = str(in_data)
+            truncatedText, isTruncated = truncateText(
+                in_text=serializedData,
+                in_maxChars=in_maxChars,
+            )
+            ret = (truncatedText, isTruncated)
+        return ret
+
+    def _buildJsonPreview(self, in_toolName: str, in_data: Any) -> dict[str, Any]:
+        ret: dict[str, Any]
+        payload: dict[str, Any] = {
+            "_preview": True,
+            "_tool_name": in_toolName,
+        }
+        if not isinstance(in_data, dict):
+            ret = {"_preview": True, "_tool_name": in_toolName, "type": type(in_data).__name__}
+            return ret
+
+        if in_toolName == "web_search":
+            results = in_data.get("results", [])
+            fetchedPages = in_data.get("fetchedPages", [])
+            blockedUrls = in_data.get("blockedUrls", [])
+            fetchErrors = in_data.get("fetchErrors", [])
+            sampleResultUrls: list[str] = []
+            if isinstance(results, list):
+                for item in results[:5]:
+                    if isinstance(item, dict) and isinstance(item.get("url"), str):
+                        sampleResultUrls.append(item["url"])
+            sampleFetchedUrls: list[str] = []
+            if isinstance(fetchedPages, list):
+                for item in fetchedPages[:3]:
+                    if isinstance(item, dict) and isinstance(item.get("url"), str):
+                        sampleFetchedUrls.append(item["url"])
+            payload["query"] = in_data.get("query")
+            payload["searchProvider"] = in_data.get("searchProvider")
+            payload["resultsCount"] = len(results) if isinstance(results, list) else None
+            payload["fetchedPagesCount"] = (
+                len(fetchedPages) if isinstance(fetchedPages, list) else None
+            )
+            payload["blockedUrlsCount"] = (
+                len(blockedUrls) if isinstance(blockedUrls, list) else None
+            )
+            payload["fetchErrorsCount"] = (
+                len(fetchErrors) if isinstance(fetchErrors, list) else None
+            )
+            payload["sampleResultUrls"] = sampleResultUrls
+            payload["sampleFetchedUrls"] = sampleFetchedUrls
+            ret = payload
+            return ret
+
+        if in_toolName == "digest_telegram_news":
+            items = in_data.get("items", [])
+            sampleLinks: list[str] = []
+            previewItems: list[dict[str, Any]] = []
+            if isinstance(items, list):
+                for oneItem in items[:3]:
+                    if isinstance(oneItem, dict):
+                        linkValue = oneItem.get("link")
+                        if isinstance(linkValue, str):
+                            sampleLinks.append(linkValue)
+                        previewItems.append(
+                            {
+                                "channel": oneItem.get("channel"),
+                                "dateUnixTs": oneItem.get("dateUnixTs"),
+                                "summary": str(oneItem.get("summary", ""))[:240],
+                                "link": linkValue,
+                            }
+                        )
+            payload["count"] = in_data.get("count")
+            payload["sinceUnixTsUsed"] = in_data.get("sinceUnixTsUsed")
+            payload["itemsPreview"] = previewItems
+            payload["sampleLinks"] = sampleLinks[:5]
+            channelErrors = in_data.get("channelErrors", {})
+            payload["channelErrorsCount"] = (
+                len(channelErrors) if isinstance(channelErrors, dict) else None
+            )
+            ret = payload
+            return ret
+
+        ret = payload
         return ret
 
     def _buildError(

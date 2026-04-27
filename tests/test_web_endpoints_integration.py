@@ -25,6 +25,10 @@ def testWebEndpointsRequireLogin(monkeypatch) -> None:
     assert response.status_code == 303
     assert response.headers.get("location") == "/login"
 
+    internalResponse = client.get("/internal/runs", follow_redirects=False)
+    assert internalResponse.status_code == 303
+    assert internalResponse.headers.get("location") == "/login"
+
 
 def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
     client = _buildClient(in_monkeypatch=monkeypatch)
@@ -87,3 +91,23 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
     assert "<script>" not in diffResponse.text
     assert "&lt;script&gt;" in statusResponse.text
     assert "&lt;script&gt;" in diffResponse.text
+
+    internalRuns = client.get("/internal/runs", follow_redirects=False)
+    assert internalRuns.status_code == 200
+    assert "items" in internalRuns.json()
+
+
+def testToolsAndSkillsPagesRequireLogin(monkeypatch) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch)
+
+    toolsResponse = client.get("/tools", follow_redirects=False)
+    assert toolsResponse.status_code == 303
+    assert toolsResponse.headers.get("location") == "/login"
+
+    skillsResponse = client.get("/skills", follow_redirects=False)
+    assert skillsResponse.status_code == 303
+    assert skillsResponse.headers.get("location") == "/login"
+
+    toolsConfigResponse = client.get("/config/tools", follow_redirects=False)
+    assert toolsConfigResponse.status_code == 303
+    assert toolsConfigResponse.headers.get("location") == "/login"

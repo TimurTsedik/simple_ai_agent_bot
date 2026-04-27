@@ -11,7 +11,7 @@ class TelegramSettings(BaseModel):
     pollingTimeoutSeconds: int = Field(ge=1, le=60)
     allowedUserIds: list[int]
     denyMessageText: str
-    digestChannelUsernames: list[str]
+    digestChannelUsernames: list[str] = Field(default_factory=list)
     portfolioTickers: list[str] = Field(default_factory=list)
     digestSemanticKeywords: list[str] = Field(default_factory=list)
 
@@ -35,12 +35,18 @@ class RuntimeSettings(BaseModel):
     recentMessagesLimit: int = Field(ge=1, le=50)
     sessionSummaryMaxChars: int = Field(ge=256, le=10000)
     skillSelectionMaxCount: int = Field(ge=1, le=4)
+    toolCallHistoryWindowSize: int = Field(default=8, ge=2, le=30)
+    maxSameToolSignatureInWindow: int = Field(default=3, ge=2, le=10)
+    maxToolCallBlockedIterations: int = Field(default=3, ge=1, le=10)
+    extraSecondsPerLlmError: int = Field(default=45, ge=0, le=600)
+    maxExtraSecondsTotal: int = Field(default=180, ge=0, le=1800)
 
 
 class SecuritySettings(BaseModel):
     webSessionCookieTtlSeconds: int = Field(ge=300, le=604800)
     maxAdminTokens: int = Field(ge=1, le=10)
     allowedReadOnlyPaths: list[str]
+    adminWritesEnabled: bool = False
 
 
 class LoggingSettings(BaseModel):
@@ -62,11 +68,25 @@ class MemorySettings(BaseModel):
     recentMessagesFileName: str = "recent.md"
 
 
+class TelegramNewsDigestToolSettings(BaseModel):
+    digestChannelUsernames: list[str] = Field(default_factory=list)
+    portfolioTickers: list[str] = Field(default_factory=list)
+    digestSemanticKeywords: list[str] = Field(default_factory=list)
+
+
+class ToolsSettings(BaseModel):
+    toolsConfigPath: str = "./app/config/tools.yaml"
+    telegramNewsDigest: TelegramNewsDigestToolSettings = Field(
+        default_factory=TelegramNewsDigestToolSettings
+    )
+
+
 class SettingsModel(BaseModel):
     app: AppSettings
     telegram: TelegramSettings
     models: ModelSettings
     runtime: RuntimeSettings
+    tools: ToolsSettings = Field(default_factory=ToolsSettings)
     security: SecuritySettings
     logging: LoggingSettings
     skills: SkillsSettings = Field(default_factory=SkillsSettings)

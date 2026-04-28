@@ -31,6 +31,7 @@ from app.domain.policies.memoryPolicy import MemoryPolicy
 from app.domain.policies.stopPolicy import StopPolicy
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
+from app.integrations.telegram.telegramMessageChunker import splitTelegramMessage
 from app.integrations.git.gitService import GitService
 from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
@@ -138,23 +139,23 @@ def _buildApp() -> FastAPI:
         in_runId: str,
         in_finalAnswer: str,
     ) -> None:
-        formattedText = (
+        headerText = (
             f"Расписание: {in_jobId}\n"
             f"Сессия: {in_sessionId}\n"
-            f"RunId: {in_runId}\n\n"
-            f"{in_finalAnswer}"
+            f"RunId: {in_runId}\n"
         )
+        bodyText = str(in_finalAnswer or "").strip()
+        formattedText = headerText + "\n" + bodyText if bodyText else headerText
         chunkSize = 3500
-        textChunks = [
-            formattedText[index : index + chunkSize]
-            for index in range(0, len(formattedText), chunkSize)
-        ] or [formattedText]
+        textChunks = splitTelegramMessage(
+            in_text=formattedText,
+            in_maxChars=chunkSize,
+            in_preferSeparator="\n---\n",
+        )
         apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
         for chatId in settings.telegram.allowedUserIds:
             for index, chunk in enumerate(textChunks, start=1):
-                chunkPrefix = (
-                    f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
-                )
+                chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
                 try:
                     requests.post(
                         apiUrl,
@@ -172,6 +173,7 @@ def _buildApp() -> FastAPI:
                             "messageChars": len(chunk),
                             "chunkIndex": index,
                             "chunkTotal": len(textChunks),
+                            "chunkMaxChars": chunkSize,
                         },
                     )
                 except requests.RequestException as in_exc:

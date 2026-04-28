@@ -55,6 +55,7 @@ class AgentLoop:
         in_skillsBlock: str,
         in_memoryBlock: str,
         in_allowToolCalls: bool = True,
+        in_requiredFirstSuccessfulToolName: str = "",
     ) -> AgentLoopResultModel:
         ret: AgentLoopResultModel
         startedAtMonotonicSeconds = monotonic()
@@ -84,6 +85,10 @@ class AgentLoop:
         blockedToolCallIterations = 0
         loopFallbackEvents: list[dict[str, Any]] = []
         llmErrorCount = 0
+        toolTimeoutCounts: dict[str, int] = {}
+        maxTimeoutsPerTool = 2
+        missingRequiredToolFinalCount = 0
+        requiredToolName = in_requiredFirstSuccessfulToolName.strip()
 
         while isFinished is False:
             stopDecision = self._stopPolicy.evaluate(
@@ -177,12 +182,39 @@ class AgentLoop:
                         "memoryCandidates": parsedOutput.memoryCandidates,
                     }
                     if parsedOutput.outputType == "final":
-                        blockedToolCallIterations = 0
-                        completionReason = "final_answer"
-                        finalAnswer = parsedFinalAnswer
-                        memoryCandidates = parsedOutput.memoryCandidates or []
-                        stepTrace["status"] = "final"
-                        isFinished = True
+                        if requiredToolName and requiredToolName not in successfulToolNames:
+                            missingRequiredToolFinalCount += 1
+                            blockedObservation = json.dumps(
+                                {
+                                    "kind": "final_blocked",
+                                    "reason": "required_tool_not_called",
+                                    "required_tool_name": requiredToolName,
+                                    "message": (
+                                        f"Перед final-ответом нужен успешный вызов `{requiredToolName}`."
+                                    ),
+                                },
+                                ensure_ascii=False,
+                            )
+                            observations.append(blockedObservation)
+                            stepTrace["status"] = "final_blocked_missing_required_tool"
+                            stepTrace["observation"] = blockedObservation
+                            completionReason = "running"
+                            finalAnswer = ""
+                            isFinished = False
+                            if missingRequiredToolFinalCount >= 2:
+                                completionReason = "required_tool_missing"
+                                finalAnswer = (
+                                    f"Не удалось корректно обработать запрос: модель не вызвала "
+                                    f"обязательный инструмент `{requiredToolName}`."
+                                )
+                                isFinished = True
+                        else:
+                            blockedToolCallIterations = 0
+                            completionReason = "final_answer"
+                            finalAnswer = parsedFinalAnswer
+                            memoryCandidates = parsedOutput.memoryCandidates or []
+                            stepTrace["status"] = "final"
+                            isFinished = True
                     elif parsedOutput.outputType == "stop":
                         blockedToolCallIterations = 0
                         completionReason = "stop_response"
@@ -349,10 +381,20 @@ class AgentLoop:
                             in_toolName=toolName,
                             in_rawArgs=toolArgs,
                         )
+                        if (
+                            toolResult.ok is False
+                            and isinstance(toolResult.error, dict)
+                            and str(toolResult.error.get("code", "")) == "TIMEOUT"
+                        ):
+                            toolTimeoutCounts[toolName] = toolTimeoutCounts.get(toolName, 0) + 1
+                        else:
+                            toolTimeoutCounts[toolName] = 0
                         if toolResult.ok is True:
                             successfulToolNames.add(toolName)
                             toolNameToLastOkResult[toolName] = toolResult
                             toolNameToLastOkArgs[toolName] = dict(toolArgs)
+                            if requiredToolName and toolName == requiredToolName:
+                                missingRequiredToolFinalCount = 0
                         self._appendToolSignatureWindow(
                             io_window=toolSignatureWindow,
                             in_signature=toolSignature,
@@ -375,9 +417,20 @@ class AgentLoop:
                             "meta": toolResult.meta,
                         }
                         stepTrace["observation"] = observationText
-                        completionReason = "running"
-                        finalAnswer = ""
-                        isFinished = False
+                        timeoutCount = toolTimeoutCounts.get(toolName, 0)
+                        if timeoutCount >= maxTimeoutsPerTool:
+                            completionReason = "tool_timeout_limit"
+                            finalAnswer = (
+                                "Не удалось завершить запрос: инструмент "
+                                f"`{toolName}` несколько раз превысил лимит времени. "
+                                "Попробуйте повторить запрос позже."
+                            )
+                            stepTrace["status"] = "tool_timeout_limit"
+                            isFinished = True
+                        else:
+                            completionReason = "running"
+                            finalAnswer = ""
+                            isFinished = False
                 stepTraces.append(stepTrace)
                 stepCount += 1
 
@@ -594,7 +647,60 @@ class AgentLoop:
 
     def _buildFallbackFinalAnswer(self, in_observations: list[str]) -> str:
         ret: str
-        ret = "Не удалось корректно сформировать ответ. Повторите запрос."
+        ret = (
+            "Не удалось корректно сформировать ответ: не удалось получить данные из инструментов. "
+            "Повторите запрос."
+        )
+        for oneObservation in reversed(in_observations):
+            try:
+                payload = json.loads(oneObservation)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("kind") != "tool_observation":
+                continue
+            if payload.get("ok") is not True:
+                continue
+            toolName = str(payload.get("tool_name", ""))
+            if toolName == "digest_telegram_news":
+                dataPreview = payload.get("data_preview", {})
+                if isinstance(dataPreview, dict):
+                    itemsPreview = dataPreview.get("items_preview", [])
+                    if isinstance(itemsPreview, list) and len(itemsPreview) > 0:
+                        lines = ["Не удалось корректно отформатировать полный дайджест. Краткий итог:"]
+                        for oneItem in itemsPreview[:5]:
+                            if not isinstance(oneItem, dict):
+                                continue
+                            summaryText = str(oneItem.get("summary", "")).strip()
+                            linkText = str(oneItem.get("link", "")).strip()
+                            channelText = str(oneItem.get("channel", "")).strip()
+                            if summaryText:
+                                lineText = f"- {summaryText}"
+                            else:
+                                lineText = f"- Новость из канала {channelText or 'unknown'}"
+                            if linkText:
+                                lineText += f" ({linkText})"
+                            lines.append(lineText)
+                        ret = "\n".join(lines)
+                        return ret
+            if toolName == "read_email":
+                emailPreview = payload.get("email_preview", {})
+                if isinstance(emailPreview, dict):
+                    itemsPreview = emailPreview.get("items_preview", [])
+                    if isinstance(itemsPreview, list) and len(itemsPreview) > 0:
+                        lines = ["Не удалось корректно отформатировать полный дайджест. Краткий итог по письмам:"]
+                        for oneItem in itemsPreview[:5]:
+                            if not isinstance(oneItem, dict):
+                                continue
+                            subjectText = str(oneItem.get("subject", "")).strip()
+                            fromText = str(oneItem.get("from", "")).strip()
+                            dateText = str(oneItem.get("date", "")).strip()
+                            lineParts = [part for part in [subjectText, fromText, dateText] if part]
+                            if len(lineParts) > 0:
+                                lines.append(f"- {' | '.join(lineParts)}")
+                        ret = "\n".join(lines)
+                        return ret
         for oneObservation in reversed(in_observations):
             try:
                 payload = json.loads(oneObservation)

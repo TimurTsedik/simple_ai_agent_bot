@@ -67,7 +67,7 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
                 "Читает письма из почтового ящика по IMAP (например, последние непрочитанные)."
             ),
             argsModel=ReadEmailArgsModel,
-            timeoutSeconds=25,
+            timeoutSeconds=45,
             executeCallable=readEmailTool.execute,
         ),
         ToolDefinitionModel(

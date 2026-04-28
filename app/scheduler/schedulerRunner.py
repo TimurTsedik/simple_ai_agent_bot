@@ -82,14 +82,6 @@ class SchedulerRunner:
                 sleepFor = float(tickSeconds) - elapsed
                 if sleepFor < 0.05:
                     sleepFor = 0.05
-                writeJsonlEvent(
-                    in_loggingSettings=self.in_loggingSettings,
-                    in_eventType="scheduler_tick_sleep",
-                    in_payload={
-                        "elapsedSeconds": round(elapsed, 3),
-                        "sleepSeconds": round(sleepFor, 3),
-                    },
-                )
                 self.in_sleepCallable(sleepFor)
         finally:
             writeJsonlEvent(
@@ -100,39 +92,23 @@ class SchedulerRunner:
 
     def _tickOnce(self) -> None:
         nowTs = int(self.in_nowUnixTsProvider())
-        enabledJobs = [job for job in self.in_schedulerSettings.jobs if job.enabled is True]
-        writeJsonlEvent(
-            in_loggingSettings=self.in_loggingSettings,
-            in_eventType="scheduler_tick_started",
-            in_payload={
-                "nowUnixTs": nowTs,
-                "jobsTotal": len(self.in_schedulerSettings.jobs),
-                "jobsEnabled": len(enabledJobs),
-                "runningJobsCount": len(self._runningJobs),
-            },
-        )
         for job in list(self.in_schedulerSettings.jobs):
             if job.enabled is not True:
-                writeJsonlEvent(
-                    in_loggingSettings=self.in_loggingSettings,
-                    in_eventType="scheduler_job_skipped",
-                    in_payload={
-                        "jobId": job.jobId,
-                        "reason": "disabled",
-                    },
-                )
                 continue
             dueInfo = self._buildDueInfo(in_job=job, in_nowUnixTs=nowTs)
             if dueInfo["isDue"] is False:
-                writeJsonlEvent(
-                    in_loggingSettings=self.in_loggingSettings,
-                    in_eventType="scheduler_job_skipped",
-                    in_payload={
-                        "jobId": job.jobId,
-                        "reason": str(dueInfo["reason"]),
-                        "details": dueInfo,
-                    },
-                )
+                if str(dueInfo["reason"]) == "hour_window_blocked":
+                    hourWindow = dueInfo.get("hourWindow", {})
+                    if isinstance(hourWindow, dict) and str(hourWindow.get("reason")) == "window_misconfigured":
+                        writeJsonlEvent(
+                            in_loggingSettings=self.in_loggingSettings,
+                            in_eventType="scheduler_job_skipped",
+                            in_payload={
+                                "jobId": job.jobId,
+                                "reason": "window_misconfigured",
+                                "details": dueInfo,
+                            },
+                        )
                 continue
             writeJsonlEvent(
                 in_loggingSettings=self.in_loggingSettings,
@@ -143,12 +119,6 @@ class SchedulerRunner:
                 },
             )
             self._runJobIfNotRunning(in_job=job, in_nowUnixTs=nowTs)
-        writeJsonlEvent(
-            in_loggingSettings=self.in_loggingSettings,
-            in_eventType="scheduler_tick_finished",
-            in_payload={"nowUnixTs": nowTs},
-        )
-
     def _buildDueInfo(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> dict[str, Any]:
         ret: dict[str, Any]
         allowedInfo = self._buildHourWindowInfo(in_job=in_job, in_nowUnixTs=in_nowUnixTs)

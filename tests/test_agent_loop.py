@@ -269,6 +269,63 @@ def testAgentLoopReturnsFinalAnswer() -> None:
     assert result.finalAnswer == "Финал"
 
 
+def testAgentLoopBlocksFinalUntilRequiredToolSucceeds() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=6)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"final","reason":"done","final_answer":"сразу финал"}',
+            '{"type":"tool_call","reason":"need_email","action":"read_email","args":{"maxItems":1}}',
+            '{"type":"final","reason":"done","final_answer":"итог после инструмента"}',
+        ]
+    )
+
+    def _readEmailTool(_in_args: dict) -> dict:
+        ret = {
+            "count": 1,
+            "sinceUnixTsUsed": 0,
+            "items": [{"uid": "1", "subject": "s"}],
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="read_email",
+                description="email",
+                argsModel=ReadEmailArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_readEmailTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(
+        in_userMessage="прочитай письма и дай дайджест",
+        in_skillsBlock="",
+        in_memoryBlock="",
+        in_requiredFirstSuccessfulToolName="read_email",
+    )
+
+    assert result.completionReason == "final_answer"
+    assert result.finalAnswer == "итог после инструмента"
+    assert result.stepCount == 3
+    assert result.toolCallCount == 1
+    assert result.stepTraces[0].get("status") == "final_blocked_missing_required_tool"
+
+
 def testAgentLoopStopsOnMalformedJsonAfterRepair() -> None:
     runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
     badJson = '{"type":"final","reason":"done","final_answer":"Финал"'
@@ -618,6 +675,53 @@ def testAgentLoopStopsAfterMaxBlockedToolCalls() -> None:
     assert result.toolCallCount == 0
 
 
+def testAgentLoopStopsAfterRepeatedToolTimeouts() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"a","args":{}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{}}',
+            '{"type":"tool_call","reason":"x","action":"a","args":{}}',
+        ]
+    )
+
+    def _timeoutTool(_in_args: dict) -> dict:
+        raise TimeoutError("slow tool")
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="a",
+                description="test tool",
+                argsModel=EmptyArgsModel,
+                timeoutSeconds=1,
+                executeCallable=_timeoutTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+
+    assert result.completionReason == "tool_timeout_limit"
+    assert "превысил лимит времени" in result.finalAnswer
+    assert result.stepCount == 2
+    assert result.toolCallCount == 2
+    assert result.stepTraces[-1].get("status") == "tool_timeout_limit"
+
+
 def testAgentLoopToolObservationIsCompactJson() -> None:
     runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
     llmClient = SequenceLlmClient(
@@ -824,6 +928,96 @@ def testDigestObservationContainsUpToTenItems() -> None:
     dataPreview = obsPayload.get("data_preview", {})
     previewItems = dataPreview.get("items_preview", [])
     assert len(previewItems) == 6
+
+
+def testAgentLoopBuildsDigestFallbackFromSuccessfulObservation() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=4)
+    runtimeSettings.maxToolOutputChars = 20000
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"maxItems":10}}',
+            '{"type":"final","reason":"x","final_answer":"bad"}{"type":"stop","reason":"x","final_answer":"bad"}',
+            '{"type":"final","reason":"completed","final_answer":"I’m sorry about the previous formatting issue. Here is the corrected response in a valid JSON object."}',
+        ]
+    )
+
+    def _digestTool(_in_args: dict) -> dict:
+        ret = {
+            "count": 2,
+            "sinceUnixTsUsed": 1777367000,
+            "items": [
+                {
+                    "channel": "markettwits",
+                    "dateUnixTs": "1777376989",
+                    "summary": "Новость 1",
+                    "link": "https://t.me/markettwits/1",
+                },
+                {
+                    "channel": "cbrstocks",
+                    "dateUnixTs": "1777376185",
+                    "summary": "Новость 2",
+                    "link": "https://t.me/cbrstocks/2",
+                },
+            ],
+            "channelErrors": {},
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="digest_telegram_news",
+                description="digest",
+                argsModel=DigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_digestTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    assert result.completionReason == "final_answer"
+    assert "Краткий итог" in result.finalAnswer
+    assert "Новость 1" in result.finalAnswer
+    assert "https://t.me/markettwits/1" in result.finalAnswer
+
+
+def testAgentLoopFallbackMentionsNoToolDataWhenObservationsEmpty() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=3)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"final","reason":"x","final_answer":"bad"}{"type":"stop","reason":"x","final_answer":"bad"}',
+            '{"type":"final","reason":"short","final_answer":"I have corrected the output format and provided a valid JSON response."}',
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=_makeToolExecutionCoordinator(
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=ToolRegistry(in_toolDefinitions=[]),
+    )
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    assert result.completionReason == "final_answer"
+    assert "не удалось получить данные" in result.finalAnswer.lower()
 
 
 def testToolCoordinatorKeepsValidJsonWhenTruncated() -> None:

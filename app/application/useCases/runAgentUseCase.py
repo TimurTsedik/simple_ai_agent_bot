@@ -40,6 +40,9 @@ class RunAgentUseCase:
             in_allowToolCalls=self._skillService.isToolLikelyRequired(
                 in_userMessage=in_inputMessage
             ),
+            in_requiredFirstSuccessfulToolName=self._resolveRequiredFirstSuccessfulToolName(
+                in_selectedSkillIds=selectionResult.selectedSkillIds
+            ),
         )
         toolCalls = [
             item.get("toolCall")
@@ -115,6 +118,23 @@ class RunAgentUseCase:
             finalAnswer=loopResult.finalAnswer,
             selectedModel=loopResult.selectedModel,
         )
+        return ret
+
+    def _resolveRequiredFirstSuccessfulToolName(
+        self,
+        in_selectedSkillIds: list[str],
+    ) -> str:
+        ret: str
+        selectedSet = set(in_selectedSkillIds)
+        if (
+            "compose_digest" in selectedSet
+            and "read_and_analyze_email" in selectedSet
+        ):
+            ret = "read_email"
+        elif "telegram_news_digest" in selectedSet:
+            ret = "digest_telegram_news"
+        else:
+            ret = ""
         return ret
 
     def _buildEffectiveConfigSnapshot(self, in_includeToolConfig: bool) -> dict:

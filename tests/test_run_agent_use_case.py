@@ -31,6 +31,12 @@ class FakeSkillService:
         ret = True
         return ret
 
+    def setSelectedSkillIds(self, in_skillIds: list[str]) -> None:
+        self._selectionResult = SkillSelectionResultModel(
+            selectedSkillIds=in_skillIds,
+            skillsBlock="skill block",
+        )
+
 
 class FakeMemoryService:
     def buildMemoryBlock(self, in_sessionId: str) -> str:
@@ -62,6 +68,7 @@ class FakeRunRepository:
 class FakeAgentLoop:
     def __init__(self, in_result: AgentLoopResultModel) -> None:
         self._result = in_result
+        self.lastRequiredFirstToolName = ""
 
     def run(
         self,
@@ -69,11 +76,13 @@ class FakeAgentLoop:
         in_skillsBlock: str,
         in_memoryBlock: str,
         in_allowToolCalls: bool = True,
+        in_requiredFirstSuccessfulToolName: str = "",
     ) -> AgentLoopResultModel:
         _ = in_userMessage
         _ = in_skillsBlock
         _ = in_memoryBlock
         _ = in_allowToolCalls
+        self.lastRequiredFirstToolName = in_requiredFirstSuccessfulToolName
         ret = self._result
         return ret
 
@@ -220,3 +229,73 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
     assert "digestSemanticKeywords" not in configSnapshot["telegram"]
     assert "telegramNewsDigest" not in configSnapshot["tools"]
     assert len(repository.savedRunRecord["fallbackEvents"]) == 1
+
+
+def testRunAgentUseCaseRequiresReadEmailForEmailDigestSkills() -> None:
+    loopResult = AgentLoopResultModel(
+        completionReason="final_answer",
+        finalAnswer="ok",
+        stepCount=1,
+        toolCallCount=0,
+        selectedModel="m1",
+        memoryCandidates=[],
+        executionDurationMs=10,
+        stepTraces=[],
+        promptSnapshot="prompt",
+        fallbackEvents=(),
+    )
+    repository = FakeRunRepository()
+    fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
+    fakeSkillService = FakeSkillService()
+    fakeSkillService.setSelectedSkillIds(
+        ["default_assistant", "compose_digest", "read_and_analyze_email"]
+    )
+    useCase = RunAgentUseCase(
+        in_agentLoop=fakeAgentLoop,
+        in_skillService=fakeSkillService,  # type: ignore[arg-type]
+        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_settings=_buildSettings(),
+    )
+
+    _ = useCase.execute(
+        in_sessionId="scheduler:email",
+        in_inputMessage="прочитай непрочитанные письма и сделай дайджест",
+    )
+
+    assert fakeAgentLoop.lastRequiredFirstToolName == "read_email"
+
+
+def testRunAgentUseCaseRequiresDigestToolForTelegramNewsSkill() -> None:
+    loopResult = AgentLoopResultModel(
+        completionReason="final_answer",
+        finalAnswer="ok",
+        stepCount=1,
+        toolCallCount=0,
+        selectedModel="m1",
+        memoryCandidates=[],
+        executionDurationMs=10,
+        stepTraces=[],
+        promptSnapshot="prompt",
+        fallbackEvents=(),
+    )
+    repository = FakeRunRepository()
+    fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
+    fakeSkillService = FakeSkillService()
+    fakeSkillService.setSelectedSkillIds(
+        ["default_assistant", "telegram_news_digest"]
+    )
+    useCase = RunAgentUseCase(
+        in_agentLoop=fakeAgentLoop,
+        in_skillService=fakeSkillService,  # type: ignore[arg-type]
+        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_settings=_buildSettings(),
+    )
+
+    _ = useCase.execute(
+        in_sessionId="scheduler:telegram_news",
+        in_inputMessage="покажи дайджест экономических новостей за последний час",
+    )
+
+    assert fakeAgentLoop.lastRequiredFirstToolName == "digest_telegram_news"

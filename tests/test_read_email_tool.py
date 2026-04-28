@@ -11,11 +11,14 @@ class FakeImapClient:
     def __init__(self, in_messagesByUid: dict[bytes, bytes]) -> None:
         self._messagesByUid = dict(in_messagesByUid)
         self.loggedOut = False
+        self.selectedReadonly: bool | None = None
+        self.storedSeenUids: list[str] = []
 
     def login(self, user: str, password: str):
         return "OK", [b"logged_in"]
 
     def select(self, mailbox: str, readonly: bool = True):
+        self.selectedReadonly = readonly
         return "OK", [b"selected"]
 
     def uid(self, command: str, *args):
@@ -27,6 +30,10 @@ class FakeImapClient:
             uid = args[0]
             msg = self._messagesByUid.get(uid, b"")
             return "OK", [(b"RFC822", msg)]
+        if cmd == "STORE":
+            uid = args[0]
+            self.storedSeenUids.append(uid.decode("ascii", errors="replace"))
+            return "OK", [b"stored"]
         raise RuntimeError(f"unsupported command: {command}")
 
     def logout(self):
@@ -75,6 +82,9 @@ def testReadEmailToolReturnsItemsAndSnippets():
     assert result["items"][0]["uid"] in {"10", "11"}
     assert isinstance(result["items"][0]["snippet"], str)
     assert fake.loggedOut is True
+    assert fake.selectedReadonly is False
+    assert sorted(fake.storedSeenUids) == ["10", "11"]
+    assert result["markedAsReadCount"] == 2
 
 
 def testReadEmailToolExtractsSnippetFromHtml():
@@ -151,4 +161,23 @@ def testReadEmailToolRequiresPassword():
     )
     with pytest.raises(RuntimeError):
         _ = tool.execute({})
+
+
+def testReadEmailToolCanKeepUnreadWithoutSeenFlag() -> None:
+    settings = EmailReaderToolSettings(email="me@example.com")
+    now = datetime.now(timezone.utc)
+    oneMessage = _makeRfc822Bytes("Alice <a@example.com>", "Hello", "Body one", now)
+    fake = FakeImapClient({b"10": oneMessage})
+    tool = ReadEmailTool(
+        in_emailSettings=settings,
+        in_password="app_password",
+        in_imapClientFactory=lambda _s: fake,
+    )
+    result = tool.execute(
+        {"unreadOnly": True, "markAsRead": False, "sinceHours": 24, "maxItems": 10}
+    )
+    assert result["count"] == 1
+    assert result["markedAsReadCount"] == 0
+    assert fake.selectedReadonly is True
+    assert fake.storedSeenUids == []
 

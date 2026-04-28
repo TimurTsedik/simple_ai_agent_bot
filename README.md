@@ -100,7 +100,7 @@ tools:
 scheduler:
   enabled: true
   schedulesConfigPath: "./app/config/schedules.yaml"
-  tickSeconds: 1
+  tickSeconds: 30
 ```
 
 2) Создать файл расписаний:
@@ -110,7 +110,6 @@ cp app/config/schedules.example.yaml app/config/schedules.yaml
 ```
 
 Формат `app/config/schedules.yaml`:
-- `tickSeconds` — частота тика планировщика (сек)
 - `jobs[]`:
   - `jobId` — уникальный ID job-а
   - `enabled` — включён/выключен
@@ -118,6 +117,8 @@ cp app/config/schedules.example.yaml app/config/schedules.yaml
   - `schedule.allowedHourStart / allowedHourEnd` — окно часов (например 8..23), локальное время сервера
   - `actionInternalRun.sessionId` — sessionId для этих run-ов (удобно выделять `scheduler:*`)
   - `actionInternalRun.message` — текст, который будет отправлен агенту как пользовательское сообщение
+
+Важно: `scheduler.tickSeconds` задаётся только в `app/config/config.yaml`.
 
 State jobs сохраняется в: `data/scheduler/jobs_state.json` (lastRunAt/lastStatus/lastRunId).
 

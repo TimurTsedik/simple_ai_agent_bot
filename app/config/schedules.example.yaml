@@ -2,7 +2,7 @@
 # Для включения:
 # - scheduler.enabled=true в app/config/config.yaml
 # - скопировать этот файл в app/config/schedules.yaml
-tickSeconds: 1
+# Частота тика задается только в app/config/config.yaml (scheduler.tickSeconds).
 jobs:
   - jobId: "email_digest_hourly"
     enabled: true

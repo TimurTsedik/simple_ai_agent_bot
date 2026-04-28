@@ -159,18 +159,27 @@ class AgentLoop:
                     isFinished = True
                 else:
                     parsedOutput = parseResult.parsedOutput
+                    parsedFinalAnswer = parsedOutput.finalAnswer or ""
+                    if (
+                        repairRawOutput is not None
+                        and parsedOutput.outputType == "final"
+                        and self._isTechnicalFinalAnswer(in_text=parsedFinalAnswer)
+                    ):
+                        parsedFinalAnswer = self._buildFallbackFinalAnswer(
+                            in_observations=observations
+                        )
                     stepTrace["parsedModelResponse"] = {
                         "outputType": parsedOutput.outputType,
                         "reason": parsedOutput.reason,
                         "action": parsedOutput.action,
                         "args": parsedOutput.args,
-                        "finalAnswer": parsedOutput.finalAnswer,
+                        "finalAnswer": parsedFinalAnswer,
                         "memoryCandidates": parsedOutput.memoryCandidates,
                     }
                     if parsedOutput.outputType == "final":
                         blockedToolCallIterations = 0
                         completionReason = "final_answer"
-                        finalAnswer = parsedOutput.finalAnswer or ""
+                        finalAnswer = parsedFinalAnswer
                         memoryCandidates = parsedOutput.memoryCandidates or []
                         stepTrace["status"] = "final"
                         isFinished = True
@@ -246,8 +255,10 @@ class AgentLoop:
                                     "Сформируй final-ответ по последним данным, без повторного вызова.",
                                 }
                                 if previousOkResult is not None:
-                                    blockedPayload["previous_observation"] = json.loads(
-                                        self._buildToolObservationText(in_toolResult=previousOkResult)
+                                    blockedPayload["previous_observation_preview"] = (
+                                        self._buildToolObservationPreview(
+                                            in_toolResult=previousOkResult
+                                        )
                                     )
                                 blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
                                 observations.append(blockedObservation)
@@ -446,7 +457,7 @@ class AgentLoop:
                             sampleLinks.append(oneItem["link"])
                     payload["sample_links"] = sampleLinks
                     previewItems: list[dict[str, Any]] = []
-                    for oneItem in itemList[:3]:
+                    for oneItem in itemList[:10]:
                         if isinstance(oneItem, dict):
                             previewItems.append(
                                 {
@@ -519,7 +530,7 @@ class AgentLoop:
                     itemsValue = parsedValue.get("items", [])
                     emailPreviewItems: list[dict[str, Any]] = []
                     if isinstance(itemsValue, list):
-                        for oneItem in itemsValue[:5]:
+                        for oneItem in itemsValue[:10]:
                             if isinstance(oneItem, dict):
                                 emailPreviewItems.append(
                                     {
@@ -528,7 +539,7 @@ class AgentLoop:
                                         "subject": str(oneItem.get("subject", ""))[:200],
                                         "date": str(oneItem.get("date", ""))[:120],
                                         "dateUnixTs": oneItem.get("dateUnixTs"),
-                                        "snippet": str(oneItem.get("snippet", ""))[:240],
+                                        "snippet": str(oneItem.get("snippet", ""))[:120],
                                         "langHint": str(oneItem.get("langHint", ""))[:16],
                                     }
                                 )
@@ -540,4 +551,75 @@ class AgentLoop:
             except json.JSONDecodeError:
                 payload["data_note"] = "non_json_tool_payload"
         ret = json.dumps(payload, ensure_ascii=False)
+        return ret
+
+    def _buildToolObservationPreview(
+        self,
+        in_toolResult: ToolResultEnvelopeModel,
+    ) -> dict[str, Any]:
+        ret: dict[str, Any]
+        preview: dict[str, Any] = {
+            "kind": "tool_observation_preview",
+            "tool_name": in_toolResult.tool_name,
+            "ok": in_toolResult.ok,
+            "duration_ms": in_toolResult.meta.get("duration_ms"),
+        }
+        if in_toolResult.ok is False:
+            preview["error"] = in_toolResult.error
+        if in_toolResult.ok is True and in_toolResult.data is not None:
+            try:
+                parsedValue = json.loads(str(in_toolResult.data))
+                if isinstance(parsedValue, dict):
+                    preview["count"] = parsedValue.get("count")
+                    preview["sinceUnixTsUsed"] = parsedValue.get("sinceUnixTsUsed")
+                    if in_toolResult.tool_name == "read_email":
+                        preview["markedAsReadCount"] = parsedValue.get("markedAsReadCount")
+            except Exception:
+                preview["data_note"] = "non_json_tool_payload"
+        ret = preview
+        return ret
+
+    def _isTechnicalFinalAnswer(self, in_text: str) -> bool:
+        ret: bool
+        loweredText = in_text.strip().lower()
+        markers = [
+            "valid json object",
+            "corrected the output",
+            "processed it as needed",
+            "i have retrieved the requested information",
+            "as required",
+        ]
+        ret = any(marker in loweredText for marker in markers)
+        return ret
+
+    def _buildFallbackFinalAnswer(self, in_observations: list[str]) -> str:
+        ret: str
+        ret = "Не удалось корректно сформировать ответ. Повторите запрос."
+        for oneObservation in reversed(in_observations):
+            try:
+                payload = json.loads(oneObservation)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("kind") != "tool_observation":
+                continue
+            if payload.get("ok") is not False:
+                continue
+            errorPayload = payload.get("error", {})
+            toolName = str(payload.get("tool_name", ""))
+            if isinstance(errorPayload, dict):
+                errorCode = str(errorPayload.get("code", ""))
+                if errorCode == "TIMEOUT" and toolName == "read_email":
+                    ret = (
+                        "Не удалось прочитать почту: инструмент превысил лимит времени. "
+                        "Попробуйте повторить запрос через минуту."
+                    )
+                    break
+                if errorCode == "TIMEOUT":
+                    ret = (
+                        "Не удалось завершить запрос: один из инструментов превысил лимит времени. "
+                        "Попробуйте повторить запрос."
+                    )
+                    break
         return ret

@@ -8,6 +8,7 @@ from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
 from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from pydantic import BaseModel, ConfigDict
+import json
 
 
 class SequenceLlmClient:
@@ -84,6 +85,12 @@ class ReadEmailArgsForTestModel(BaseModel):
     maxItems: int = 10
     unreadOnly: bool = True
     sinceHours: int = 24
+
+
+class DigestArgsForTestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    maxItems: int = 10
 
 
 def _echoTool(in_args: dict) -> dict:
@@ -316,6 +323,49 @@ def testAgentLoopRepairsInvalidJsonOnce() -> None:
 
     assert result.completionReason == "final_answer"
     assert result.finalAnswer == "После ремонта"
+
+
+def testAgentLoopReplacesTechnicalRepairAnswerWithFallback() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"a","args":{}}',
+            '{"type":"final","reason":"x","final_answer":"bad"}{"type":"stop","reason":"x","final_answer":"bad"}',
+            '{"type":"final","reason":"completed","final_answer":"I have retrieved the requested information and processed it as needed."}',
+        ]
+    )
+
+    def _failingTool(_in_args: dict) -> dict:
+        raise TimeoutError("slow tool")
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="a",
+                description="test tool",
+                argsModel=EmptyArgsModel,
+                timeoutSeconds=1,
+                executeCallable=_failingTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    assert result.completionReason == "final_answer"
+    assert "Не удалось завершить запрос" in result.finalAnswer
 
 
 def testAgentLoopStopsByMaxSteps() -> None:
@@ -648,6 +698,132 @@ def testToolCoordinatorSerializesDictAsJsonString() -> None:
 
     assert dataText.startswith("{")
     assert '"echo"' in dataText
+
+
+def testReadEmailObservationContainsUpToTenItems() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=4)
+    runtimeSettings.maxToolOutputChars = 20000
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"read_email","args":{"maxItems":10}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    def _readEmailTool(_in_args: dict) -> dict:
+        items = []
+        for index in range(7):
+            items.append(
+                {
+                    "uid": str(100 + index),
+                    "from": "sender@example.com",
+                    "subject": f"subj-{index}",
+                    "date": "Tue, 28 Apr 2026 12:00:00 +0000",
+                    "dateUnixTs": 1777368000 + index,
+                    "snippet": "text",
+                    "langHint": "ru",
+                }
+            )
+        ret = {
+            "count": len(items),
+            "sinceUnixTsUsed": 0,
+            "items": items,
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="read_email",
+                description="email",
+                argsModel=ReadEmailArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_readEmailTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    obsText = str(result.stepTraces[0].get("observation", ""))
+    obsPayload = json.loads(obsText)
+    emailPreview = obsPayload.get("email_preview", {})
+    previewItems = emailPreview.get("items_preview", [])
+    assert len(previewItems) == 7
+
+
+def testDigestObservationContainsUpToTenItems() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=4)
+    runtimeSettings.maxToolOutputChars = 20000
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"maxItems":10}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    def _digestTool(_in_args: dict) -> dict:
+        items = []
+        for index in range(6):
+            items.append(
+                {
+                    "channel": "markettwits",
+                    "dateUnixTs": str(1777368000 + index),
+                    "summary": f"news-{index}",
+                    "link": f"https://t.me/markettwits/{1000 + index}",
+                }
+            )
+        ret = {
+            "count": len(items),
+            "sinceUnixTsUsed": 1777367000,
+            "items": items,
+            "channelErrors": {},
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="digest_telegram_news",
+                description="digest",
+                argsModel=DigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_digestTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    obsText = str(result.stepTraces[0].get("observation", ""))
+    obsPayload = json.loads(obsText)
+    dataPreview = obsPayload.get("data_preview", {})
+    previewItems = dataPreview.get("items_preview", [])
+    assert len(previewItems) == 6
 
 
 def testToolCoordinatorKeepsValidJsonWhenTruncated() -> None:

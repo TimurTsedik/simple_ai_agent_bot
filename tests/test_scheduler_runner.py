@@ -41,8 +41,10 @@ def testSchedulerRunsJobOnFirstTick(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
-        in_runInternalCallable=lambda sessionId, message: calls.append((sessionId, message))
-        or "run1",
+        in_runInternalCallable=lambda sessionId, message: (
+            calls.append((sessionId, message)) or "run1",
+            "answer",
+        ),
         in_nowUnixTsProvider=lambda: nowValue,
         in_sleepCallable=lambda _: None,
     )
@@ -84,7 +86,7 @@ def testSchedulerRespectsInterval(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
-        in_runInternalCallable=lambda *_: calls.append("x") or "run1",
+        in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
         in_nowUnixTsProvider=lambda: nowValue,
         in_sleepCallable=lambda _: None,
     )
@@ -147,10 +149,51 @@ def testSchedulerRespectsHourWindow(tmp_path: Path, monkeypatch) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
-        in_runInternalCallable=lambda *_: calls.append("x") or "run1",
+        in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
         in_nowUnixTsProvider=lambda: 1000,
         in_sleepCallable=lambda _: None,
     )
     runner._tickOnce()
     assert len(calls) == 0
+
+
+def testSchedulerCallsCompletionCallbackWithFinalAnswer(tmp_path: Path) -> None:
+    notifications: list[tuple[str, str, str, str]] = []
+    schedulerSettings = SchedulerSettings(
+        enabled=True,
+        tickSeconds=1,
+        jobs=[
+            SchedulerJobSettings(
+                jobId="job1",
+                enabled=True,
+                schedule=SchedulerJobSchedule(intervalSeconds=3600),
+                actionInternalRun=SchedulerJobInternalRunAction(
+                    sessionId="scheduler:test",
+                    message="hello",
+                ),
+            )
+        ],
+    )
+    loggingSettings = LoggingSettings(
+        logsDirPath=str(tmp_path / "logs"),
+        runLogsFileName="run.jsonl",
+        appLogsFileName="app.log",
+        maxBytes=1024 * 1024,
+        backupCount=1,
+    )
+    runner = SchedulerRunner(
+        in_schedulerSettings=schedulerSettings,
+        in_loggingSettings=loggingSettings,
+        in_dataRootPath=str(tmp_path),
+        in_runInternalCallable=lambda *_: ("run1", "result text"),
+        in_onRunCompletedCallable=lambda jobId, sessionId, runId, finalAnswer: notifications.append(
+            (jobId, sessionId, runId, finalAnswer)
+        ),
+        in_nowUnixTsProvider=lambda: 1000,
+        in_sleepCallable=lambda _: None,
+    )
+
+    runner._tickOnce()
+
+    assert notifications == [("job1", "scheduler:test", "run1", "result text")]
 

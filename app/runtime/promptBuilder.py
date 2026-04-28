@@ -56,6 +56,8 @@ class PromptBuilder:
             "Respond ONLY with one valid JSON object. No markdown fences, no text outside JSON.\n"
             "IMPORTANT JSON rule: Do NOT use literal newline characters inside JSON strings. "
             "If you need line breaks in final_answer, use the two-character sequence \\n.\n"
+            "Do NOT output meta-statements about correction process.\n"
+            "Your final_answer must be user-facing and solve the original request.\n"
             "Allowed output schemas only:\n"
             '1) {"type":"tool_call","reason":"short","action":"tool_name","args":{}}\n'
             '2) {"type":"final","reason":"short","final_answer":"text"}\n'

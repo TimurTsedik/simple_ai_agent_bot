@@ -180,6 +180,7 @@ class ReadEmailTool:
         ret: dict[str, Any]
         mailbox = str(in_args.get("mailbox", "INBOX"))
         unreadOnly = bool(in_args.get("unreadOnly", True)) is True
+        markAsRead = bool(in_args.get("markAsRead", True)) is True
         sinceHours = int(in_args.get("sinceHours", 24))
         maxItems = int(in_args.get("maxItems", 10))
         snippetChars = int(in_args.get("snippetChars", 300))
@@ -204,11 +205,12 @@ class ReadEmailTool:
 
         nowUtc = datetime.now(timezone.utc)
         sinceTs = int((nowUtc - timedelta(hours=sinceHours)).timestamp())
+        shouldMarkAsRead = unreadOnly is True and markAsRead is True
 
         imapClient = self.in_imapClientFactory(self.in_emailSettings)
         try:
             imapClient.login(self.in_emailSettings.email, self.in_password)
-            imapClient.select(mailbox, readonly=True)
+            imapClient.select(mailbox, readonly=not shouldMarkAsRead)
             criteria = "UNSEEN" if unreadOnly else "ALL"
             _status, data = imapClient.uid("SEARCH", None, criteria)
             uidBytes = data[0] if isinstance(data, list) and len(data) > 0 else b""
@@ -218,6 +220,7 @@ class ReadEmailTool:
             candidateUids.reverse()
 
             items: list[dict[str, Any]] = []
+            markedAsReadCount = 0
             for oneUid in candidateUids:
                 if len(items) >= maxItems:
                     break
@@ -245,6 +248,12 @@ class ReadEmailTool:
                         "langHint": langHint,
                     }
                 )
+                if shouldMarkAsRead is True:
+                    try:
+                        imapClient.uid("STORE", oneUid, "+FLAGS", "(\\Seen)")
+                        markedAsReadCount += 1
+                    except Exception:
+                        pass
 
             ret = {
                 "account": {
@@ -254,6 +263,8 @@ class ReadEmailTool:
                 },
                 "mailbox": mailbox,
                 "unreadOnly": unreadOnly,
+                "markAsRead": markAsRead,
+                "markedAsReadCount": markedAsReadCount,
                 "sinceUnixTsUsed": sinceTs,
                 "count": len(items),
                 "items": items,

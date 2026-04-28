@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from pathlib import Path
 import os
 import yaml
+import requests
 from pydantic import ValidationError
 
 from app.application.useCases.getRunDetailsUseCase import GetRunDetailsUseCase
@@ -120,18 +121,98 @@ def _buildApp() -> FastAPI:
         in_runRepository=runRepository,
         in_settings=settings,
     )
+
+    def _runInternalForScheduler(in_sessionId: str, in_message: str) -> tuple[str, str]:
+        ret: tuple[str, str]
+        runResult = runAgentUseCase.execute(
+            in_sessionId=in_sessionId,
+            in_inputMessage=in_message,
+        )
+        finalAnswer = runResult.finalAnswer or "Пустой ответ агента."
+        ret = (runResult.runId, finalAnswer)
+        return ret
+
+    def _notifySchedulerResultToTelegram(
+        in_jobId: str,
+        in_sessionId: str,
+        in_runId: str,
+        in_finalAnswer: str,
+    ) -> None:
+        formattedText = (
+            f"Расписание: {in_jobId}\n"
+            f"Сессия: {in_sessionId}\n"
+            f"RunId: {in_runId}\n\n"
+            f"{in_finalAnswer}"
+        )
+        chunkSize = 3500
+        textChunks = [
+            formattedText[index : index + chunkSize]
+            for index in range(0, len(formattedText), chunkSize)
+        ] or [formattedText]
+        apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
+        for chatId in settings.telegram.allowedUserIds:
+            for index, chunk in enumerate(textChunks, start=1):
+                chunkPrefix = (
+                    f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
+                )
+                try:
+                    requests.post(
+                        apiUrl,
+                        json={"chat_id": int(chatId), "text": f"{chunkPrefix}{chunk}"},
+                        timeout=15,
+                    ).raise_for_status()
+                    writeJsonlEvent(
+                        in_loggingSettings=settings.logging,
+                        in_eventType="scheduler_result_sent_to_telegram",
+                        in_payload={
+                            "jobId": in_jobId,
+                            "sessionId": in_sessionId,
+                            "runId": in_runId,
+                            "chatId": int(chatId),
+                            "messageChars": len(chunk),
+                            "chunkIndex": index,
+                            "chunkTotal": len(textChunks),
+                        },
+                    )
+                except requests.RequestException as in_exc:
+                    writeJsonlEvent(
+                        in_loggingSettings=settings.logging,
+                        in_eventType="scheduler_result_telegram_send_error",
+                        in_payload={
+                            "jobId": in_jobId,
+                            "sessionId": in_sessionId,
+                            "runId": in_runId,
+                            "chatId": int(chatId),
+                            "chunkIndex": index,
+                            "chunkTotal": len(textChunks),
+                            "error": str(in_exc),
+                        },
+                    )
+
     schedulerRunner: SchedulerRunner | None
     if settings.scheduler.enabled is True:
+        writeJsonlEvent(
+            in_loggingSettings=settings.logging,
+            in_eventType="scheduler_config_enabled",
+            in_payload={
+                "tickSeconds": int(settings.scheduler.tickSeconds),
+                "jobCount": len(settings.scheduler.jobs),
+                "schedulesConfigPath": settings.scheduler.schedulesConfigPath,
+            },
+        )
         schedulerRunner = SchedulerRunner(
             in_schedulerSettings=settings.scheduler,
             in_loggingSettings=settings.logging,
             in_dataRootPath=settings.app.dataRootPath,
-            in_runInternalCallable=lambda sessionId, message: runAgentUseCase.execute(
-                in_sessionId=sessionId,
-                in_inputMessage=message,
-            ).runId,
+            in_runInternalCallable=_runInternalForScheduler,
+            in_onRunCompletedCallable=_notifySchedulerResultToTelegram,
         )
     else:
+        writeJsonlEvent(
+            in_loggingSettings=settings.logging,
+            in_eventType="scheduler_config_disabled",
+            in_payload={},
+        )
         schedulerRunner = None
     handleIncomingTelegramMessageUseCase = HandleIncomingTelegramMessageUseCase(
         in_allowedUserIds=settings.telegram.allowedUserIds,

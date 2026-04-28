@@ -36,7 +36,8 @@ class SchedulerRunner:
     in_schedulerSettings: SchedulerSettings
     in_loggingSettings: LoggingSettings
     in_dataRootPath: str
-    in_runInternalCallable: Callable[[str, str], str]
+    in_runInternalCallable: Callable[[str, str], tuple[str, str]]
+    in_onRunCompletedCallable: Callable[[str, str, str, str], None] | None = None
     in_nowUnixTsProvider: Callable[[], int] = lambda: int(time())
     in_sleepCallable: Callable[[float], None] = lambda seconds: Event().wait(seconds)
 
@@ -46,6 +47,16 @@ class SchedulerRunner:
         self._runningJobs: set[str] = set()
         self._statePath = Path(self.in_dataRootPath) / "scheduler" / "jobs_state.json"
         self._state = _loadJsonOrEmpty(in_path=self._statePath)
+        writeJsonlEvent(
+            in_loggingSettings=self.in_loggingSettings,
+            in_eventType="scheduler_runner_initialized",
+            in_payload={
+                "statePath": str(self._statePath),
+                "loadedStateJobCount": len(self._state),
+                "tickSeconds": int(self.in_schedulerSettings.tickSeconds),
+                "jobCount": len(self.in_schedulerSettings.jobs),
+            },
+        )
 
     def stop(self) -> None:
         self._stopEvent.set()
@@ -57,7 +68,11 @@ class SchedulerRunner:
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,
             in_eventType="scheduler_started",
-            in_payload={"jobCount": len(self.in_schedulerSettings.jobs)},
+            in_payload={
+                "jobCount": len(self.in_schedulerSettings.jobs),
+                "tickSeconds": tickSeconds,
+                "statePath": str(self._statePath),
+            },
         )
         try:
             while self._stopEvent.is_set() is False:
@@ -67,6 +82,14 @@ class SchedulerRunner:
                 sleepFor = float(tickSeconds) - elapsed
                 if sleepFor < 0.05:
                     sleepFor = 0.05
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_tick_sleep",
+                    in_payload={
+                        "elapsedSeconds": round(elapsed, 3),
+                        "sleepSeconds": round(sleepFor, 3),
+                    },
+                )
                 self.in_sleepCallable(sleepFor)
         finally:
             writeJsonlEvent(
@@ -77,50 +100,151 @@ class SchedulerRunner:
 
     def _tickOnce(self) -> None:
         nowTs = int(self.in_nowUnixTsProvider())
+        enabledJobs = [job for job in self.in_schedulerSettings.jobs if job.enabled is True]
+        writeJsonlEvent(
+            in_loggingSettings=self.in_loggingSettings,
+            in_eventType="scheduler_tick_started",
+            in_payload={
+                "nowUnixTs": nowTs,
+                "jobsTotal": len(self.in_schedulerSettings.jobs),
+                "jobsEnabled": len(enabledJobs),
+                "runningJobsCount": len(self._runningJobs),
+            },
+        )
         for job in list(self.in_schedulerSettings.jobs):
             if job.enabled is not True:
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_job_skipped",
+                    in_payload={
+                        "jobId": job.jobId,
+                        "reason": "disabled",
+                    },
+                )
                 continue
-            if self._isJobDue(in_job=job, in_nowUnixTs=nowTs) is False:
+            dueInfo = self._buildDueInfo(in_job=job, in_nowUnixTs=nowTs)
+            if dueInfo["isDue"] is False:
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_job_skipped",
+                    in_payload={
+                        "jobId": job.jobId,
+                        "reason": str(dueInfo["reason"]),
+                        "details": dueInfo,
+                    },
+                )
                 continue
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_job_due",
+                in_payload={
+                    "jobId": job.jobId,
+                    "details": dueInfo,
+                },
+            )
             self._runJobIfNotRunning(in_job=job, in_nowUnixTs=nowTs)
+        writeJsonlEvent(
+            in_loggingSettings=self.in_loggingSettings,
+            in_eventType="scheduler_tick_finished",
+            in_payload={"nowUnixTs": nowTs},
+        )
 
-    def _isJobDue(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> bool:
-        ret: bool
-        if self._isAllowedByHourWindow(in_job=in_job, in_nowUnixTs=in_nowUnixTs) is False:
-            ret = False
+    def _buildDueInfo(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> dict[str, Any]:
+        ret: dict[str, Any]
+        allowedInfo = self._buildHourWindowInfo(in_job=in_job, in_nowUnixTs=in_nowUnixTs)
+        if allowedInfo["isAllowed"] is False:
+            ret = {
+                "isDue": False,
+                "reason": "hour_window_blocked",
+                "hourWindow": allowedInfo,
+            }
             return ret
         intervalSeconds = int(in_job.schedule.intervalSeconds)
         if intervalSeconds < 5:
             intervalSeconds = 5
         stateKey = in_job.jobId
         lastRunAt = int(self._state.get(stateKey, {}).get("lastRunAtUnixTs", 0))
+        sinceLastRun = in_nowUnixTs - lastRunAt if lastRunAt > 0 else -1
+        secondsRemaining = (
+            intervalSeconds - sinceLastRun if lastRunAt > 0 and sinceLastRun < intervalSeconds else 0
+        )
         if lastRunAt <= 0:
-            ret = True
+            ret = {
+                "isDue": True,
+                "reason": "first_run",
+                "intervalSeconds": intervalSeconds,
+                "lastRunAtUnixTs": lastRunAt,
+                "sinceLastRunSeconds": sinceLastRun,
+                "secondsRemaining": 0,
+            }
+        elif sinceLastRun >= intervalSeconds:
+            ret = {
+                "isDue": True,
+                "reason": "interval_elapsed",
+                "intervalSeconds": intervalSeconds,
+                "lastRunAtUnixTs": lastRunAt,
+                "sinceLastRunSeconds": sinceLastRun,
+                "secondsRemaining": 0,
+            }
         else:
-            ret = (in_nowUnixTs - lastRunAt) >= intervalSeconds
+            ret = {
+                "isDue": False,
+                "reason": "interval_not_elapsed",
+                "intervalSeconds": intervalSeconds,
+                "lastRunAtUnixTs": lastRunAt,
+                "sinceLastRunSeconds": sinceLastRun,
+                "secondsRemaining": secondsRemaining,
+            }
         return ret
 
-    def _isAllowedByHourWindow(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> bool:
-        ret: bool
+    def _buildHourWindowInfo(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> dict[str, Any]:
+        ret: dict[str, Any]
         startHour = in_job.schedule.allowedHourStart
         endHour = in_job.schedule.allowedHourEnd
+        currentHour = int(datetime.fromtimestamp(in_nowUnixTs).hour)
         if startHour is None and endHour is None:
-            ret = True
+            ret = {
+                "isAllowed": True,
+                "reason": "no_window",
+                "currentHour": currentHour,
+                "allowedHourStart": startHour,
+                "allowedHourEnd": endHour,
+            }
             return ret
         if startHour is None or endHour is None:
-            ret = False
+            ret = {
+                "isAllowed": False,
+                "reason": "window_misconfigured",
+                "currentHour": currentHour,
+                "allowedHourStart": startHour,
+                "allowedHourEnd": endHour,
+            }
             return ret
-        currentHour = int(datetime.fromtimestamp(in_nowUnixTs).hour)
         if startHour <= endHour:
-            ret = startHour <= currentHour <= endHour
+            isAllowed = startHour <= currentHour <= endHour
         else:
             # Wrap-around window, e.g. 23..2
-            ret = currentHour >= startHour or currentHour <= endHour
+            isAllowed = currentHour >= startHour or currentHour <= endHour
+        ret = {
+            "isAllowed": isAllowed,
+            "reason": "inside_window" if isAllowed is True else "outside_window",
+            "currentHour": currentHour,
+            "allowedHourStart": startHour,
+            "allowedHourEnd": endHour,
+        }
         return ret
 
     def _runJobIfNotRunning(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> None:
         with self._lock:
             if in_job.jobId in self._runningJobs:
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_job_skipped",
+                    in_payload={
+                        "jobId": in_job.jobId,
+                        "reason": "already_running",
+                    },
+                )
                 return
             self._runningJobs.add(in_job.jobId)
         try:
@@ -141,16 +265,54 @@ class SchedulerRunner:
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,
             in_eventType="scheduler_job_started",
-            in_payload={"jobId": in_job.jobId, "sessionId": sessionId},
+            in_payload={
+                "jobId": in_job.jobId,
+                "sessionId": sessionId,
+                "messageChars": len(message),
+                "startedAtUnixTs": startedAtUnixTs,
+            },
         )
         statusValue = "ok"
         errorText = ""
         runId = ""
+        finalAnswer = ""
         try:
-            runId = str(self.in_runInternalCallable(sessionId, message))
+            runId, finalAnswer = self.in_runInternalCallable(sessionId, message)
+            runId = str(runId)
+            finalAnswer = str(finalAnswer)
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_job_internal_run_dispatched",
+                in_payload={
+                    "jobId": in_job.jobId,
+                    "sessionId": sessionId,
+                    "runId": runId,
+                    "finalAnswerChars": len(finalAnswer),
+                },
+            )
+            if self.in_onRunCompletedCallable is not None:
+                self.in_onRunCompletedCallable(in_job.jobId, sessionId, runId, finalAnswer)
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_job_notification_dispatched",
+                    in_payload={
+                        "jobId": in_job.jobId,
+                        "sessionId": sessionId,
+                        "runId": runId,
+                    },
+                )
         except Exception as in_exc:
             statusValue = "error"
             errorText = str(in_exc)
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_job_internal_run_error",
+                in_payload={
+                    "jobId": in_job.jobId,
+                    "sessionId": sessionId,
+                    "error": errorText,
+                },
+            )
         finishedAtUnixTs = int(self.in_nowUnixTsProvider())
         self._state[stateKey] = {
             **(self._state.get(stateKey, {}) if isinstance(self._state.get(stateKey), dict) else {}),

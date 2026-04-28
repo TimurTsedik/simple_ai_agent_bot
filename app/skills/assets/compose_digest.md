@@ -6,8 +6,8 @@ when_not_to_use: когда пользователь просит исходны
 instructions:
 - финальный ответ всегда на русском языке;
 - если дайджест нужно составить по email, используй `read_email` и придерживайся стратегии:
-  - шаг 1: `unreadOnly=true`, `sinceHours=24`, `maxItems=N` (обычно N=5);
-  - если вернулось меньше N — сделай ЕЩЁ ОДНУ попытку: `unreadOnly=false`, `sinceHours=168`, `maxItems=N`;
+  - шаг 1: `unreadOnly=true`, `markAsRead=true`, `sinceHours=24`, `maxItems=N` (обычно N=10);
+  - если вернулось меньше N — сделай ЕЩЁ ОДНУ попытку: `unreadOnly=false`, `markAsRead=false`, `sinceHours=168`, `maxItems=N`;
 - сделай список пунктов, разделяя пункты явным разделителем `---` (одна строка);
 - каждый пункт должен содержать:
   - короткий заголовок (1 строка);

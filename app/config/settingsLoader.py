@@ -182,5 +182,12 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             )
         except ValidationError as in_exc:
             raise SettingsLoadError(f"Invalid scheduler settings: {in_exc}") from in_exc
-        ret = ret.model_copy(update={"scheduler": parsedScheduler})
+        effectiveScheduler = parsedScheduler.model_copy(
+            update={
+                "enabled": ret.scheduler.enabled,
+                "schedulesConfigPath": ret.scheduler.schedulesConfigPath,
+                "tickSeconds": ret.scheduler.tickSeconds,
+            }
+        )
+        ret = ret.model_copy(update={"scheduler": effectiveScheduler})
     return ret

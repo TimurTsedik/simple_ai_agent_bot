@@ -1,0 +1,119 @@
+name: Deploy to VPS (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch / tag / commit SHA to deploy"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Compute image tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          repoLower="${GITHUB_REPOSITORY,,}"
+          shortSha="$(git rev-parse --short=7 HEAD)"
+          image="ghcr.io/${repoLower}:sha-${shortSha}"
+          manualLatest="ghcr.io/${repoLower}:manual-latest"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "manualLatest=${manualLatest}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.manualLatest }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Checkout (for compose + scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install SSH key
+        shell: bash
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${VPS_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Add VPS to known_hosts
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+        run: |
+          set -euo pipefail
+          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/scripts' '${appDir}/data' '${appDir}/config'"
+          scp -P "${VPS_PORT}" docker-compose.prod.yml "${VPS_USER}@${VPS_HOST}:${appDir}/docker-compose.prod.yml"
+          scp -P "${VPS_PORT}" scripts/deploy_prod.sh "${VPS_USER}@${VPS_HOST}:${appDir}/scripts/deploy_prod.sh"
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
+
+      - name: Deploy (pull + up) and health-check
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          APP_IMAGE: ${{ needs.build-and-push.outputs.image }}
+        run: |
+          set -euo pipefail
+          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
+          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+            "cd '${appDir}' && APP_IMAGE='${APP_IMAGE}' GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' ./scripts/deploy_prod.sh"
+

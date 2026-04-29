@@ -145,6 +145,92 @@ State jobs сохраняется в: `data/scheduler/jobs_state.json` (lastRunA
 PYTHONPATH=. pytest
 ```
 
+## Production deploy (VPS + GitHub Actions + Docker Compose)
+
+Ниже — рекомендуемый production-процесс: GitHub Actions собирает Docker image и публикует в GHCR, а VPS делает `docker compose pull && up -d`.
+
+### 1) Одноразовая подготовка VPS
+
+На VPS нужно:
+- Docker Engine + Docker Compose plugin
+- пользователь для деплоя (например `deploy`) с доступом к Docker
+- открыть входящий порт `8000/tcp` (пока доступ по IP; HTTPS позже)
+
+### 2) Каталог приложения на VPS
+
+На VPS создаём директорию (пример: `/opt/simple_ai_agent_bot`) со структурой:
+
+```text
+/opt/simple_ai_agent_bot/
+  docker-compose.prod.yml
+  .env
+  config/
+    config.yaml
+    tools.yaml            # опционально, если используешь toolsConfigPath
+    schedules.yaml         # только если scheduler.enabled=true
+  data/                    # персистентные данные
+    runs/
+    logs/
+    memory/
+    scheduler/             # если включён scheduler
+```
+
+Важно:
+- `config/config.yaml` обязателен: приложение стартует из `app/config/config.yaml`, а в контейнере он монтируется из `./config`.
+- `data/` обязательно монтировать, иначе потеряешь runs/logs/memory при пересоздании контейнера.
+
+### 3) Секреты и конфиги на VPS
+
+Файл `.env` (в директории приложения на VPS) должен содержать минимум:
+
+```env
+TELEGRAM_BOT_TOKEN=...
+OPENROUTER_API_KEY=...
+SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
+ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
+EMAIL_APP_PASSWORD=...
+```
+
+Файл `config/config.yaml` — по образцу `app/config/config.example.yaml` (обрати внимание на `app.displayTimeZone` и `scheduler.*`).
+
+### 4) Проверка локально на VPS (ручной запуск один раз)
+
+В директории приложения на VPS:
+
+```bash
+APP_IMAGE=ghcr.io/<owner>/<repo>:sha-<shortSha> ./scripts/deploy_prod.sh
+curl -fsS http://127.0.0.1:8000/health
+```
+
+### 5) GitHub Actions: ручной деплой
+
+Рекомендуемый режим на старте — **только вручную** (`workflow_dispatch`), чтобы не выкатывать случайно каждый push в `main`.
+
+Workflow делает:
+- build + push Docker image в `ghcr.io`
+- ssh на VPS, обновление compose-файлов и перезапуск через `scripts/deploy_prod.sh`
+
+#### GitHub Secrets (Environment: production)
+
+Workflow ожидает следующие секреты (Settings → Environments → `production` → Secrets):
+
+- **`VPS_HOST`**: `187.124.165.192`
+- **`VPS_PORT`**: `22` (или ваш SSH-порт)
+- **`VPS_USER`**: например `deploy`
+- **`VPS_SSH_KEY`**: приватный ключ (ed25519/rsa) для SSH-доступа на VPS
+- **`VPS_APP_DIR`**: директория приложения на VPS, например `/opt/simple_ai_agent_bot` (если не задано, workflow использует этот путь по умолчанию)
+- **`GHCR_USERNAME`**: username для `docker login ghcr.io` (часто owner/аккаунт)
+- **`GHCR_TOKEN`**: токен для чтения образов из GHCR на VPS (минимум `read:packages`; если репозиторий/пакет приватный — обязателен)
+
+#### Как запустить деплой
+
+1) Открой Actions → workflow `Deploy to VPS (manual)`.\n
+2) Нажми **Run workflow** и оставь `ref=main` (или укажи нужный tag/commit).\n
+3) Дожидайся зелёного `Deploy` job — он заканчивается health-check’ом `/health` на VPS.\n
+### Rollback
+
+Откат — это повторный запуск workflow с более старым `sha` (образ тегируется по коммиту).
+
 ## Частые проблемы
 
 - **`No module named pytest`**: проверь, что активировал venv (`source .venv/bin/activate`) или запускай `./.venv/bin/python -m pytest -q`.

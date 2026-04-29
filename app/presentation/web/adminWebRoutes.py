@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+from threading import Lock
+from time import time
 
 import yaml
 from fastapi import FastAPI
@@ -44,6 +46,62 @@ def registerAdminWebRoutes(
     getGitStatusUseCase = in_container.getGitStatusUseCase
     getGitDiffUseCase = in_container.getGitDiffUseCase
     dashboardSnapshotService = in_container.dashboardSnapshotService
+
+    if hasattr(in_app.state, "adminLoginBruteforceState") is False:
+        in_app.state.adminLoginBruteforceState = {}
+    if hasattr(in_app.state, "adminLoginBruteforceLock") is False:
+        in_app.state.adminLoginBruteforceLock = Lock()
+    if hasattr(in_app.state, "adminLoginNowUnixTsProvider") is False:
+        in_app.state.adminLoginNowUnixTsProvider = time
+
+    def resolveClientIpText(in_request: Request) -> str:
+        ret: str
+        forwarded = str(in_request.headers.get("x-forwarded-for", "") or "").strip()
+        if forwarded != "":
+            ret = forwarded.split(",", 1)[0].strip()
+            return ret
+        client = in_request.client
+        if client is not None and isinstance(client.host, str) and client.host.strip() != "":
+            ret = client.host.strip()
+            return ret
+        ret = "unknown"
+        return ret
+
+    def checkLoginLockedOrNone(in_clientIpText: str) -> str | None:
+        ret: str | None
+        nowUnixTs = float(in_app.state.adminLoginNowUnixTsProvider())
+        with in_app.state.adminLoginBruteforceLock:
+            state = in_app.state.adminLoginBruteforceState.get(in_clientIpText) or {}
+            lockedUntil = float(state.get("lockedUntil", 0.0) or 0.0)
+            if lockedUntil > nowUnixTs:
+                secondsLeft = int(max(1.0, lockedUntil - nowUnixTs))
+                ret = f"Слишком много попыток. Подожди {secondsLeft} сек."
+                return ret
+        ret = None
+        return ret
+
+    def recordLoginFailure(in_clientIpText: str) -> None:
+        nowUnixTs = float(in_app.state.adminLoginNowUnixTsProvider())
+        with in_app.state.adminLoginBruteforceLock:
+            state = in_app.state.adminLoginBruteforceState.get(in_clientIpText)
+            if isinstance(state, dict) is False:
+                state = {}
+            failures = state.get("failures")
+            if isinstance(failures, list) is False:
+                failures = []
+            failures = [float(x) for x in failures if isinstance(x, (int, float)) and nowUnixTs - float(x) <= 900.0]
+            failures.append(nowUnixTs)
+            lockedUntil = float(state.get("lockedUntil", 0.0) or 0.0)
+            if len(failures) >= 3:
+                lockedUntil = max(lockedUntil, nowUnixTs + 900.0)
+            state["failures"] = failures
+            state["lockedUntil"] = lockedUntil
+            in_app.state.adminLoginBruteforceState[in_clientIpText] = state
+
+    def clearLoginFailures(in_clientIpText: str) -> None:
+        with in_app.state.adminLoginBruteforceLock:
+            if in_clientIpText in in_app.state.adminLoginBruteforceState:
+                del in_app.state.adminLoginBruteforceState[in_clientIpText]
 
     def isWebAuthorized(in_request: Request) -> bool:
         ret: bool
@@ -149,17 +207,27 @@ def registerAdminWebRoutes(
         return ret
 
     @in_app.post("/login")
-    def postLogin(adminToken: str = Form(...)):
+    def postLogin(in_request: Request, adminToken: str = Form(...)):
+        clientIpText = resolveClientIpText(in_request=in_request)
+        lockErrorText = checkLoginLockedOrNone(in_clientIpText=clientIpText)
+        if lockErrorText is not None:
+            retLocked: HTMLResponse = HTMLResponse(
+                content=renderLoginPage(in_errorText=lockErrorText),
+                status_code=429,
+            )
+            return retLocked
         tokenHash = hashAdminToken(
             in_rawToken=adminToken,
             in_secret=settings.sessionCookieSecret,
         )
         if tokenHash not in in_app.state.adminTokenHashes:
+            recordLoginFailure(in_clientIpText=clientIpText)
             retError: HTMLResponse = HTMLResponse(
                 content=renderLoginPage(in_errorText="Неверный токен."),
                 status_code=401,
             )
             return retError
+        clearLoginFailures(in_clientIpText=clientIpText)
         response = RedirectResponse(url="/", status_code=303)
         cookieValue = createSessionCookieValue(
             in_tokenHash=tokenHash,

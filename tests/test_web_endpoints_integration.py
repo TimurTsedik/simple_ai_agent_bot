@@ -113,3 +113,35 @@ def testToolsAndSkillsPagesRequireLogin(monkeypatch) -> None:
     toolsConfigResponse = client.get("/config/tools", follow_redirects=False)
     assert toolsConfigResponse.status_code == 303
     assert toolsConfigResponse.headers.get("location") == "/login"
+
+
+def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch)
+    mainModule = importlib.import_module("app.main")
+
+    now = {"t": 1000.0}
+    mainModule.app.state.adminLoginNowUnixTsProvider = lambda: now["t"]
+
+    for _ in range(3):
+        resp = client.post(
+            "/login",
+            data={"adminToken": "wrong-token"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 401
+
+    blocked = client.post(
+        "/login",
+        data={"adminToken": "token-one-12345678"},
+        follow_redirects=False,
+    )
+    assert blocked.status_code == 429
+
+    now["t"] += 901.0
+    ok = client.post(
+        "/login",
+        data={"adminToken": "token-one-12345678"},
+        follow_redirects=False,
+    )
+    assert ok.status_code == 303
+    assert ok.headers.get("location") == "/"

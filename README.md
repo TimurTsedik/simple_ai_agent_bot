@@ -233,6 +233,34 @@ Workflow ожидает следующие секреты (Settings → Environm
 
 Откат — это повторный запуск workflow с более старым `sha` (образ тегируется по коммиту).
 
+## Бэкапы `data/` на VPS (tar + cron)
+
+В `data/` хранятся `runs/logs/memory` (и состояние scheduler при включении), поэтому имеет смысл делать регулярные бэкапы.
+
+### Скрипт бэкапа
+
+В репозитории есть скрипт [`scripts/backup_data.sh`](scripts/backup_data.sh). На VPS его можно запускать вручную или по cron.\n
+
+Параметры через env (все опциональны):
+- `BASE_DIR` (default: `/opt/simple_ai_agent_bot`)
+- `SRC_DIR` (default: `${BASE_DIR}/data`)
+- `DST_DIR` (default: `${BASE_DIR}/backups`)
+- `RETENTION_DAYS` (default: `14`)
+
+### Пример cron (ежедневно)
+
+На VPS под пользователем `deploy`:
+
+```bash
+crontab -e
+```
+
+Добавь:
+
+```cron
+15 3 * * * /opt/simple_ai_agent_bot/scripts/backup_data.sh >> /opt/simple_ai_agent_bot/backups/backup.log 2>&1
+```
+
 ## Частые проблемы
 
 - **`No module named pytest`**: проверь, что активировал venv (`source .venv/bin/activate`) или запускай `./.venv/bin/python -m pytest -q`.

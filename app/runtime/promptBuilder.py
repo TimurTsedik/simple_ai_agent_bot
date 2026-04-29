@@ -19,15 +19,28 @@ class PromptBuilder:
         nowUtcText = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         observationsBlock = "\n".join(in_observations)
         promptText = (
-            "You are an AI runtime. Respond ONLY with one valid JSON object.\n"
-            "Do not include markdown fences or any text outside JSON.\n"
+            "You are an AI runtime. Respond ONLY with one valid YAML document (a single mapping).\n"
+            "Do not wrap in markdown fences. Do not add any prose before or after the YAML.\n"
             f"Current date/time: {nowUtcText}\n"
-            "IMPORTANT JSON rule: Do NOT use literal newline characters inside JSON strings. "
-            "If you need line breaks in final_answer, use the two-character sequence \\n.\n"
-            "Allowed output schemas only:\n"
-            '1) {"type":"tool_call","reason":"short","action":"tool_name","args":{}}\n'
-            '2) {"type":"final","reason":"short","final_answer":"text"}\n'
-            '3) {"type":"stop","reason":"short","final_answer":"safe stop message"}\n'
+            "YAML rule for multi-line user-visible text: use a literal block scalar for final_answer, e.g.\n"
+            "final_answer: |\n"
+            "  line one\n"
+            "  line two\n"
+            "Or keep final_answer on one line; escape quotes inside double-quoted strings as needed.\n"
+            "Allowed shapes only:\n"
+            "1)\n"
+            "type: tool_call\n"
+            "reason: short\n"
+            "action: tool_name\n"
+            "args: {}\n"
+            "2)\n"
+            "type: final\n"
+            "reason: short\n"
+            "final_answer: \"text or block\"\n"
+            "3)\n"
+            "type: stop\n"
+            "reason: short\n"
+            "final_answer: safe stop message\n"
             "Never use keys tool, response, text, or content instead of required schema keys.\n"
             f"Available tools:\n{in_toolsDescription}\n"
             f"Relevant skills:\n{in_skillsBlock}\n"
@@ -42,31 +55,45 @@ class PromptBuilder:
         ret = truncatedText
         return ret
 
-    def buildJsonRepairPrompt(
+    def buildYamlRepairPrompt(
         self,
         in_previousRawOutput: str,
         in_parseErrorCode: str | None,
         in_parseErrorMessage: str | None,
+        in_attemptIndexOneBased: int,
+        in_maxAttempts: int,
     ) -> str:
         ret: str
         errorCodeText = in_parseErrorCode or "unknown"
         errorMessageText = in_parseErrorMessage or ""
         promptText = (
-            "You are an AI runtime. Your previous output was INVALID.\n"
-            "Respond ONLY with one valid JSON object. No markdown fences, no text outside JSON.\n"
-            "IMPORTANT JSON rule: Do NOT use literal newline characters inside JSON strings. "
-            "If you need line breaks in final_answer, use the two-character sequence \\n.\n"
+            "You are an AI runtime. Your previous output was INVALID for this runtime.\n"
+            f"Repair attempt {in_attemptIndexOneBased} of {in_maxAttempts}.\n"
+            "Respond ONLY with one valid YAML document (single mapping). "
+            "No markdown fences, no commentary outside YAML.\n"
+            "Use a literal block (|) for final_answer if the answer is long.\n"
             "Do NOT output meta-statements about correction process.\n"
             "Your final_answer must be user-facing and solve the original request.\n"
-            "Allowed output schemas only:\n"
-            '1) {"type":"tool_call","reason":"short","action":"tool_name","args":{}}\n'
-            '2) {"type":"final","reason":"short","final_answer":"text"}\n'
-            '3) {"type":"stop","reason":"short","final_answer":"safe stop message"}\n'
+            "Allowed shapes only:\n"
+            "1)\n"
+            "type: tool_call\n"
+            "reason: short\n"
+            "action: tool_name\n"
+            "args: {}\n"
+            "2)\n"
+            "type: final\n"
+            "reason: short\n"
+            "final_answer: |\n"
+            "  ...\n"
+            "3)\n"
+            "type: stop\n"
+            "reason: short\n"
+            "final_answer: ...\n"
             f"Parse error code: {errorCodeText}\n"
             f"Parse error detail: {errorMessageText}\n"
             "Your previous invalid output was:\n"
             f"{in_previousRawOutput}\n"
-            "Fix it and output a single valid JSON object now.\n"
+            "Fix it and output a single valid YAML document now.\n"
         )
         truncatedText, _isTruncated = truncateText(
             in_text=promptText,

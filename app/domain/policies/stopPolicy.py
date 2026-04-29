@@ -27,11 +27,17 @@ class StopPolicy:
         in_toolCallCount: int,
         in_startedAtMonotonicSeconds: float,
         in_llmErrorCount: int = 0,
+        in_formatFailureStepsCount: int = 0,
     ) -> StopDecisionModel:
         ret: StopDecisionModel
         elapsedSeconds = monotonic() - in_startedAtMonotonicSeconds
+        llmExtraSeconds = max(0, int(in_llmErrorCount)) * self._runtimeSettings.extraSecondsPerLlmError
+        formatExtraSeconds = (
+            max(0, int(in_formatFailureStepsCount))
+            * self._runtimeSettings.extraSecondsPerFormatFailureStep
+        )
         extraSeconds = min(
-            max(0, int(in_llmErrorCount)) * self._runtimeSettings.extraSecondsPerLlmError,
+            llmExtraSeconds + formatExtraSeconds,
             self._runtimeSettings.maxExtraSecondsTotal,
         )
         effectiveMaxSeconds = self._runtimeSettings.maxExecutionSeconds + extraSeconds

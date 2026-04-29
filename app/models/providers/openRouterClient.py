@@ -29,6 +29,9 @@ class OpenRouterClient:
         self,
         in_modelName: str,
         in_promptText: str,
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
     ) -> dict[str, Any]:
         ret: dict[str, Any]
         url = f"{self._baseUrl}/chat/completions"
@@ -36,18 +39,20 @@ class OpenRouterClient:
             "Authorization": f"Bearer {self._apiKey}",
             "Content-Type": "application/json",
         }
-        payload = {
+        payload: dict[str, Any] = {
             "model": in_modelName,
             "messages": [{"role": "user", "content": in_promptText}],
             "temperature": 0,
-            "response_format": {"type": "json_object"},
         }
+        if in_useJsonObjectResponseFormat is True:
+            payload["response_format"] = {"type": "json_object"}
+        timeoutValue = self._timeoutSeconds if in_timeoutSeconds is None else in_timeoutSeconds
         try:
             response = requests.post(
                 url,
                 headers=headers,
                 json=payload,
-                timeout=self._timeoutSeconds,
+                timeout=timeoutValue,
             )
         except requests.Timeout as in_exc:
             raise OpenRouterClientError(

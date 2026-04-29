@@ -89,6 +89,9 @@ class AgentLoop:
         maxTimeoutsPerTool = 2
         missingRequiredToolFinalCount = 0
         requiredToolName = in_requiredFirstSuccessfulToolName.strip()
+        formatFailureStepsCount = 0
+        consecutiveFormatFailures = 0
+        runtimeSettings = self._stopPolicy.runtimeSettings
 
         while isFinished is False:
             stopDecision = self._stopPolicy.evaluate(
@@ -96,6 +99,7 @@ class AgentLoop:
                 in_toolCallCount=toolCallCount,
                 in_startedAtMonotonicSeconds=startedAtMonotonicSeconds,
                 in_llmErrorCount=llmErrorCount,
+                in_formatFailureStepsCount=formatFailureStepsCount,
             )
             if stopDecision.shouldStop is True:
                 completionReason = stopDecision.completionReason or "fatal_runtime_error"
@@ -117,35 +121,52 @@ class AgentLoop:
                     in_promptText=promptText,
                     io_fallbackEvents=loopFallbackEvents,
                 )
-                llmErrorCount = sum(
-                    1
-                    for item in loopFallbackEvents
-                    if isinstance(item, dict) and item.get("event") == "model_error"
-                )
                 selectedModel = llmResult.selectedModel
                 rawModelOutput = llmResult.content
                 parseResult = self._outputParser.parse(in_rawText=rawModelOutput)
-                repairRawOutput: str | None = None
-                if parseResult.isValid is False or parseResult.parsedOutput is None:
-                    repairPromptText = self._promptBuilder.buildJsonRepairPrompt(
-                        in_previousRawOutput=rawModelOutput,
+                repairRawOutputs: list[str] = []
+                maxRepairs = runtimeSettings.maxFormatRepairAttempts
+                repairAttemptIndex = 0
+                lastInvalidRaw = rawModelOutput
+                while (
+                    (parseResult.isValid is False or parseResult.parsedOutput is None)
+                    and repairAttemptIndex < maxRepairs
+                ):
+                    repairPromptText = self._promptBuilder.buildYamlRepairPrompt(
+                        in_previousRawOutput=lastInvalidRaw,
                         in_parseErrorCode=parseResult.errorCode,
                         in_parseErrorMessage=parseResult.errorMessage,
+                        in_attemptIndexOneBased=repairAttemptIndex + 1,
+                        in_maxAttempts=maxRepairs,
                     )
                     repairLlmResult = self._invokeLlm(
                         in_modelName=selectedModel,
                         in_promptText=repairPromptText,
                         io_fallbackEvents=loopFallbackEvents,
+                        in_timeoutSeconds=self._modelSettings.formatRepairRequestTimeoutSeconds,
                     )
                     selectedModel = repairLlmResult.selectedModel
-                    repairRawOutput = repairLlmResult.content
-                    parseResult = self._outputParser.parse(in_rawText=repairRawOutput)
+                    repairRawOutputs.append(repairLlmResult.content)
+                    lastInvalidRaw = repairLlmResult.content
+                    parseResult = self._outputParser.parse(in_rawText=lastInvalidRaw)
+                    repairAttemptIndex += 1
+
+                llmErrorCount = sum(
+                    1
+                    for item in loopFallbackEvents
+                    if isinstance(item, dict) and item.get("event") == "model_error"
+                )
+
+                repairRawOutput: str | None = (
+                    repairRawOutputs[-1] if len(repairRawOutputs) > 0 else None
+                )
 
                 stepTrace: dict[str, Any] = {
                     "stepIndex": stepCount + 1,
                     "promptSnapshot": promptText,
                     "rawModelResponse": rawModelOutput,
                     "repairRawModelResponse": repairRawOutput,
+                    "repairRawModelResponses": repairRawOutputs,
                     "parsedModelResponse": None,
                     "toolCall": None,
                     "toolResult": None,
@@ -153,88 +174,174 @@ class AgentLoop:
                     "status": "running",
                 }
                 if parseResult.isValid is False or parseResult.parsedOutput is None:
-                    completionReason = "stop_response"
-                    finalAnswer = "Остановка: модель вернула невалидный JSON."
-                    stepTrace["status"] = "parse_error"
+                    formatFailureStepsCount += 1
+                    consecutiveFormatFailures += 1
+                    exhaustedObservation = json.dumps(
+                        {
+                            "kind": "format_repair_exhausted",
+                            "reason": "runtime_yaml_parse_failed_after_repairs",
+                            "parse_error_code": parseResult.errorCode,
+                            "parse_error_message": parseResult.errorMessage,
+                            "repair_attempts_done": len(repairRawOutputs),
+                        },
+                        ensure_ascii=False,
+                    )
+                    observations.append(exhaustedObservation)
+                    stepTrace["status"] = "parse_error_recoverable"
                     stepTrace["parsedModelResponse"] = {
                         "isValid": False,
                         "errorCode": parseResult.errorCode,
                         "errorMessage": parseResult.errorMessage,
                     }
-                    isFinished = True
-                else:
-                    parsedOutput = parseResult.parsedOutput
-                    parsedFinalAnswer = parsedOutput.finalAnswer or ""
+                    stepTrace["observation"] = exhaustedObservation
+                    stepTraces.append(stepTrace)
+                    stepCount += 1
                     if (
-                        repairRawOutput is not None
-                        and parsedOutput.outputType == "final"
-                        and self._isTechnicalFinalAnswer(in_text=parsedFinalAnswer)
+                        consecutiveFormatFailures
+                        >= runtimeSettings.maxConsecutiveFormatFailureSteps
                     ):
-                        parsedFinalAnswer = self._buildFallbackFinalAnswer(
+                        completionReason = "final_answer"
+                        finalAnswer = self._buildFallbackFinalAnswer(
                             in_observations=observations
                         )
-                    stepTrace["parsedModelResponse"] = {
-                        "outputType": parsedOutput.outputType,
-                        "reason": parsedOutput.reason,
-                        "action": parsedOutput.action,
-                        "args": parsedOutput.args,
-                        "finalAnswer": parsedFinalAnswer,
-                        "memoryCandidates": parsedOutput.memoryCandidates,
-                    }
-                    if parsedOutput.outputType == "final":
-                        if requiredToolName and requiredToolName not in successfulToolNames:
-                            missingRequiredToolFinalCount += 1
-                            blockedObservation = json.dumps(
-                                {
-                                    "kind": "final_blocked",
-                                    "reason": "required_tool_not_called",
-                                    "required_tool_name": requiredToolName,
-                                    "message": (
-                                        f"Перед final-ответом нужен успешный вызов `{requiredToolName}`."
-                                    ),
-                                },
-                                ensure_ascii=False,
-                            )
-                            observations.append(blockedObservation)
-                            stepTrace["status"] = "final_blocked_missing_required_tool"
-                            stepTrace["observation"] = blockedObservation
-                            completionReason = "running"
-                            finalAnswer = ""
-                            isFinished = False
-                            if missingRequiredToolFinalCount >= 2:
-                                completionReason = "required_tool_missing"
-                                finalAnswer = (
-                                    f"Не удалось корректно обработать запрос: модель не вызвала "
-                                    f"обязательный инструмент `{requiredToolName}`."
-                                )
-                                isFinished = True
-                        else:
-                            blockedToolCallIterations = 0
-                            completionReason = "final_answer"
-                            finalAnswer = parsedFinalAnswer
-                            memoryCandidates = parsedOutput.memoryCandidates or []
-                            stepTrace["status"] = "final"
-                            isFinished = True
-                    elif parsedOutput.outputType == "stop":
-                        blockedToolCallIterations = 0
-                        completionReason = "stop_response"
-                        finalAnswer = parsedOutput.finalAnswer or ""
-                        memoryCandidates = parsedOutput.memoryCandidates or []
-                        stepTrace["status"] = "stop"
                         isFinished = True
-                    else:
-                        if in_allowToolCalls is False:
-                            blockedToolCallIterations += 1
-                            blockedObservation = (
-                                "Tool calls are disabled for this request. "
-                                "Answer directly without using any tool."
+                    continue
+
+                consecutiveFormatFailures = 0
+
+                parsedOutput = parseResult.parsedOutput
+                parsedFinalAnswer = parsedOutput.finalAnswer or ""
+                if (
+                    len(repairRawOutputs) > 0
+                    and parsedOutput.outputType == "final"
+                    and self._isTechnicalFinalAnswer(in_text=parsedFinalAnswer)
+                ):
+                    parsedFinalAnswer = self._buildFallbackFinalAnswer(
+                        in_observations=observations
+                    )
+                stepTrace["parsedModelResponse"] = {
+                    "outputType": parsedOutput.outputType,
+                    "reason": parsedOutput.reason,
+                    "action": parsedOutput.action,
+                    "args": parsedOutput.args,
+                    "finalAnswer": parsedFinalAnswer,
+                    "memoryCandidates": parsedOutput.memoryCandidates,
+                }
+                if parsedOutput.outputType == "final":
+                    if requiredToolName and requiredToolName not in successfulToolNames:
+                        missingRequiredToolFinalCount += 1
+                        blockedObservation = json.dumps(
+                            {
+                                "kind": "final_blocked",
+                                "reason": "required_tool_not_called",
+                                "required_tool_name": requiredToolName,
+                                "message": (
+                                    f"Перед final-ответом нужен успешный вызов `{requiredToolName}`."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        )
+                        observations.append(blockedObservation)
+                        stepTrace["status"] = "final_blocked_missing_required_tool"
+                        stepTrace["observation"] = blockedObservation
+                        completionReason = "running"
+                        finalAnswer = ""
+                        isFinished = False
+                        if missingRequiredToolFinalCount >= 2:
+                            completionReason = "required_tool_missing"
+                            finalAnswer = (
+                                f"Не удалось корректно обработать запрос: модель не вызвала "
+                                f"обязательный инструмент `{requiredToolName}`."
                             )
+                            isFinished = True
+                    else:
+                        blockedToolCallIterations = 0
+                        completionReason = "final_answer"
+                        finalAnswer = parsedFinalAnswer
+                        memoryCandidates = parsedOutput.memoryCandidates or []
+                        stepTrace["status"] = "final"
+                        isFinished = True
+                elif parsedOutput.outputType == "stop":
+                    blockedToolCallIterations = 0
+                    completionReason = "stop_response"
+                    finalAnswer = parsedOutput.finalAnswer or ""
+                    memoryCandidates = parsedOutput.memoryCandidates or []
+                    stepTrace["status"] = "stop"
+                    isFinished = True
+                else:
+                    if in_allowToolCalls is False:
+                        blockedToolCallIterations += 1
+                        blockedObservation = (
+                            "Tool calls are disabled for this request. "
+                            "Answer directly without using any tool."
+                        )
+                        observations.append(blockedObservation)
+                        stepTrace["status"] = "tool_call_blocked"
+                        stepTrace["toolCall"] = {
+                            "toolName": parsedOutput.action or "unknown_tool",
+                            "args": parsedOutput.args or {},
+                        }
+                        stepTrace["observation"] = blockedObservation
+                        completionReason = "running"
+                        finalAnswer = ""
+                        isFinished = False
+                        stepTraces.append(stepTrace)
+                        stepCount += 1
+                        maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
+                        if blockedToolCallIterations >= maxBlocked:
+                            completionReason = "tool_call_blocked_limit"
+                            finalAnswer = (
+                                "Остановка: модель многократно запрашивала инструмент при "
+                                "отключённых tool calls."
+                            )
+                            isFinished = True
+                        continue
+                    blockedToolCallIterations = 0
+                    toolName = parsedOutput.action or "unknown_tool"
+                    toolArgs = parsedOutput.args or {}
+
+                    if toolName in successfulToolNames:
+                        previousOkResult = toolNameToLastOkResult.get(toolName)
+                        previousOkArgs = toolNameToLastOkArgs.get(toolName, {})
+                        allowRepeat = False
+                        if toolName == "read_email" and previousOkResult is not None:
+                            try:
+                                prevData = json.loads(str(previousOkResult.data or "{}"))
+                                prevCount = int(prevData.get("count", 0)) if isinstance(prevData, dict) else 0
+                            except Exception:
+                                prevCount = 0
+                            requestedMaxItems = int(toolArgs.get("maxItems", previousOkArgs.get("maxItems", 10) or 10))
+                            if prevCount < requestedMaxItems:
+                                prevUnreadOnly = bool(previousOkArgs.get("unreadOnly", True)) is True
+                                newUnreadOnly = bool(toolArgs.get("unreadOnly", prevUnreadOnly)) is True
+                                prevSinceHours = int(previousOkArgs.get("sinceHours", 24) or 24)
+                                newSinceHours = int(toolArgs.get("sinceHours", prevSinceHours) or prevSinceHours)
+                                isBroader = (prevUnreadOnly is True and newUnreadOnly is False) or (
+                                    newSinceHours > prevSinceHours
+                                )
+                                if isBroader is True:
+                                    allowRepeat = True
+                        if allowRepeat is True:
+                            blockedToolCallIterations = 0
+                        else:
+                            blockedToolCallIterations += 1
+                            blockedPayload: dict[str, Any] = {
+                                "kind": "tool_call_blocked",
+                                "tool_name": toolName,
+                                "reason": "tool_already_succeeded_in_this_run",
+                                "message": "Инструмент уже был успешно вызван в этом run. "
+                                "Сформируй final-ответ по последним данным, без повторного вызова.",
+                            }
+                            if previousOkResult is not None:
+                                blockedPayload["previous_observation_preview"] = (
+                                    self._buildToolObservationPreview(
+                                        in_toolResult=previousOkResult
+                                    )
+                                )
+                            blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
                             observations.append(blockedObservation)
                             stepTrace["status"] = "tool_call_blocked"
-                            stepTrace["toolCall"] = {
-                                "toolName": parsedOutput.action or "unknown_tool",
-                                "args": parsedOutput.args or {},
-                            }
+                            stepTrace["toolCall"] = {"toolName": toolName, "args": toolArgs}
                             stepTrace["observation"] = blockedObservation
                             completionReason = "running"
                             finalAnswer = ""
@@ -245,192 +352,131 @@ class AgentLoop:
                             if blockedToolCallIterations >= maxBlocked:
                                 completionReason = "tool_call_blocked_limit"
                                 finalAnswer = (
-                                    "Остановка: модель многократно запрашивала инструмент при "
-                                    "отключённых tool calls."
+                                    "Остановка: модель многократно запрашивала повтор инструмента "
+                                    "после успешного результата."
                                 )
                                 isFinished = True
                             continue
-                        blockedToolCallIterations = 0
-                        toolName = parsedOutput.action or "unknown_tool"
-                        toolArgs = parsedOutput.args or {}
 
-                        if toolName in successfulToolNames:
-                            previousOkResult = toolNameToLastOkResult.get(toolName)
-                            previousOkArgs = toolNameToLastOkArgs.get(toolName, {})
-                            allowRepeat = False
-                            if toolName == "read_email" and previousOkResult is not None:
-                                try:
-                                    prevData = json.loads(str(previousOkResult.data or "{}"))
-                                    prevCount = int(prevData.get("count", 0)) if isinstance(prevData, dict) else 0
-                                except Exception:
-                                    prevCount = 0
-                                requestedMaxItems = int(toolArgs.get("maxItems", previousOkArgs.get("maxItems", 10) or 10))
-                                if prevCount < requestedMaxItems:
-                                    prevUnreadOnly = bool(previousOkArgs.get("unreadOnly", True)) is True
-                                    newUnreadOnly = bool(toolArgs.get("unreadOnly", prevUnreadOnly)) is True
-                                    prevSinceHours = int(previousOkArgs.get("sinceHours", 24) or 24)
-                                    newSinceHours = int(toolArgs.get("sinceHours", prevSinceHours) or prevSinceHours)
-                                    isBroader = (prevUnreadOnly is True and newUnreadOnly is False) or (
-                                        newSinceHours > prevSinceHours
-                                    )
-                                    if isBroader is True:
-                                        allowRepeat = True
-                            if allowRepeat is True:
-                                blockedToolCallIterations = 0
-                            else:
-                                blockedToolCallIterations += 1
-                                blockedPayload: dict[str, Any] = {
-                                    "kind": "tool_call_blocked",
-                                    "tool_name": toolName,
-                                    "reason": "tool_already_succeeded_in_this_run",
-                                    "message": "Инструмент уже был успешно вызван в этом run. "
-                                    "Сформируй final-ответ по последним данным, без повторного вызова.",
-                                }
-                                if previousOkResult is not None:
-                                    blockedPayload["previous_observation_preview"] = (
-                                        self._buildToolObservationPreview(
-                                            in_toolResult=previousOkResult
-                                        )
-                                    )
-                                blockedObservation = json.dumps(blockedPayload, ensure_ascii=False)
-                                observations.append(blockedObservation)
-                                stepTrace["status"] = "tool_call_blocked"
-                                stepTrace["toolCall"] = {"toolName": toolName, "args": toolArgs}
-                                stepTrace["observation"] = blockedObservation
-                                completionReason = "running"
-                                finalAnswer = ""
-                                isFinished = False
-                                stepTraces.append(stepTrace)
-                                stepCount += 1
-                                maxBlocked = self._stopPolicy.runtimeSettings.maxToolCallBlockedIterations
-                                if blockedToolCallIterations >= maxBlocked:
-                                    completionReason = "tool_call_blocked_limit"
-                                    finalAnswer = (
-                                        "Остановка: модель многократно запрашивала повтор инструмента "
-                                        "после успешного результата."
-                                    )
-                                    isFinished = True
-                                continue
-
-                        blockedToolCallIterations = 0
-                        toolCallCount += 1
-                        toolSignature = json.dumps(
-                            {"toolName": toolName, "args": toolArgs},
-                            ensure_ascii=False,
-                            sort_keys=True,
+                    blockedToolCallIterations = 0
+                    toolCallCount += 1
+                    toolSignature = json.dumps(
+                        {"toolName": toolName, "args": toolArgs},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                    windowSize = self._stopPolicy.runtimeSettings.toolCallHistoryWindowSize
+                    maxInWindow = self._stopPolicy.runtimeSettings.maxSameToolSignatureInWindow
+                    signatureCountInWindow = self._countSignatureInWindow(
+                        in_window=toolSignatureWindow,
+                        in_signature=toolSignature,
+                    )
+                    if signatureCountInWindow >= maxInWindow - 1:
+                        completionReason = "repeated_tool_call_loop"
+                        finalAnswer = (
+                            "Остановка: слишком частые повторы одного и того же вызова инструмента."
                         )
-                        windowSize = self._stopPolicy.runtimeSettings.toolCallHistoryWindowSize
-                        maxInWindow = self._stopPolicy.runtimeSettings.maxSameToolSignatureInWindow
-                        signatureCountInWindow = self._countSignatureInWindow(
-                            in_window=toolSignatureWindow,
-                            in_signature=toolSignature,
-                        )
-                        if signatureCountInWindow >= maxInWindow - 1:
-                            completionReason = "repeated_tool_call_loop"
-                            finalAnswer = (
-                                "Остановка: слишком частые повторы одного и того же вызова инструмента."
-                            )
-                            stepTrace["status"] = "repeated_tool_call_loop"
-                            stepTrace["toolCall"] = {
-                                "toolName": toolName,
-                                "args": toolArgs,
-                            }
-                            isFinished = True
-                            stepTraces.append(stepTrace)
-                            stepCount += 1
-                            break
-                        if toolSignature == lastToolSignature:
-                            repeatedToolCallCount += 1
-                        else:
-                            repeatedToolCallCount = 1
-                            lastToolSignature = toolSignature
-                        if toolName == lastToolName:
-                            repeatedSameToolNameCount += 1
-                        else:
-                            repeatedSameToolNameCount = 1
-                            lastToolName = toolName
-                        if repeatedToolCallCount >= 3:
-                            completionReason = "repeated_tool_call_loop"
-                            finalAnswer = (
-                                "Остановка: обнаружен повторяющийся вызов одного и того же инструмента."
-                            )
-                            stepTrace["status"] = "repeated_tool_call_loop"
-                            stepTrace["toolCall"] = {
-                                "toolName": toolName,
-                                "args": toolArgs,
-                            }
-                            isFinished = True
-                            stepTraces.append(stepTrace)
-                            stepCount += 1
-                            break
-                        if repeatedSameToolNameCount >= 3:
-                            completionReason = "repeated_tool_call_loop"
-                            finalAnswer = (
-                                "Остановка: обнаружены повторные вызовы одного инструмента."
-                            )
-                            stepTrace["status"] = "repeated_tool_call_loop"
-                            stepTrace["toolCall"] = {
-                                "toolName": toolName,
-                                "args": toolArgs,
-                            }
-                            isFinished = True
-                            stepTraces.append(stepTrace)
-                            stepCount += 1
-                            break
-                        toolResult = self._toolExecutionCoordinator.execute(
-                            in_toolName=toolName,
-                            in_rawArgs=toolArgs,
-                        )
-                        if (
-                            toolResult.ok is False
-                            and isinstance(toolResult.error, dict)
-                            and str(toolResult.error.get("code", "")) == "TIMEOUT"
-                        ):
-                            toolTimeoutCounts[toolName] = toolTimeoutCounts.get(toolName, 0) + 1
-                        else:
-                            toolTimeoutCounts[toolName] = 0
-                        if toolResult.ok is True:
-                            successfulToolNames.add(toolName)
-                            toolNameToLastOkResult[toolName] = toolResult
-                            toolNameToLastOkArgs[toolName] = dict(toolArgs)
-                            if requiredToolName and toolName == requiredToolName:
-                                missingRequiredToolFinalCount = 0
-                        self._appendToolSignatureWindow(
-                            io_window=toolSignatureWindow,
-                            in_signature=toolSignature,
-                            in_maxSize=windowSize,
-                        )
-                        observationText = self._buildToolObservationText(
-                            in_toolResult=toolResult
-                        )
-                        observations.append(observationText)
-                        stepTrace["status"] = "tool_call"
+                        stepTrace["status"] = "repeated_tool_call_loop"
                         stepTrace["toolCall"] = {
                             "toolName": toolName,
                             "args": toolArgs,
                         }
-                        stepTrace["toolResult"] = {
-                            "ok": toolResult.ok,
-                            "tool_name": toolResult.tool_name,
-                            "data": toolResult.data,
-                            "error": toolResult.error,
-                            "meta": toolResult.meta,
+                        isFinished = True
+                        stepTraces.append(stepTrace)
+                        stepCount += 1
+                        break
+                    if toolSignature == lastToolSignature:
+                        repeatedToolCallCount += 1
+                    else:
+                        repeatedToolCallCount = 1
+                        lastToolSignature = toolSignature
+                    if toolName == lastToolName:
+                        repeatedSameToolNameCount += 1
+                    else:
+                        repeatedSameToolNameCount = 1
+                        lastToolName = toolName
+                    if repeatedToolCallCount >= 3:
+                        completionReason = "repeated_tool_call_loop"
+                        finalAnswer = (
+                            "Остановка: обнаружен повторяющийся вызов одного и того же инструмента."
+                        )
+                        stepTrace["status"] = "repeated_tool_call_loop"
+                        stepTrace["toolCall"] = {
+                            "toolName": toolName,
+                            "args": toolArgs,
                         }
-                        stepTrace["observation"] = observationText
-                        timeoutCount = toolTimeoutCounts.get(toolName, 0)
-                        if timeoutCount >= maxTimeoutsPerTool:
-                            completionReason = "tool_timeout_limit"
-                            finalAnswer = (
-                                "Не удалось завершить запрос: инструмент "
-                                f"`{toolName}` несколько раз превысил лимит времени. "
-                                "Попробуйте повторить запрос позже."
-                            )
-                            stepTrace["status"] = "tool_timeout_limit"
-                            isFinished = True
-                        else:
-                            completionReason = "running"
-                            finalAnswer = ""
-                            isFinished = False
+                        isFinished = True
+                        stepTraces.append(stepTrace)
+                        stepCount += 1
+                        break
+                    if repeatedSameToolNameCount >= 3:
+                        completionReason = "repeated_tool_call_loop"
+                        finalAnswer = (
+                            "Остановка: обнаружены повторные вызовы одного инструмента."
+                        )
+                        stepTrace["status"] = "repeated_tool_call_loop"
+                        stepTrace["toolCall"] = {
+                            "toolName": toolName,
+                            "args": toolArgs,
+                        }
+                        isFinished = True
+                        stepTraces.append(stepTrace)
+                        stepCount += 1
+                        break
+                    toolResult = self._toolExecutionCoordinator.execute(
+                        in_toolName=toolName,
+                        in_rawArgs=toolArgs,
+                    )
+                    if (
+                        toolResult.ok is False
+                        and isinstance(toolResult.error, dict)
+                        and str(toolResult.error.get("code", "")) == "TIMEOUT"
+                    ):
+                        toolTimeoutCounts[toolName] = toolTimeoutCounts.get(toolName, 0) + 1
+                    else:
+                        toolTimeoutCounts[toolName] = 0
+                    if toolResult.ok is True:
+                        successfulToolNames.add(toolName)
+                        toolNameToLastOkResult[toolName] = toolResult
+                        toolNameToLastOkArgs[toolName] = dict(toolArgs)
+                        if requiredToolName and toolName == requiredToolName:
+                            missingRequiredToolFinalCount = 0
+                    self._appendToolSignatureWindow(
+                        io_window=toolSignatureWindow,
+                        in_signature=toolSignature,
+                        in_maxSize=windowSize,
+                    )
+                    observationText = self._buildToolObservationText(
+                        in_toolResult=toolResult
+                    )
+                    observations.append(observationText)
+                    stepTrace["status"] = "tool_call"
+                    stepTrace["toolCall"] = {
+                        "toolName": toolName,
+                        "args": toolArgs,
+                    }
+                    stepTrace["toolResult"] = {
+                        "ok": toolResult.ok,
+                        "tool_name": toolResult.tool_name,
+                        "data": toolResult.data,
+                        "error": toolResult.error,
+                        "meta": toolResult.meta,
+                    }
+                    stepTrace["observation"] = observationText
+                    timeoutCount = toolTimeoutCounts.get(toolName, 0)
+                    if timeoutCount >= maxTimeoutsPerTool:
+                        completionReason = "tool_timeout_limit"
+                        finalAnswer = (
+                            "Не удалось завершить запрос: инструмент "
+                            f"`{toolName}` несколько раз превысил лимит времени. "
+                            "Попробуйте повторить запрос позже."
+                        )
+                        stepTrace["status"] = "tool_timeout_limit"
+                        isFinished = True
+                    else:
+                        completionReason = "running"
+                        finalAnswer = ""
+                        isFinished = False
                 stepTraces.append(stepTrace)
                 stepCount += 1
 
@@ -454,11 +500,16 @@ class AgentLoop:
         in_modelName: str,
         in_promptText: str,
         io_fallbackEvents: list[dict[str, Any]],
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
         llmResult = self._llmClient.complete(
             in_modelName=in_modelName,
             in_promptText=in_promptText,
+            in_timeoutSeconds=in_timeoutSeconds,
+            in_useJsonObjectResponseFormat=in_useJsonObjectResponseFormat,
         )
         io_fallbackEvents.extend(list(llmResult.fallbackEvents))
         ret = llmResult

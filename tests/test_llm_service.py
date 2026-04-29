@@ -13,9 +13,16 @@ class FakeOpenRouterClient:
         self._scenarios = in_scenarios
         self._indices: dict[str, int] = {}
 
-    def createChatCompletion(self, in_modelName: str, in_promptText: str) -> dict:
+    def createChatCompletion(
+        self,
+        in_modelName: str,
+        in_promptText: str,
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
+    ) -> dict:
         ret: dict
-        _ = in_promptText
+        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat)
         sequence = self._scenarios.get(in_modelName, [])
         index = self._indices.get(in_modelName, 0)
         if index >= len(sequence):

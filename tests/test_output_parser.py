@@ -13,6 +13,22 @@ def testParseValidFinalOutput() -> None:
     assert result.parsedOutput.finalAnswer == "Готово"
 
 
+def testParseValidYamlFinalOutput() -> None:
+    parser = OutputParser()
+    rawText = """
+type: final
+reason: done
+final_answer: Готово YAML
+"""
+
+    result = parser.parse(in_rawText=rawText)
+
+    assert result.isValid is True
+    assert result.parsedOutput is not None
+    assert result.parsedOutput.outputType == "final"
+    assert result.parsedOutput.finalAnswer == "Готово YAML"
+
+
 def testParseValidToolCallOutput() -> None:
     parser = OutputParser()
     rawText = (
@@ -48,7 +64,7 @@ def testParseInvalidJsonOutput() -> None:
     result = parser.parse(in_rawText=rawText)
 
     assert result.isValid is False
-    assert result.errorCode == "INVALID_JSON"
+    assert result.errorCode in ("INVALID_JSON", "INVALID_FORMAT", "INVALID_YAML")
 
 
 def testParseSchemaViolationOutput() -> None:

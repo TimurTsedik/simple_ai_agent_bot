@@ -16,9 +16,16 @@ class SequenceLlmClient:
         self._outputs = in_outputs
         self._index = 0
 
-    def complete(self, in_modelName: str, in_promptText: str) -> LlmCompletionResultModel:
+    def complete(
+        self,
+        in_modelName: str,
+        in_promptText: str,
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
+    ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
-        _ = in_promptText
+        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat)
         if self._index < len(self._outputs):
             contentValue = self._outputs[self._index]
             self._index += 1
@@ -326,10 +333,12 @@ def testAgentLoopBlocksFinalUntilRequiredToolSucceeds() -> None:
     assert result.stepTraces[0].get("status") == "final_blocked_missing_required_tool"
 
 
-def testAgentLoopStopsOnMalformedJsonAfterRepair() -> None:
+def testAgentLoopFallbackWhenFormatRepairExhaustedWithoutToolData() -> None:
     runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
-    badJson = '{"type":"final","reason":"done","final_answer":"Финал"'
-    llmClient = SequenceLlmClient(in_outputs=[badJson, badJson])
+    runtimeSettings.maxConsecutiveFormatFailureSteps = 1
+    runtimeSettings.maxFormatRepairAttempts = 2
+    badPayload = '{"type":"final","reason":"done","final_answer":"Финал"'
+    llmClient = SequenceLlmClient(in_outputs=[badPayload, badPayload, badPayload])
     loop = AgentLoop(
         in_llmClient=llmClient,
         in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
@@ -349,8 +358,8 @@ def testAgentLoopStopsOnMalformedJsonAfterRepair() -> None:
         in_memoryBlock="",
     )
 
-    assert result.completionReason == "stop_response"
-    assert "невалидный JSON" in result.finalAnswer
+    assert result.completionReason == "final_answer"
+    assert "не удалось получить данные" in result.finalAnswer.lower()
     assert result.stepTraces[0].get("repairRawModelResponse") is not None
 
 

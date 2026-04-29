@@ -22,6 +22,12 @@ class ModelSettings(BaseModel):
     secondaryModel: str
     tertiaryModel: str
     requestTimeoutSeconds: int = Field(ge=5, le=300)
+    formatRepairRequestTimeoutSeconds: int = Field(
+        default=45,
+        ge=5,
+        le=300,
+        description="HTTP timeout for format-repair prompts (YAML remediation).",
+    )
     retryCountBeforeFallback: int = Field(ge=0, le=5)
     returnToPrimaryCooldownSeconds: int = Field(ge=60, le=86400)
 
@@ -39,7 +45,25 @@ class RuntimeSettings(BaseModel):
     maxSameToolSignatureInWindow: int = Field(default=3, ge=2, le=10)
     maxToolCallBlockedIterations: int = Field(default=3, ge=1, le=10)
     extraSecondsPerLlmError: int = Field(default=45, ge=0, le=600)
+    extraSecondsPerFormatFailureStep: int = Field(
+        default=30,
+        ge=0,
+        le=600,
+        description="Extra execution budget per step where YAML/format repair was exhausted.",
+    )
     maxExtraSecondsTotal: int = Field(default=180, ge=0, le=1800)
+    maxFormatRepairAttempts: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="LLM repair calls after an invalid runtime response in one agent step.",
+    )
+    maxConsecutiveFormatFailureSteps: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description="Stop after this many consecutive steps with exhausted format repair.",
+    )
 
 
 class SecuritySettings(BaseModel):

@@ -23,7 +23,12 @@ class LlmService(LlmClientProtocol):
         self._primarySuppressedUntil: datetime | None = None
 
     def complete(
-        self, in_modelName: str, in_promptText: str
+        self,
+        in_modelName: str,
+        in_promptText: str,
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
         now = datetime.now(UTC)
@@ -48,6 +53,8 @@ class LlmService(LlmClientProtocol):
                     rawResponse = self._openRouterClient.createChatCompletion(
                         in_modelName=modelName,
                         in_promptText=in_promptText,
+                        in_timeoutSeconds=in_timeoutSeconds,
+                        in_useJsonObjectResponseFormat=in_useJsonObjectResponseFormat,
                     )
                     sanitizedRawResponse = self._sanitizeRawResponseForLogs(
                         in_rawResponse=rawResponse

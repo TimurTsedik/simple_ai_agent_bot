@@ -5,6 +5,11 @@ from app.domain.entities.llmCompletionResult import LlmCompletionResultModel
 
 class LlmClientProtocol(Protocol):
     def complete(
-        self, in_modelName: str, in_promptText: str
+        self,
+        in_modelName: str,
+        in_promptText: str,
+        *,
+        in_timeoutSeconds: int | None = None,
+        in_useJsonObjectResponseFormat: bool = False,
     ) -> LlmCompletionResultModel:
         ...

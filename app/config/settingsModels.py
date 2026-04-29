@@ -79,6 +79,18 @@ class SecuritySettings(BaseModel):
     maxAdminTokens: int = Field(ge=1, le=10)
     allowedReadOnlyPaths: list[str]
     adminWritesEnabled: bool = False
+    bindSessionToIp: bool = Field(
+        default=False,
+        description="If true, web session cookie is bound to client IP (helps against stolen cookies).",
+    )
+    trustProxyHeaders: bool = Field(
+        default=False,
+        description="If true, X-Forwarded-For may be used to resolve client IP (only when request comes from a trusted proxy).",
+    )
+    trustedProxyIps: list[str] = Field(
+        default_factory=list,
+        description="Trusted proxy IPs allowed to set X-Forwarded-For when trustProxyHeaders=true.",
+    )
 
 
 class LoggingSettings(BaseModel):

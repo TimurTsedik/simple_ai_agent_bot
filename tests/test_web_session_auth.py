@@ -9,6 +9,7 @@ def testSessionCookieRoundtrip() -> None:
         in_tokenHash=tokenHash,
         in_secret="secret-1",
         in_ttlSeconds=3600,
+        in_ipText="1.2.3.4",
     )
     payload = parseSessionCookieValue(
         in_cookieValue=cookieValue,
@@ -17,6 +18,7 @@ def testSessionCookieRoundtrip() -> None:
 
     assert payload is not None
     assert payload.get("tokenHash") == tokenHash
+    assert payload.get("ip") == "1.2.3.4"
 
 
 def testSessionCookieRejectsInvalidSignature() -> None:
@@ -25,6 +27,7 @@ def testSessionCookieRejectsInvalidSignature() -> None:
         in_tokenHash=tokenHash,
         in_secret="secret-1",
         in_ttlSeconds=3600,
+        in_ipText="1.2.3.4",
     )
     payload = parseSessionCookieValue(
         in_cookieValue=cookieValue,

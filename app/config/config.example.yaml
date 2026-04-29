@@ -41,6 +41,9 @@ security:
   webSessionCookieTtlSeconds: 43200
   maxAdminTokens: 3
   adminWritesEnabled: false
+  bindSessionToIp: false
+  trustProxyHeaders: false
+  trustedProxyIps: []
   allowedReadOnlyPaths:
     - "./data/memory"
     - "./data/runs"

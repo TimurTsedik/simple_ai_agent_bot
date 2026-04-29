@@ -145,3 +145,38 @@ def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch) -> None:
     )
     assert ok.status_code == 303
     assert ok.headers.get("location") == "/"
+
+
+def testWebSessionBoundToIpRejectsDifferentIp(monkeypatch) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch)
+    mainModule = importlib.import_module("app.main")
+    mainModule.app.state.settings.security.bindSessionToIp = True
+    mainModule.app.state.settings.security.trustProxyHeaders = True
+    mainModule.app.state.settings.security.trustedProxyIps = ["testclient"]
+
+    loginResp = client.post(
+        "/login",
+        data={"adminToken": "token-one-12345678"},
+        follow_redirects=False,
+        headers={"x-forwarded-for": "1.1.1.1"},
+    )
+    assert loginResp.status_code == 303
+    cookieValue = loginResp.cookies.get("admin_session")
+    assert isinstance(cookieValue, str) and cookieValue != ""
+
+    okSameIp = client.get(
+        "/",
+        cookies={"admin_session": cookieValue},
+        headers={"x-forwarded-for": "1.1.1.1"},
+        follow_redirects=False,
+    )
+    assert okSameIp.status_code == 200
+
+    otherIpResp = client.get(
+        "/",
+        cookies={"admin_session": cookieValue},
+        headers={"x-forwarded-for": "2.2.2.2"},
+        follow_redirects=False,
+    )
+    assert otherIpResp.status_code == 303
+    assert otherIpResp.headers.get("location") == "/login"

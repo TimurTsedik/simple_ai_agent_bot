@@ -56,10 +56,18 @@ def registerAdminWebRoutes(
 
     def resolveClientIpText(in_request: Request) -> str:
         ret: str
-        forwarded = str(in_request.headers.get("x-forwarded-for", "") or "").strip()
-        if forwarded != "":
-            ret = forwarded.split(",", 1)[0].strip()
-            return ret
+        if settings.security.trustProxyHeaders is True:
+            proxyIpText = (
+                in_request.client.host.strip()
+                if in_request.client is not None and isinstance(in_request.client.host, str)
+                else ""
+            )
+            trustedProxyIps = set(str(x).strip() for x in settings.security.trustedProxyIps)
+            if proxyIpText in trustedProxyIps or proxyIpText in {"127.0.0.1", "::1"}:
+                forwarded = str(in_request.headers.get("x-forwarded-for", "") or "").strip()
+                if forwarded != "":
+                    ret = forwarded.split(",", 1)[0].strip()
+                    return ret
         client = in_request.client
         if client is not None and isinstance(client.host, str) and client.host.strip() != "":
             ret = client.host.strip()
@@ -118,9 +126,18 @@ def registerAdminWebRoutes(
             ret = False
             return ret
         tokenHash = payload.get("tokenHash")
-        ret = (
+        isTokenOk = (
             isinstance(tokenHash, str) and tokenHash in in_app.state.adminTokenHashes
         )
+        if isTokenOk is not True:
+            ret = False
+            return ret
+        if settings.security.bindSessionToIp is True:
+            cookieIpText = payload.get("ip")
+            currentIpText = resolveClientIpText(in_request=in_request)
+            ret = isinstance(cookieIpText, str) and cookieIpText == currentIpText
+            return ret
+        ret = True
         return ret
 
     def ensureWritesEnabledOr403() -> None:
@@ -233,6 +250,7 @@ def registerAdminWebRoutes(
             in_tokenHash=tokenHash,
             in_secret=settings.sessionCookieSecret,
             in_ttlSeconds=settings.security.webSessionCookieTtlSeconds,
+            in_ipText=clientIpText if settings.security.bindSessionToIp is True else None,
         )
         response.set_cookie(
             key=in_app.state.webSessionCookieName,

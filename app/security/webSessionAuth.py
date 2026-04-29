@@ -20,12 +20,15 @@ def createSessionCookieValue(
     in_tokenHash: str,
     in_secret: str,
     in_ttlSeconds: int,
+    in_ipText: str | None = None,
 ) -> str:
     ret: str
     payload = {
         "tokenHash": in_tokenHash,
         "exp": int(time()) + in_ttlSeconds,
     }
+    if in_ipText is not None:
+        payload["ip"] = str(in_ipText)
     payloadJson = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     payloadEncoded = base64.urlsafe_b64encode(payloadJson.encode("utf-8")).decode("ascii")
     signature = hmac.new(

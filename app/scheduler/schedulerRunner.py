@@ -7,6 +7,9 @@ from threading import Event, Lock
 from time import monotonic, time
 from typing import Any, Callable
 
+import requests
+from pydantic import ValidationError
+
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsModels import SchedulerJobSettings, SchedulerSettings, LoggingSettings
 
@@ -26,7 +29,7 @@ def _loadJsonOrEmpty(in_path: Path) -> dict[str, Any]:
         try:
             loaded = json.loads(in_path.read_text(encoding="utf-8"))
             ret = loaded if isinstance(loaded, dict) else {}
-        except Exception:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
             ret = {}
     return ret
 
@@ -271,7 +274,7 @@ class SchedulerRunner:
                         "runId": runId,
                     },
                 )
-        except Exception as in_exc:
+        except (ValidationError, OSError, json.JSONDecodeError, requests.RequestException) as in_exc:
             statusValue = "error"
             errorText = str(in_exc)
             writeJsonlEvent(
@@ -281,6 +284,20 @@ class SchedulerRunner:
                     "jobId": in_job.jobId,
                     "sessionId": sessionId,
                     "error": errorText,
+                    "errorType": type(in_exc).__name__,
+                },
+            )
+        except Exception as in_exc:
+            statusValue = "error"
+            errorText = f"{type(in_exc).__name__}: {in_exc}"
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_job_internal_run_error",
+                in_payload={
+                    "jobId": in_job.jobId,
+                    "sessionId": sessionId,
+                    "error": errorText,
+                    "errorType": type(in_exc).__name__,
                 },
             )
         finishedAtUnixTs = int(self.in_nowUnixTsProvider())

@@ -32,5 +32,5 @@ def testGetLogsUseCaseReadsTailAndSkipsInvalidLines() -> None:
         result = useCase.execute(in_limit=3)
 
     assert len(result) == 2
-    assert result[0]["eventType"] == "second"
-    assert result[1]["eventType"] == "third"
+    assert result[0]["eventType"] == "third"
+    assert result[1]["eventType"] == "second"

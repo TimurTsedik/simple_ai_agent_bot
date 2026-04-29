@@ -129,3 +129,23 @@ def testCoordinatorReturnsExecutionError() -> None:
     assert result.ok is False
     assert result.error is not None
     assert result.error["code"] == "EXECUTION_ERROR"
+
+
+def testCoordinatorShutdownIsIdempotent() -> None:
+    registry = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="success_tool",
+                description="test",
+                argsModel=EmptyArgsModel,
+                timeoutSeconds=1,
+                executeCallable=_successTool,
+            )
+        ]
+    )
+    coordinator = ToolExecutionCoordinator(
+        in_toolRegistry=registry,
+        in_maxToolOutputChars=1000,
+    )
+    coordinator.shutdown(in_wait=True)
+    coordinator.shutdown(in_wait=True)

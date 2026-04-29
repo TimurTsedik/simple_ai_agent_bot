@@ -14,6 +14,9 @@ class TelegramSettings(BaseModel):
     digestChannelUsernames: list[str] = Field(default_factory=list)
     portfolioTickers: list[str] = Field(default_factory=list)
     digestSemanticKeywords: list[str] = Field(default_factory=list)
+    outboundHttpMaxConcurrent: int = Field(default=2, ge=1, le=32)
+    outboundHttpMaxRetries: int = Field(default=2, ge=0, le=8)
+    outboundHttpDefaultTimeoutSeconds: int = Field(default=45, ge=5, le=180)
 
 
 class ModelSettings(BaseModel):

@@ -4,6 +4,7 @@ from typing import Any
 
 import requests
 
+from app.common.contouringRequestsPolicy import ContouringRequestsPolicy
 from app.config.settingsModels import SettingsModel
 from app.domain.protocols.loggerProtocol import LoggerProtocol
 from app.integrations.telegram.channelPostStore import ChannelPostStore
@@ -16,11 +17,13 @@ class TelegramPollingRunner:
         in_settings: SettingsModel,
         in_logger: LoggerProtocol,
         in_updateHandler: TelegramUpdateHandler,
+        in_contouringHttpPolicy: ContouringRequestsPolicy,
         in_typingIntervalSeconds: float = 4.0,
     ) -> None:
         self._settings = in_settings
         self._logger = in_logger
         self._updateHandler = in_updateHandler
+        self._contouringHttpPolicy = in_contouringHttpPolicy
         self._typingIntervalSeconds = max(0.2, in_typingIntervalSeconds)
         self._lastUpdateId = 0
         self._stopEvent = Event()
@@ -37,10 +40,10 @@ class TelegramPollingRunner:
             "offset": self._lastUpdateId + 1,
         }
         try:
-            response = requests.get(
+            response = self._contouringHttpPolicy.get(
                 apiUrl,
-                params=params,
-                timeout=self._settings.telegram.pollingTimeoutSeconds + 5,
+                in_params=params,
+                in_timeoutSeconds=float(self._settings.telegram.pollingTimeoutSeconds + 5),
             )
             response.raise_for_status()
             payload = response.json()
@@ -142,7 +145,11 @@ class TelegramPollingRunner:
         )
         payload = {"chat_id": in_chatId, "text": in_text}
         try:
-            requests.post(apiUrl, json=payload, timeout=15).raise_for_status()
+            self._contouringHttpPolicy.post(
+                apiUrl,
+                in_json=payload,
+                in_timeoutSeconds=15.0,
+            ).raise_for_status()
         except requests.RequestException as in_exc:
             self._logger.error(f"telegram_send_error {in_exc}")
 
@@ -152,6 +159,10 @@ class TelegramPollingRunner:
         )
         payload = {"chat_id": in_chatId, "action": "typing"}
         try:
-            requests.post(apiUrl, json=payload, timeout=10).raise_for_status()
+            self._contouringHttpPolicy.post(
+                apiUrl,
+                in_json=payload,
+                in_timeoutSeconds=10.0,
+            ).raise_for_status()
         except requests.RequestException as in_exc:
             self._logger.error(f"telegram_typing_error {in_exc}")

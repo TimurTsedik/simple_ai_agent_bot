@@ -1,6 +1,7 @@
 import time
 from typing import Any
 
+from app.common.contouringRequestsPolicy import ContouringRequestsPolicy
 from app.config.settingsModels import (
     AppSettings,
     LoggingSettings,
@@ -94,6 +95,15 @@ def _buildSettings() -> SettingsModel:
     return ret
 
 
+def _buildHttpPolicy() -> ContouringRequestsPolicy:
+    ret = ContouringRequestsPolicy(
+        in_maxConcurrentRequests=2,
+        in_timeoutSeconds=15.0,
+        in_maxRetries=0,
+    )
+    return ret
+
+
 class _FakeResponse:
     def raise_for_status(self) -> None:
         return None
@@ -108,11 +118,12 @@ def testPollingRunnerSendsTypingForPrivateMessage(monkeypatch) -> None:
         calledUrls.append(in_url)
         return _FakeResponse()
 
-    monkeypatch.setattr("app.integrations.telegram.telegramPollingRunner.requests.post", fakePost)
+    monkeypatch.setattr("app.common.contouringRequestsPolicy.requests.post", fakePost)
     runner = TelegramPollingRunner(
         in_settings=_buildSettings(),
         in_logger=FakeLogger(),
         in_updateHandler=FakeUpdateHandler(in_delaySeconds=0.05),
+        in_contouringHttpPolicy=_buildHttpPolicy(),
         in_typingIntervalSeconds=0.2,
     )
     runner._handleUpdatesPayload(
@@ -142,11 +153,12 @@ def testPollingRunnerSkipsTypingForNonPrivateMessage(monkeypatch) -> None:
         calledUrls.append(in_url)
         return _FakeResponse()
 
-    monkeypatch.setattr("app.integrations.telegram.telegramPollingRunner.requests.post", fakePost)
+    monkeypatch.setattr("app.common.contouringRequestsPolicy.requests.post", fakePost)
     runner = TelegramPollingRunner(
         in_settings=_buildSettings(),
         in_logger=FakeLogger(),
         in_updateHandler=FakeUpdateHandler(in_delaySeconds=0.0),
+        in_contouringHttpPolicy=_buildHttpPolicy(),
     )
     runner._handleUpdatesPayload(
         in_payload={

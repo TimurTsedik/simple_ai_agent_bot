@@ -93,3 +93,48 @@ def testJsonRunRepositorySkipsCorruptIndexLines() -> None:
 
     assert len(listItems) == 2
     assert {item["runId"] for item in listItems} == {"good2", "good"}
+
+
+def testJsonRunRepositoryListRunsTailReadOrderAndPagination() -> None:
+    with TemporaryDirectory() as tempDir:
+        runsDir = Path(tempDir) / "runs"
+        runsDir.mkdir(parents=True)
+        indexPath = runsDir / "index.jsonl"
+        totalLines = 250
+        lines: list[str] = []
+        for index in range(1, totalLines + 1):
+            record = {
+                "runId": f"r{index:04d}",
+                "traceId": f"t{index}",
+                "sessionId": "s",
+                "runStatus": "completed",
+                "completionReason": "final_answer",
+                "selectedModel": "m",
+                "createdAt": "2026-01-01",
+                "finishedAt": "2026-01-01",
+            }
+            lines.append(json.dumps(record, ensure_ascii=False))
+            if index % 50 == 0:
+                lines.append("not json")
+        indexPath.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        repository = JsonRunRepository(in_dataRootPath=tempDir)
+
+        firstPage = repository.listRuns(in_limit=5, in_offset=0)
+        secondPage = repository.listRuns(in_limit=5, in_offset=5)
+        thirdPage = repository.listRuns(in_limit=3, in_offset=10)
+
+    assert [item["runId"] for item in firstPage] == [
+        "r0250",
+        "r0249",
+        "r0248",
+        "r0247",
+        "r0246",
+    ]
+    assert [item["runId"] for item in secondPage] == [
+        "r0245",
+        "r0244",
+        "r0243",
+        "r0242",
+        "r0241",
+    ]
+    assert [item["runId"] for item in thirdPage] == ["r0240", "r0239", "r0238"]

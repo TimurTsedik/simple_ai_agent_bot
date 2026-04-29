@@ -53,6 +53,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - **Логин**: `GET /login` + `POST /login` (admin token из `ADMIN_RAW_TOKENS`), cookie TTL 12h.
 - **Основные страницы**: `/`, `/runs`, `/logs`, `/tools`, `/skills`, `/config/tools`, `/git/status`, `/git/diff`.
+- **JSON API** (`/internal/*`): без сессии возвращают **401** (без редиректа на `/login`).
 - **Read-only / writes enabled**:
   - по умолчанию админка в режиме read-only;
   - чтобы включить редактирование skills и `tools.yaml`, выставь `security.adminWritesEnabled: true` в `app/config/config.yaml` и перезапусти сервис.
@@ -125,10 +126,10 @@ State jobs сохраняется в: `data/scheduler/jobs_state.json` (lastRunA
 
 ## Запуск тестов
 
-Запускай из venv:
+Запускай из venv из **корня репозитория** (чтобы пакет `app` находился на `PYTHONPATH`):
 
 ```bash
-pytest
+PYTHONPATH=. pytest
 ```
 
 ## Частые проблемы

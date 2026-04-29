@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 import json
+import os
+import weakref
 from time import monotonic
 from typing import Any
 
@@ -8,6 +10,13 @@ from pydantic import ValidationError
 
 from app.common.truncation import truncateText
 from app.tools.registry.toolRegistry import ToolRegistry
+
+
+def _shutdownExecutorPoolSilently(in_executor: ThreadPoolExecutor) -> None:
+    try:
+        in_executor.shutdown(wait=False)
+    except RuntimeError:
+        pass
 
 
 @dataclass(frozen=True)
@@ -20,9 +29,24 @@ class ToolResultEnvelopeModel:
 
 
 class ToolExecutionCoordinator:
-    def __init__(self, in_toolRegistry: ToolRegistry, in_maxToolOutputChars: int) -> None:
+    def __init__(
+        self,
+        in_toolRegistry: ToolRegistry,
+        in_maxToolOutputChars: int,
+        in_executorMaxWorkers: int | None = None,
+    ) -> None:
         self._toolRegistry = in_toolRegistry
         self._maxToolOutputChars = in_maxToolOutputChars
+        maxWorkers = in_executorMaxWorkers
+        if maxWorkers is None:
+            maxWorkers = max(4, (os.cpu_count() or 1) * 2)
+        maxWorkers = max(1, int(maxWorkers))
+        self._executor = ThreadPoolExecutor(
+            max_workers=maxWorkers,
+            thread_name_prefix="tool_exec",
+        )
+        self._executorShutdown = False
+        weakref.finalize(self, _shutdownExecutorPoolSilently, self._executor)
 
     def execute(self, in_toolName: str, in_rawArgs: dict[str, Any]) -> ToolResultEnvelopeModel:
         ret: ToolResultEnvelopeModel
@@ -53,18 +77,20 @@ class ToolExecutionCoordinator:
                     in_startedAtMonotonic=startedAt,
                 )
             else:
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(toolDefinition.executeCallable, validatedArgs)
-                    data: Any = None
-                    executionError: Exception | None = None
-                    didTimeout = False
-                    try:
-                        data = future.result(timeout=toolDefinition.timeoutSeconds)
-                    except FuturesTimeoutError:
-                        didTimeout = True
-                        future.cancel()
-                    except Exception as in_exc:
-                        executionError = in_exc
+                future = self._executor.submit(
+                    toolDefinition.executeCallable,
+                    validatedArgs,
+                )
+                data: Any = None
+                executionError: Exception | None = None
+                didTimeout = False
+                try:
+                    data = future.result(timeout=toolDefinition.timeoutSeconds)
+                except FuturesTimeoutError:
+                    didTimeout = True
+                    future.cancel()
+                except Exception as in_exc:
+                    executionError = in_exc
 
                 if didTimeout is True:
                     ret = self._buildError(
@@ -103,6 +129,15 @@ class ToolExecutionCoordinator:
                         },
                     )
         return ret
+
+    def shutdown(self, in_wait: bool = True) -> None:
+        if self._executorShutdown is True:
+            return
+        self._executorShutdown = True
+        try:
+            self._executor.shutdown(wait=in_wait)
+        except RuntimeError:
+            pass
 
     def _serializeToolData(self, in_toolName: str, in_data: Any, in_maxChars: int) -> tuple[str, bool]:
         ret: tuple[str, bool]

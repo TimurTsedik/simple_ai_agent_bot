@@ -26,8 +26,7 @@ def testWebEndpointsRequireLogin(monkeypatch) -> None:
     assert response.headers.get("location") == "/login"
 
     internalResponse = client.get("/internal/runs", follow_redirects=False)
-    assert internalResponse.status_code == 303
-    assert internalResponse.headers.get("location") == "/login"
+    assert internalResponse.status_code == 401
 
 
 def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:

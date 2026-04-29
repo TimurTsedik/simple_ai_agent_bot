@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 class JsonRunRepository:
@@ -46,21 +46,52 @@ class JsonRunRepository:
         return ret
 
     def listRuns(self, in_limit: int, in_offset: int = 0) -> list[dict[str, Any]]:
-        ret: list[dict[str, Any]]
         boundedLimit = max(1, in_limit)
         boundedOffset = max(0, in_offset)
-        records: list[dict[str, Any]] = []
-        if self._indexFilePath.exists():
-            lines = self._indexFilePath.read_text(encoding="utf-8").splitlines()
-            for lineText in lines:
+        needCount = boundedOffset + boundedLimit
+        recordsNewestFirst = self._loadIndexRecordsNewestFirstUpTo(
+            in_needCount=needCount,
+        )
+        ret = recordsNewestFirst[boundedOffset : boundedOffset + boundedLimit]
+        return ret
+
+    def _loadIndexRecordsNewestFirstUpTo(self, in_needCount: int) -> list[dict[str, Any]]:
+        ret: list[dict[str, Any]] = []
+        if in_needCount > 0 and self._indexFilePath.exists():
+            parsedCount = 0
+            for lineText in self._iterIndexLinesNewestFirst():
                 if not lineText.strip():
                     continue
                 try:
                     parsedValue = json.loads(lineText)
-                    if isinstance(parsedValue, dict):
-                        records.append(parsedValue)
                 except json.JSONDecodeError:
                     continue
-        records.reverse()
-        ret = records[boundedOffset : boundedOffset + boundedLimit]
+                if not isinstance(parsedValue, dict):
+                    continue
+                ret.append(parsedValue)
+                parsedCount += 1
+                if parsedCount >= in_needCount:
+                    break
         return ret
+
+    def _iterIndexLinesNewestFirst(self) -> Iterator[str]:
+        chunkSizeBytes = 65536
+        lineBuffer = b""
+        with self._indexFilePath.open("rb") as fileHandle:
+            fileHandle.seek(0, os.SEEK_END)
+            filePos = fileHandle.tell()
+            while filePos > 0:
+                stepBytes = min(chunkSizeBytes, filePos)
+                filePos -= stepBytes
+                fileHandle.seek(filePos)
+                chunkBytes = fileHandle.read(stepBytes) + lineBuffer
+                splitParts = chunkBytes.split(b"\n")
+                lineBuffer = splitParts[0]
+                partIndex = len(splitParts) - 1
+                while partIndex >= 1:
+                    candidateLine = splitParts[partIndex]
+                    partIndex -= 1
+                    if candidateLine.strip():
+                        yield candidateLine.decode("utf-8", errors="replace")
+            if lineBuffer.strip():
+                yield lineBuffer.decode("utf-8", errors="replace")

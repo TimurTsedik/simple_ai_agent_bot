@@ -17,7 +17,7 @@ class GetLogsUseCase:
         if logsPath.exists():
             lines = logsPath.read_text(encoding="utf-8").splitlines()
             tailLines = lines[-boundedLimit:]
-            for lineText in tailLines:
+            for lineText in reversed(tailLines):
                 try:
                     parsedValue = json.loads(lineText)
                     if isinstance(parsedValue, dict):

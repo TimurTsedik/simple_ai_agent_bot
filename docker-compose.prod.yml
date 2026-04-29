@@ -2,6 +2,7 @@ services:
   app:
     image: ${APP_IMAGE:?APP_IMAGE is required}
     container_name: simple-ai-agent-bot
+    user: "1001:1001"
     restart: unless-stopped
     ports:
       - "8000:8000"

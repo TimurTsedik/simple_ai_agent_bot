@@ -38,13 +38,52 @@ class SkillSelectorRules:
         ret: list[str]
         loweredMessage = in_userMessage.lower()
         selectedIds: list[str] = ["default_assistant"]
+        feedbackMarkers = [
+            "понравил",
+            "запомни",
+            "сохрани в память",
+            "нравятся такие",
+            "хочу больше так",
+            "мне нравится",
+            "понравилась новость",
+        ]
+        digestContextWords = [
+            "новост",
+            "дайджест",
+            "канал",
+            "пост",
+            "telegram",
+            "телеграм",
+            "стать",
+        ]
+        if any(marker in loweredMessage for marker in feedbackMarkers):
+            if any(word in loweredMessage for word in digestContextWords) or "предпочт" in loweredMessage:
+                if "telegram_digest_feedback" not in selectedIds:
+                    selectedIds.insert(1, "telegram_digest_feedback")
+        hasFeedbackIntent = "telegram_digest_feedback" in selectedIds
         if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
             selectedIds.append("web_research")
         if any(item in loweredMessage for item in ["почт", "email", "письм", "imap", "inbox"]):
             selectedIds.append("read_and_analyze_email")
         if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
             selectedIds.append("compose_digest")
-        if any(item in loweredMessage for item in ["news", "digest", "новост", "дайджест", "рынок", "обзор", "сводка", "телеграм", "telegram"]):
+        if (
+            hasFeedbackIntent is False
+            and any(
+                item in loweredMessage
+                for item in [
+                    "news",
+                    "digest",
+                    "новост",
+                    "дайджест",
+                    "рынок",
+                    "обзор",
+                    "сводка",
+                    "телеграм",
+                    "telegram",
+                ]
+            )
+        ):
             selectedIds.append("telegram_news_digest")
         ret = selectedIds
         return ret

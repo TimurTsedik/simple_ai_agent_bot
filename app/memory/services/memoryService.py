@@ -1,3 +1,5 @@
+import json
+
 from app.common.timeProvider import getUtcNowIso
 from app.common.truncation import truncateText
 from app.domain.policies.memoryPolicy import MemoryPolicy
@@ -22,6 +24,7 @@ class MemoryService:
         recentLines = self._memoryStore.readSessionRecentMessages(in_sessionId=in_sessionId)
         summaryText = self._memoryStore.readSessionSummary(in_sessionId=in_sessionId)
         longTermLines = self._memoryStore.readLongTermMemory()
+        digestHintsBlock = self._buildDigestPreferenceHintsBlock(in_longTermLines=longTermLines)
         ret = (
             "## Session Summary\n"
             + summaryText
@@ -30,6 +33,46 @@ class MemoryService:
             + "\n\n## Long-Term Memory\n"
             + "\n".join(longTermLines)
         )
+        if digestHintsBlock.strip() != "":
+            ret += (
+                "\n\n## Digest preference hints (soft guidance)\n"
+                "Use only when the user did not explicitly override topics/channels/keywords. "
+                "Prefer matching these hints in digest_telegram_news args.\n"
+                + digestHintsBlock
+            )
+        return ret
+
+    def _buildDigestPreferenceHintsBlock(self, in_longTermLines: list[str]) -> str:
+        ret: str
+        renderedLines: list[str] = []
+        prefixText = "- digest_pref_json:"
+        for lineText in in_longTermLines:
+            strippedLine = lineText.strip()
+            if strippedLine.startswith(prefixText) is False:
+                continue
+            jsonPart = strippedLine[len(prefixText) :].strip()
+            try:
+                payload = json.loads(jsonPart)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) is False:
+                continue
+            if str(payload.get("kind", "")) != "digest_user_preference":
+                continue
+            topicsValue = payload.get("likedTopics", [])
+            channelsValue = payload.get("likedChannels", [])
+            keywordsValue = payload.get("likedKeywords", [])
+            noteValue = str(payload.get("userNote", "") or "")
+            savedAtValue = str(payload.get("savedAt", "") or "")
+            topicsText = ", ".join(str(t) for t in topicsValue) if isinstance(topicsValue, list) else ""
+            channelsText = ", ".join(str(c) for c in channelsValue) if isinstance(channelsValue, list) else ""
+            keywordsText = ", ".join(str(k) for k in keywordsValue) if isinstance(keywordsValue, list) else ""
+            renderedLines.append(
+                f"- savedAt={savedAtValue}; topics=[{topicsText}]; channels=[{channelsText}]; "
+                f"keywords=[{keywordsText}]; note={noteValue}"
+            )
+        keptLines = renderedLines[-12:]
+        ret = "\n".join(keptLines)
         return ret
 
     def updateAfterRun(

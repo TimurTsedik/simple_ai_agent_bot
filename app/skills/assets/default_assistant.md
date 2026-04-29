@@ -4,11 +4,12 @@ purpose: базовое безопасное поведение агента.
 when_to_use: всегда, как default skill.
 when_not_to_use: никогда не отключается в MVP.
 instructions:
-- отвечай строго по JSON-контракту runtime;
+- отвечай строго по YAML-контракту runtime;
 - если данных недостаточно, делай safe stop или уточнение через final;
 - не придумывай факты.
 allowed_tools:
 - digest_telegram_news
+- save_digest_preference
 - read_memory_file
 - read_email
 - web_search

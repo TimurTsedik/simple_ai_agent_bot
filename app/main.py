@@ -73,7 +73,8 @@ def _buildApp() -> FastAPI:
     promptBuilder = PromptBuilder(in_runtimeSettings=settings.runtime)
     outputParser = OutputParser()
     stopPolicy = StopPolicy(in_runtimeSettings=settings.runtime)
-    toolRegistry = buildToolRegistry(in_settings=settings)
+    memoryStore = MarkdownMemoryStore(in_memorySettings=settings.memory)
+    toolRegistry = buildToolRegistry(in_settings=settings, in_memoryStore=memoryStore)
     toolMetadataRenderer = ToolMetadataRenderer()
     toolExecutionCoordinator = ToolExecutionCoordinator(
         in_toolRegistry=toolRegistry,
@@ -96,7 +97,6 @@ def _buildApp() -> FastAPI:
         in_skillSelectorRules=skillSelectorRules,
         in_skillSelectionMaxCount=settings.runtime.skillSelectionMaxCount,
     )
-    memoryStore = MarkdownMemoryStore(in_memorySettings=settings.memory)
     memoryPolicy = MemoryPolicy()
     memoryService = MemoryService(
         in_memoryStore=memoryStore,

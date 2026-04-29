@@ -1,18 +1,25 @@
 from app.config.settingsModels import SettingsModel
+from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
+from app.tools.digestTopicSeeds import collectSeedKeywordsForTopics
 from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsTool
 from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
+from app.tools.implementations.saveDigestPreferenceTool import SaveDigestPreferenceTool
 from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
     DigestTelegramNewsArgsModel,
     ReadEmailArgsModel,
     ReadMemoryFileArgsModel,
+    SaveDigestPreferenceArgsModel,
     WebSearchArgsModel,
 )
 
 
-def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
+def buildToolRegistry(
+    in_settings: SettingsModel,
+    in_memoryStore: MarkdownMemoryStore,
+) -> ToolRegistry:
     ret: ToolRegistry
     def _getDigestChannels() -> list[str]:
         retChannels = list(in_settings.tools.telegramNewsDigest.digestChannelUsernames)
@@ -32,7 +39,9 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
     digestTool = DigestTelegramNewsTool(
         getDigestChannelUsernames=_getDigestChannels,
         getDefaultKeywords=_getDefaultNewsKeywords,
+        getTopicSeedsForTopics=collectSeedKeywordsForTopics,
     )
+    saveDigestPreferenceTool = SaveDigestPreferenceTool(in_memoryStore=in_memoryStore)
     readMemoryFileTool = ReadMemoryFileTool(
         in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths
     )
@@ -46,11 +55,26 @@ def buildToolRegistry(in_settings: SettingsModel) -> ToolRegistry:
             name="digest_telegram_news",
             description=(
                 "Собирает краткий дайджест новостей из публичных telegram-каналов "
-                "по ключевым словам и времени."
+                "по ключевым словам и времени. "
+                "Аргумент channels задаёт список публичных username (с @ или без); "
+                "если пусто — используются каналы из конфигурации. "
+                "Аргумент topics добавляет seed-ключи (ai, economy, crypto, markets, tech, custom). "
+                "Порядок ключей: keywords из запроса, затем seeds по topics, затем дефолты из конфига."
             ),
             argsModel=DigestTelegramNewsArgsModel,
             timeoutSeconds=20,
             executeCallable=digestTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="save_digest_preference",
+            description=(
+                "Сохраняет в долгосрочную память предпочтения пользователя по дайджестам "
+                "(темы, каналы, ключевые слова, заметка). Вызывай после того, как пользователь "
+                "ответил на уточняющие вопросы о том, что именно ему нравится."
+            ),
+            argsModel=SaveDigestPreferenceArgsModel,
+            timeoutSeconds=5,
+            executeCallable=saveDigestPreferenceTool.execute,
         ),
         ToolDefinitionModel(
             name="read_memory_file",

@@ -7,6 +7,9 @@ from typing import Any, Callable
 
 import requests
 
+from app.tools.digestTopicSeeds import collectSeedKeywordsForTopics
+from app.tools.telegramUsernameNormalize import normalizeTelegramChannelUsername
+
 
 def _getTodayStartUnixTs() -> int:
     nowUtc = datetime.now(UTC)
@@ -30,10 +33,14 @@ def _defaultFetchHtml(in_url: str, in_timeoutSeconds: int) -> str:
     return ret
 
 
+_MAX_DIGEST_KEYWORD_PHRASES = 48
+
+
 @dataclass
 class DigestTelegramNewsTool:
     getDigestChannelUsernames: Callable[[], list[str]]
     getDefaultKeywords: Callable[[], list[str]]
+    getTopicSeedsForTopics: Callable[[list[str]], list[str]] = collectSeedKeywordsForTopics
     todayStartUnixTsProvider: Callable[[], int] = _getTodayStartUnixTs
     nowUnixTsProvider: Callable[[], int] = _getNowUnixTs
     fetchHtmlCallable: Callable[[str, int], str] = _defaultFetchHtml
@@ -47,11 +54,35 @@ class DigestTelegramNewsTool:
         requestedKeywords = [
             item for item in in_args.get("keywords", []) if isinstance(item, str)
         ]
-        effectiveKeywords = self._mergeKeywords(
+        topicIds = [item for item in in_args.get("topics", []) if isinstance(item, str)]
+        topicSeedKeywords = list(self.getTopicSeedsForTopics(topicIds))
+        afterTopicMerge = self._mergeKeywords(
             in_requestedKeywords=requestedKeywords,
+            in_defaultKeywords=topicSeedKeywords,
+        )
+        effectiveKeywords = self._mergeKeywords(
+            in_requestedKeywords=afterTopicMerge,
             in_defaultKeywords=defaultKeywords,
         )
-        keywords = [item.lower() for item in effectiveKeywords if item.strip()]
+        cappedKeywords = effectiveKeywords[:_MAX_DIGEST_KEYWORD_PHRASES]
+        keywords = [item.lower() for item in cappedKeywords if item.strip()]
+        requestedChannelsRaw = [
+            item for item in in_args.get("channels", []) if isinstance(item, str)
+        ]
+        normalizedChannels: list[str] = []
+        invalidChannelArgs: list[str] = []
+        seenChannelKeys: set[str] = set()
+        for rawChannel in requestedChannelsRaw:
+            normalized = normalizeTelegramChannelUsername(in_raw=rawChannel)
+            if normalized is None:
+                stripped = rawChannel.strip()
+                if stripped != "":
+                    invalidChannelArgs.append(stripped)
+                continue
+            if normalized in seenChannelKeys:
+                continue
+            seenChannelKeys.add(normalized)
+            normalizedChannels.append(normalized)
         rawSinceUnixTs = int(in_args.get("sinceUnixTs", 0))
         rawSinceHours = int(in_args.get("sinceHours", 0))
         sinceUnixTs = (
@@ -64,13 +95,23 @@ class DigestTelegramNewsTool:
             )
         )
         maxItems = int(in_args.get("maxItems", 10))
-        channelsFilter = set(digestChannelUsernames)
+        if len(normalizedChannels) > 0:
+            channelsFilter = set(normalizedChannels)
+        else:
+            channelsFilter = set(digestChannelUsernames)
         channelErrors: dict[str, str] = {}
         channelPosts = self._loadChannelPosts(
             in_channels=sorted(channelsFilter),
             io_channelErrors=channelErrors,
         )
         dedupedPosts = self._dedupePosts(in_posts=channelPosts)
+        totalParsedPosts = len(channelPosts)
+        totalDedupedPosts = len(dedupedPosts)
+        filteredOutByInvalidShape = 0
+        filteredOutByChannel = 0
+        filteredOutByTime = 0
+        filteredOutByKeywords = 0
+        filteredOutByDuplicate = 0
         results: list[dict[str, str]] = []
         seenKeys: set[tuple[str, str]] = set()
         for channelPost in reversed(dedupedPosts):
@@ -78,24 +119,31 @@ class DigestTelegramNewsTool:
             postText = channelPost.get("text")
             chatData = channelPost.get("chat")
             if not isinstance(postDate, int) or not isinstance(postText, str):
+                filteredOutByInvalidShape += 1
                 continue
             if not isinstance(chatData, dict):
+                filteredOutByInvalidShape += 1
                 continue
             username = chatData.get("username")
             if not isinstance(username, str):
+                filteredOutByInvalidShape += 1
                 continue
             if username not in channelsFilter:
+                filteredOutByChannel += 1
                 continue
             if postDate < sinceUnixTs:
+                filteredOutByTime += 1
                 continue
             if keywords:
                 loweredText = postText.lower()
                 if not any(item in loweredText for item in keywords):
+                    filteredOutByKeywords += 1
                     continue
             messageId = channelPost.get("message_id")
             messageIdStr = str(messageId) if messageId is not None else ""
             dedupKey = (username, messageIdStr)
             if dedupKey in seenKeys:
+                filteredOutByDuplicate += 1
                 continue
             seenKeys.add(dedupKey)
             if isinstance(messageId, int | str):
@@ -118,7 +166,26 @@ class DigestTelegramNewsTool:
             "count": len(results),
             "sinceUnixTsUsed": sinceUnixTs,
             "channelErrors": channelErrors,
+            "resolvedChannels": sorted(channelsFilter),
+            "resolvedTopics": [t.strip().lower() for t in topicIds if t.strip()],
+            "diagnostics": {
+                "requestedChannelsCount": len(requestedChannelsRaw),
+                "invalidChannelArgsCount": len(invalidChannelArgs),
+                "resolvedChannelsCount": len(channelsFilter),
+                "fetchErrorChannelsCount": len(channelErrors),
+                "totalParsedPosts": totalParsedPosts,
+                "totalDedupedPosts": totalDedupedPosts,
+                "filteredOutByInvalidShape": filteredOutByInvalidShape,
+                "filteredOutByChannel": filteredOutByChannel,
+                "filteredOutByTime": filteredOutByTime,
+                "filteredOutByKeywords": filteredOutByKeywords,
+                "filteredOutByDuplicate": filteredOutByDuplicate,
+                "returnedItemsCount": len(results),
+                "keywordsAppliedCount": len(keywords),
+            },
         }
+        if len(invalidChannelArgs) > 0:
+            ret["invalidChannelArgs"] = invalidChannelArgs
         return ret
 
     def _mergeKeywords(

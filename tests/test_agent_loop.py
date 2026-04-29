@@ -98,6 +98,11 @@ class DigestArgsForTestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     maxItems: int = 10
+    sinceHours: int = 24
+    sinceUnixTs: int = 0
+    channels: list[str] = []
+    topics: list[str] = []
+    keywords: list[str] = []
 
 
 def _echoTool(in_args: dict) -> dict:
@@ -246,6 +251,161 @@ def testAgentLoopAllowsSecondReadEmailCallWhenInsufficientItems() -> None:
     assert callCount["read_email"] == 2
     blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
     assert len(blockedSteps) == 0
+
+
+def testAgentLoopAllowsSecondDigestCallWhenFirstWindowTooNarrow() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8, in_maxBlocked=2)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"channels":["how2ai"],"topics":["ai"],"sinceHours":24,"maxItems":10}}',
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"channels":["how2ai"],"topics":["ai"],"sinceHours":168,"maxItems":10}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    callCount: dict[str, int] = {"digest_telegram_news": 0}
+
+    def _digestTool(in_args: dict) -> dict:
+        callCount["digest_telegram_news"] += 1
+        if int(in_args.get("sinceHours", 24)) <= 24:
+            ret = {
+                "items": [],
+                "count": 0,
+                "sinceUnixTsUsed": 1777366869,
+                "channelErrors": {},
+                "resolvedChannels": ["how2ai"],
+                "resolvedTopics": ["ai"],
+                "diagnostics": {"filteredOutByTime": 5},
+            }
+        else:
+            ret = {
+                "items": [
+                    {
+                        "channel": "how2ai",
+                        "dateUnixTs": "1777369999",
+                        "summary": "AI news",
+                        "link": "https://t.me/how2ai/1",
+                    }
+                ],
+                "count": 1,
+                "sinceUnixTsUsed": 1777360000,
+                "channelErrors": {},
+                "resolvedChannels": ["how2ai"],
+                "resolvedTopics": ["ai"],
+                "diagnostics": {"filteredOutByTime": 0},
+            }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="digest_telegram_news",
+                description="digest",
+                argsModel=DigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_digestTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    assert result.completionReason == "final_answer"
+    assert callCount["digest_telegram_news"] == 2
+    blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
+    assert len(blockedSteps) == 1
+
+
+def testAgentLoopAutoRetriesDigestOnTimeFilteredEmptyResult() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=6, in_maxBlocked=2)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"channels":["larchanka"],"topics":["ai"],"sinceHours":24,"maxItems":10}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    callArgs: list[dict] = []
+
+    def _digestTool(in_args: dict) -> dict:
+        callArgs.append(dict(in_args))
+        if int(in_args.get("sinceHours", 24)) <= 24:
+            ret = {
+                "items": [],
+                "count": 0,
+                "sinceUnixTsUsed": 1777367048,
+                "channelErrors": {},
+                "resolvedChannels": ["larchanka"],
+                "resolvedTopics": ["ai"],
+                "diagnostics": {"filteredOutByTime": 9},
+            }
+        else:
+            ret = {
+                "items": [
+                    {
+                        "channel": "larchanka",
+                        "dateUnixTs": "1777369999",
+                        "summary": "AI post",
+                        "link": "https://t.me/larchanka/123",
+                    }
+                ],
+                "count": 1,
+                "sinceUnixTsUsed": 1777360000,
+                "channelErrors": {},
+                "resolvedChannels": ["larchanka"],
+                "resolvedTopics": ["ai"],
+                "diagnostics": {"filteredOutByTime": 0},
+            }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="digest_telegram_news",
+                description="digest",
+                argsModel=DigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_digestTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    firstStep = result.stepTraces[0]
+    preview = firstStep.get("observation", "")
+
+    assert result.completionReason == "final_answer"
+    assert result.toolCallCount == 2
+    assert len(callArgs) == 2
+    assert int(callArgs[0].get("sinceHours", 0)) == 24
+    assert int(callArgs[1].get("sinceHours", 0)) == 72
+    assert firstStep.get("digestAutoRetry", {}).get("applied") is True
+    assert "filteredOutByTime" in str(preview)
 
 
 def testAgentLoopReturnsFinalAnswer() -> None:

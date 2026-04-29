@@ -77,6 +77,59 @@ def testSkillServiceSelectsReadAndAnalyzeEmailSkill() -> None:
     assert "Skill: Read and Analyze Email" in block
 
 
+def testSkillServiceSelectsDigestFeedbackSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "telegram_digest_feedback.md").write_text(
+            "# Feedback\nfeedback",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        block = service.buildSkillsBlock(
+            in_userMessage="Запомни, мне понравилась новость из дайджеста про рынок"
+        )
+
+    assert "Skill: Feedback" in block
+
+
+def testSkillServiceFeedbackIntentDoesNotPullTelegramNewsDigestSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "telegram_digest_feedback.md").write_text(
+            "# Feedback\nfeedback",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "telegram_news_digest.md").write_text(
+            "# News\nnews",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        selection = service.buildSkillsSelection(
+            in_userMessage="мне понравились новости из @how2ai, запомни"
+        )
+
+    assert "telegram_digest_feedback" in selection.selectedSkillIds
+    assert "telegram_news_digest" not in selection.selectedSkillIds
+
+
 def testSkillServiceDetectsWhenToolsAreNotRequired() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)

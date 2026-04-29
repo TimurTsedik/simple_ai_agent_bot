@@ -44,7 +44,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **Telegram**: личные чаты, allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
 - **Agent runtime**: strict JSON-выход, agentic loop, лимиты по шагам/времени/tool calls, repair-pass для JSON.
 - **OpenRouter**: primary/secondary/tertiary модели, retry и fallback с логированием.
-- **Инструменты (tools)**: `digest_telegram_news`, `web_search`, `read_memory_file`, `read_email`.
+- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `web_search`, `read_memory_file`, `read_email`.
 - **Skills & memory**: Markdown skills, rule-based selection, память recent/summary/long-term.
 - **Observability**: runs в `data/runs/<runId>.json` + `index.jsonl`, JSONL-логи, web UI (`/`, `/runs`, `/logs`, `/tools`, `/skills`, `/git/*`).
 - **Scheduler (variant B)**: встроенные запуски внутренних run-ов по расписанию.
@@ -76,7 +76,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - локально копировать его в `app/config/tools.yaml` (он добавлен в `.gitignore`)
 
 Что там настраивается:
-- **`digest_telegram_news`**: `telegramNewsDigest.digestChannelUsernames`, `telegramNewsDigest.portfolioTickers`, `telegramNewsDigest.digestSemanticKeywords`
+- **`digest_telegram_news`**: `telegramNewsDigest.digestChannelUsernames`, `telegramNewsDigest.portfolioTickers`, `telegramNewsDigest.digestSemanticKeywords`; в вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
+- **`save_digest_preference`**: пишет строку предпочтений в долгосрочную память (`digest_pref_json` в `long_term.md`); вызывать после уточнения у пользователя
 - **`read_email`**: `emailReader.*` (host/port/ssl/email и т.д.), пароль — только в env: `EMAIL_APP_PASSWORD`
 
 Путь к `tools.yaml` задаётся в `app/config/config.yaml`:

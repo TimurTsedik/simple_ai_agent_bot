@@ -195,6 +195,17 @@ class ToolExecutionCoordinator:
             payload["channelErrorsCount"] = (
                 len(channelErrors) if isinstance(channelErrors, dict) else None
             )
+            diagnostics = in_data.get("diagnostics", {})
+            if isinstance(diagnostics, dict):
+                payload["diagnostics"] = {
+                    "totalParsedPosts": diagnostics.get("totalParsedPosts"),
+                    "totalDedupedPosts": diagnostics.get("totalDedupedPosts"),
+                    "filteredOutByTime": diagnostics.get("filteredOutByTime"),
+                    "filteredOutByKeywords": diagnostics.get("filteredOutByKeywords"),
+                    "fetchErrorChannelsCount": diagnostics.get("fetchErrorChannelsCount"),
+                    "returnedItemsCount": diagnostics.get("returnedItemsCount"),
+                    "keywordsAppliedCount": diagnostics.get("keywordsAppliedCount"),
+                }
             ret = payload
             return ret
 

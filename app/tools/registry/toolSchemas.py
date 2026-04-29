@@ -3,10 +3,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DigestTelegramNewsArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    keywords: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list, max_length=40)
+    channels: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+        description="Public channel usernames (with or without @). Empty = use configured default channels.",
+    )
+    topics: list[str] = Field(
+        default_factory=list,
+        max_length=12,
+        description="Topic ids (e.g. ai, economy, crypto). Adds seed keywords before config defaults.",
+    )
     sinceUnixTs: int = Field(default=0, ge=0)
     sinceHours: int = Field(default=0, ge=0, le=168)
     maxItems: int = Field(default=10, ge=1, le=50)
+
+
+class SaveDigestPreferenceArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    likedTopics: list[str] = Field(default_factory=list, max_length=12)
+    likedChannels: list[str] = Field(default_factory=list, max_length=30)
+    likedKeywords: list[str] = Field(default_factory=list, max_length=30)
+    userNote: str = Field(default="", max_length=800)
 
 
 class ReadMemoryFileArgsModel(BaseModel):

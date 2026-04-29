@@ -20,6 +20,7 @@ instructions:
 allowed_tools:
 - read_email
 - digest_telegram_news
+- save_digest_preference
 - web_search
 limitations:
 - не раскрывай секреты/токены/пароли;

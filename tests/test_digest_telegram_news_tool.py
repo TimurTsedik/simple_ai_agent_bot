@@ -177,6 +177,95 @@ def testDigestToolUsesFallbackPatternWhenPrimaryMissingTime() -> None:
     assert "инфляция" in result["items"][0]["summary"].lower()
 
 
+def testDigestToolUsesExplicitChannelsFromArgs() -> None:
+    htmlByChannel = {
+        "https://t.me/s/only_here": """
+        <div data-post="only_here/1">
+          <time datetime="2023-11-15T00:15:00+00:00"></time>
+          <div class="tgme_widget_message_text js-message_text">alpha beta</div>
+        </div>
+        """,
+        "https://t.me/s/other_ch": """
+        <div data-post="other_ch/2">
+          <time datetime="2023-11-15T00:16:00+00:00"></time>
+          <div class="tgme_widget_message_text js-message_text">gamma delta</div>
+        </div>
+        """,
+    }
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["other_ch", "ignored_default"],
+        getDefaultKeywords=lambda: [],
+        fetchHtmlCallable=lambda in_url, _in_timeout: htmlByChannel[in_url],
+    )
+
+    result = tool.execute(
+        in_args={
+            "channels": ["@only_here"],
+            "keywords": ["alpha"],
+            "sinceUnixTs": 1700000000,
+            "maxItems": 5,
+        }
+    )
+
+    assert result["count"] == 1
+    assert result["resolvedChannels"] == ["only_here"]
+    assert result["items"][0]["channel"] == "only_here"
+
+
+def testDigestToolUsesTopicSeedsForAiTopic() -> None:
+    htmlPage = """
+    <div data-post="ai_news/1">
+      <time datetime="2023-11-15T01:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">OpenAI released a new model today</div>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["ai_news"],
+        getDefaultKeywords=lambda: [],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "topics": ["ai"],
+            "keywords": [],
+            "sinceUnixTs": 1700000000,
+            "maxItems": 5,
+        }
+    )
+
+    assert result["count"] == 1
+    assert "openai" in result["items"][0]["summary"].lower()
+    assert result["resolvedTopics"] == ["ai"]
+
+
+def testDigestToolReportsInvalidChannelArgsAndFallsBackToConfig() -> None:
+    htmlPage = """
+    <div data-post="fallback_ch/1">
+      <time datetime="2023-11-15T02:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">keyword match</div>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["fallback_ch"],
+        getDefaultKeywords=lambda: ["keyword"],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "channels": ["@@@", "bad name!"],
+            "keywords": [],
+            "sinceUnixTs": 1700000000,
+            "maxItems": 5,
+        }
+    )
+
+    assert "invalidChannelArgs" in result
+    assert result["resolvedChannels"] == ["fallback_ch"]
+    assert result["count"] == 1
+
+
 def testDigestToolRecordsChannelFetchErrors() -> None:
     def failingFetch(in_url: str, in_timeout: int) -> str:
         _ = in_timeout
@@ -203,3 +292,37 @@ def testDigestToolRecordsChannelFetchErrors() -> None:
 
     assert "bad_channel" in result.get("channelErrors", {})
     assert result["count"] >= 1
+
+
+def testDigestToolDiagnosticsShowsKeywordFiltering() -> None:
+    htmlPage = """
+    <div data-post="larchanka/1">
+      <time datetime="2026-04-29T10:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">релиз продукта без ai-слов</div>
+    </div>
+    <div data-post="larchanka/2">
+      <time datetime="2026-04-29T11:00:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">еще один пост без seed-ключей</div>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["larchanka"],
+        getDefaultKeywords=lambda: [],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "channels": ["@larchanka"],
+            "topics": ["ai"],
+            "keywords": [],
+            "sinceHours": 24,
+            "maxItems": 10,
+        }
+    )
+    diagnostics = result.get("diagnostics", {})
+
+    assert result["count"] == 0
+    assert diagnostics.get("totalParsedPosts") == 2
+    assert diagnostics.get("filteredOutByKeywords") == 2
+    assert diagnostics.get("returnedItemsCount") == 0

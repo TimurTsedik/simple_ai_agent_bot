@@ -74,6 +74,36 @@ def testMemoryServiceSkipsServiceAnswersInRecentAndSummary() -> None:
     assert "Сделай дайджест" in memoryBlock
 
 
+def testMemoryServiceIncludesDigestPreferenceHintsInMemoryBlock() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        store.writeLongTermMemory(
+            in_lines=[
+                "- digest_pref_json: "
+                '{"kind":"digest_user_preference","likedChannels":["ai_news"],'
+                '"likedKeywords":["gpt"],"likedTopics":["ai"],"savedAt":"2026-01-01T00:00:00+00:00",'
+                '"userNote":"more technical"}'
+            ]
+        )
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=4,
+            in_sessionSummaryMaxChars=2000,
+        )
+        memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
+
+    assert "## Digest preference hints" in memoryBlock
+    assert "ai_news" in memoryBlock
+    assert "gpt" in memoryBlock
+
+
 def testMemoryServiceSkipsWebSearchAccessDeniedInRecentAndSummary() -> None:
     with TemporaryDirectory() as tempDir:
         memorySettings = MemorySettings(

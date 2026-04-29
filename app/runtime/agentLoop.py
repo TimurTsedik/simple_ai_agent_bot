@@ -321,6 +321,39 @@ class AgentLoop:
                                 )
                                 if isBroader is True:
                                     allowRepeat = True
+                        if toolName == "digest_telegram_news" and previousOkResult is not None:
+                            prevCount = 0
+                            prevFilteredOutByTime = 0
+                            try:
+                                prevData = json.loads(str(previousOkResult.data or "{}"))
+                                if isinstance(prevData, dict):
+                                    prevCount = int(prevData.get("count", 0) or 0)
+                                    diagnostics = prevData.get("diagnostics", {})
+                                    if isinstance(diagnostics, dict):
+                                        prevFilteredOutByTime = int(
+                                            diagnostics.get("filteredOutByTime", 0) or 0
+                                        )
+                            except Exception:
+                                prevCount = 0
+                                prevFilteredOutByTime = 0
+                            prevSinceHours = int(previousOkArgs.get("sinceHours", 24) or 24)
+                            newSinceHours = int(
+                                toolArgs.get("sinceHours", prevSinceHours) or prevSinceHours
+                            )
+                            prevSinceUnixTs = int(previousOkArgs.get("sinceUnixTs", 0) or 0)
+                            newSinceUnixTs = int(
+                                toolArgs.get("sinceUnixTs", prevSinceUnixTs) or prevSinceUnixTs
+                            )
+                            isBroaderTimeWindow = (newSinceHours > prevSinceHours) or (
+                                prevSinceUnixTs > 0
+                                and (newSinceUnixTs == 0 or newSinceUnixTs < prevSinceUnixTs)
+                            )
+                            if (
+                                prevCount == 0
+                                and prevFilteredOutByTime > 0
+                                and isBroaderTimeWindow is True
+                            ):
+                                allowRepeat = True
                         if allowRepeat is True:
                             blockedToolCallIterations = 0
                         else:
@@ -427,6 +460,26 @@ class AgentLoop:
                         in_toolName=toolName,
                         in_rawArgs=toolArgs,
                     )
+                    digestAutoRetried = False
+                    digestAutoRetryArgs: dict[str, Any] | None = None
+                    if (
+                        toolName == "digest_telegram_news"
+                        and toolResult.ok is True
+                        and toolCallCount < self._stopPolicy.runtimeSettings.maxToolCalls
+                    ):
+                        retryArgs = self._buildDigestAutoRetryArgs(
+                            in_originalArgs=toolArgs,
+                            in_toolResult=toolResult,
+                        )
+                        if retryArgs is not None:
+                            digestAutoRetried = True
+                            digestAutoRetryArgs = retryArgs
+                            toolCallCount += 1
+                            toolResult = self._toolExecutionCoordinator.execute(
+                                in_toolName=toolName,
+                                in_rawArgs=retryArgs,
+                            )
+                            toolArgs = retryArgs
                     if (
                         toolResult.ok is False
                         and isinstance(toolResult.error, dict)
@@ -455,6 +508,12 @@ class AgentLoop:
                         "toolName": toolName,
                         "args": toolArgs,
                     }
+                    if digestAutoRetried is True:
+                        stepTrace["digestAutoRetry"] = {
+                            "applied": True,
+                            "reason": "empty_results_all_filtered_by_time",
+                            "retryArgs": digestAutoRetryArgs,
+                        }
                     stepTrace["toolResult"] = {
                         "ok": toolResult.ok,
                         "tool_name": toolResult.tool_name,
@@ -581,6 +640,14 @@ class AgentLoop:
                             else None
                         ),
                     }
+                    diagnosticsValue = parsedValue.get("diagnostics", {})
+                    if isinstance(diagnosticsValue, dict):
+                        payload["data_preview"]["filteredOutByTime"] = diagnosticsValue.get(
+                            "filteredOutByTime"
+                        )
+                        payload["data_preview"]["filteredOutByKeywords"] = diagnosticsValue.get(
+                            "filteredOutByKeywords"
+                        )
                 if (
                     isinstance(parsedValue, dict)
                     and in_toolResult.tool_name == "web_search"
@@ -681,6 +748,39 @@ class AgentLoop:
             except Exception:
                 preview["data_note"] = "non_json_tool_payload"
         ret = preview
+        return ret
+
+    def _buildDigestAutoRetryArgs(
+        self,
+        in_originalArgs: dict[str, Any],
+        in_toolResult: ToolResultEnvelopeModel,
+    ) -> dict[str, Any] | None:
+        ret: dict[str, Any] | None
+        ret = None
+        if in_toolResult.ok is False:
+            return ret
+        try:
+            parsedValue = json.loads(str(in_toolResult.data or "{}"))
+        except Exception:
+            return ret
+        if not isinstance(parsedValue, dict):
+            return ret
+        countValue = int(parsedValue.get("count", 0) or 0)
+        diagnosticsValue = parsedValue.get("diagnostics", {})
+        filteredOutByTime = 0
+        if isinstance(diagnosticsValue, dict):
+            filteredOutByTime = int(diagnosticsValue.get("filteredOutByTime", 0) or 0)
+        if countValue != 0 or filteredOutByTime <= 0:
+            return ret
+        originalSinceHours = int(in_originalArgs.get("sinceHours", 24) or 24)
+        if originalSinceHours >= 168:
+            return ret
+        retrySinceHours = 72 if originalSinceHours < 72 else 168
+        retryArgs = dict(in_originalArgs)
+        retryArgs["sinceHours"] = retrySinceHours
+        if int(retryArgs.get("sinceUnixTs", 0) or 0) > 0:
+            retryArgs["sinceUnixTs"] = 0
+        ret = retryArgs
         return ret
 
     def _isTechnicalFinalAnswer(self, in_text: str) -> bool:

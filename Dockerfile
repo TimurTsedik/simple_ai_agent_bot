@@ -11,6 +11,9 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser
 COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
+COPY favicon.ico /app/favicon.ico
+COPY favicon.png /app/favicon.png
+
 COPY app /app/app
 
 EXPOSE 8000

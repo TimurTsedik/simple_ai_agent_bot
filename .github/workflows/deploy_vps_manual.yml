@@ -23,6 +23,20 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install deps and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          PYTHONPATH=. pytest -q
+
       - name: Compute image tag
         id: meta
         shell: bash

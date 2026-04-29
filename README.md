@@ -178,6 +178,7 @@ PYTHONPATH=. pytest
 Важно:
 - `config/config.yaml` обязателен: приложение стартует из `app/config/config.yaml`, а в контейнере он монтируется из `./config`.
 - `data/` обязательно монтировать, иначе потеряешь runs/logs/memory при пересоздании контейнера.
+- Не монтируй `./config` целиком поверх `/app/app/config`: это перекроет python-модули (`settingsModels.py` и т.д.). Монтируются только YAML-файлы.
 
 ### 3) Секреты и конфиги на VPS
 

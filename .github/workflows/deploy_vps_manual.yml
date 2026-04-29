@@ -82,9 +82,16 @@ jobs:
           VPS_PORT: ${{ secrets.VPS_PORT }}
         run: |
           set -euo pipefail
+          port="${VPS_PORT:-22}"
+          if [[ "${port}" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 )); then
+            :
+          else
+            echo "ERROR: VPS_PORT must be a number 1..65535. Got: '${VPS_PORT}'" >&2
+            exit 2
+          fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${port}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts
 
       - name: Upload deployment files
         shell: bash
@@ -95,11 +102,12 @@ jobs:
           VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
         run: |
           set -euo pipefail
+          port="${VPS_PORT:-22}"
           appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
-          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/scripts' '${appDir}/data' '${appDir}/config'"
-          scp -P "${VPS_PORT}" docker-compose.prod.yml "${VPS_USER}@${VPS_HOST}:${appDir}/docker-compose.prod.yml"
-          scp -P "${VPS_PORT}" scripts/deploy_prod.sh "${VPS_USER}@${VPS_HOST}:${appDir}/scripts/deploy_prod.sh"
-          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
+          ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/scripts' '${appDir}/data' '${appDir}/config'"
+          scp -P "${port}" docker-compose.prod.yml "${VPS_USER}@${VPS_HOST}:${appDir}/docker-compose.prod.yml"
+          scp -P "${port}" scripts/deploy_prod.sh "${VPS_USER}@${VPS_HOST}:${appDir}/scripts/deploy_prod.sh"
+          ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
 
       - name: Deploy (pull + up) and health-check
         shell: bash
@@ -113,7 +121,8 @@ jobs:
           APP_IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
           set -euo pipefail
+          port="${VPS_PORT:-22}"
           appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
-          ssh -p "${VPS_PORT}" "${VPS_USER}@${VPS_HOST}" \
+          ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" \
             "cd '${appDir}' && APP_IMAGE='${APP_IMAGE}' GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' ./scripts/deploy_prod.sh"
 

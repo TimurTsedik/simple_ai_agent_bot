@@ -1,14 +1,82 @@
 import importlib
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 
-def _buildClient(in_monkeypatch) -> TestClient:
+def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
     ret: TestClient
     in_monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg-token-test")
     in_monkeypatch.setenv("OPENROUTER_API_KEY", "or-key-test")
     in_monkeypatch.setenv("SESSION_COOKIE_SECRET", "cookie-secret-test-0123456789abcdef")
     in_monkeypatch.setenv("ADMIN_RAW_TOKENS", "token-one-12345678")
+
+    configPath = in_tmpPath / "config.yaml"
+    toolsPath = in_tmpPath / "tools.yaml"
+    skillsDir = in_tmpPath / "skills"
+    skillsDir.mkdir(parents=True, exist_ok=True)
+    (skillsDir / "default_assistant.md").write_text("# Default\n\na", encoding="utf-8")
+
+    toolsPath.write_text(
+        "telegramNewsDigest:\n"
+        "  digestChannelUsernames: [\"a\"]\n"
+        "  portfolioTickers: []\n"
+        "  digestSemanticKeywords: []\n",
+        encoding="utf-8",
+    )
+
+    configPath.write_text(
+        "app:\n"
+        "  appName: \"simple-ai-agent-bot\"\n"
+        "  environment: \"test\"\n"
+        "  dataRootPath: \"./data\"\n"
+        "  displayTimeZone: \"UTC\"\n"
+        "telegram:\n"
+        "  pollingTimeoutSeconds: 30\n"
+        "  allowedUserIds: [16739703]\n"
+        "  denyMessageText: \"Доступ запрещён\"\n"
+        "models:\n"
+        "  openRouterBaseUrl: \"https://openrouter.ai/api/v1\"\n"
+        "  primaryModel: \"model-primary\"\n"
+        "  secondaryModel: \"model-secondary\"\n"
+        "  tertiaryModel: \"model-tertiary\"\n"
+        "  requestTimeoutSeconds: 45\n"
+        "  retryCountBeforeFallback: 0\n"
+        "  returnToPrimaryCooldownSeconds: 300\n"
+        "runtime:\n"
+        "  maxSteps: 2\n"
+        "  maxToolCalls: 0\n"
+        "  maxExecutionSeconds: 10\n"
+        "  maxToolOutputChars: 1000\n"
+        "  maxPromptChars: 3000\n"
+        "  recentMessagesLimit: 12\n"
+        "  sessionSummaryMaxChars: 2000\n"
+        "  skillSelectionMaxCount: 4\n"
+        "security:\n"
+        "  webSessionCookieTtlSeconds: 43200\n"
+        "  maxAdminTokens: 3\n"
+        "  adminWritesEnabled: false\n"
+        "  allowedReadOnlyPaths: [\"./data/memory\",\"./data/runs\",\"./data/logs\"]\n"
+        "logging:\n"
+        "  logsDirPath: \"./data/logs\"\n"
+        "  runLogsFileName: \"run.jsonl\"\n"
+        "  appLogsFileName: \"app.log\"\n"
+        "  maxBytes: 10485760\n"
+        "  backupCount: 5\n"
+        "skills:\n"
+        f"  skillsDirPath: \"{skillsDir.as_posix()}\"\n"
+        "tools:\n"
+        f"  toolsConfigPath: \"{toolsPath.as_posix()}\"\n"
+        "memory:\n"
+        "  memoryRootPath: \"./data/memory\"\n"
+        "scheduler:\n"
+        "  enabled: false\n"
+        "  schedulesConfigPath: \"./app/config/schedules.yaml\"\n"
+        "  tickSeconds: 1\n",
+        encoding="utf-8",
+    )
+
+    in_monkeypatch.setattr("app.config.defaults.DEFAULT_CONFIG_PATH", str(configPath))
     mainModule = importlib.import_module("app.main")
     mainModule = importlib.reload(mainModule)
     mainModule.app.state.telegramPollingRunner.runForever = lambda: None
@@ -17,8 +85,8 @@ def _buildClient(in_monkeypatch) -> TestClient:
     return ret
 
 
-def testWebEndpointsRequireLogin(monkeypatch) -> None:
-    client = _buildClient(in_monkeypatch=monkeypatch)
+def testWebEndpointsRequireLogin(monkeypatch, tmp_path) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch, in_tmpPath=tmp_path)
 
     response = client.get("/runs", follow_redirects=False)
 
@@ -29,8 +97,8 @@ def testWebEndpointsRequireLogin(monkeypatch) -> None:
     assert internalResponse.status_code == 401
 
 
-def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
-    client = _buildClient(in_monkeypatch=monkeypatch)
+def testWebLoginAndGitPagesRenderSafely(monkeypatch, tmp_path) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch, in_tmpPath=tmp_path)
     mainModule = importlib.import_module("app.main")
 
     loginResponse = client.post(
@@ -99,8 +167,8 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
     assert "items" in internalRuns.json()
 
 
-def testToolsAndSkillsPagesRequireLogin(monkeypatch) -> None:
-    client = _buildClient(in_monkeypatch=monkeypatch)
+def testToolsAndSkillsPagesRequireLogin(monkeypatch, tmp_path) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch, in_tmpPath=tmp_path)
 
     toolsResponse = client.get("/tools", follow_redirects=False)
     assert toolsResponse.status_code == 303
@@ -115,8 +183,8 @@ def testToolsAndSkillsPagesRequireLogin(monkeypatch) -> None:
     assert toolsConfigResponse.headers.get("location") == "/login"
 
 
-def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch) -> None:
-    client = _buildClient(in_monkeypatch=monkeypatch)
+def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch, tmp_path) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch, in_tmpPath=tmp_path)
     mainModule = importlib.import_module("app.main")
 
     now = {"t": 1000.0}
@@ -147,8 +215,8 @@ def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch) -> None:
     assert ok.headers.get("location") == "/"
 
 
-def testWebSessionBoundToIpRejectsDifferentIp(monkeypatch) -> None:
-    client = _buildClient(in_monkeypatch=monkeypatch)
+def testWebSessionBoundToIpRejectsDifferentIp(monkeypatch, tmp_path) -> None:
+    client = _buildClient(in_monkeypatch=monkeypatch, in_tmpPath=tmp_path)
     mainModule = importlib.import_module("app.main")
     mainModule.app.state.settings.security.bindSessionToIp = True
     mainModule.app.state.settings.security.trustProxyHeaders = True

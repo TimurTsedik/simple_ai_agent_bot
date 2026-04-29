@@ -1,6 +1,10 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.application.services.modelStatsService import (
+    ModelStatsService,
+    extractProviderUsageTokenCounts,
+)
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsModels import LoggingSettings, ModelSettings
 from app.domain.entities.llmCompletionResult import LlmCompletionResultModel
@@ -15,10 +19,12 @@ class LlmService(LlmClientProtocol):
         in_openRouterClient: OpenRouterClient,
         in_modelSettings: ModelSettings,
         in_loggingSettings: LoggingSettings,
+        in_modelStatsService: ModelStatsService | None = None,
     ) -> None:
         self._openRouterClient = in_openRouterClient
         self._modelSettings = in_modelSettings
         self._loggingSettings = in_loggingSettings
+        self._modelStatsService = in_modelStatsService
         self._fallbackPolicy = FallbackPolicy(in_modelSettings=in_modelSettings)
         self._primarySuppressedUntil: datetime | None = None
 
@@ -68,6 +74,18 @@ class LlmService(LlmClientProtocol):
                         },
                     )
                     extractedText = self._extractAssistantText(in_responseData=rawResponse)
+                    if self._modelStatsService is not None:
+                        promptTokens, completionTokens, totalTokens = (
+                            extractProviderUsageTokenCounts(in_responseData=rawResponse)
+                        )
+                        self._modelStatsService.recordAttempt(
+                            in_modelName=modelName,
+                            in_didSucceed=True,
+                            in_promptTokens=promptTokens,
+                            in_completionTokens=completionTokens,
+                            in_totalTokens=totalTokens,
+                            in_errorCode="",
+                        )
                     self._onModelSuccess(in_modelName=modelName)
                     successModelName = modelName
                     didComplete = True
@@ -79,6 +97,15 @@ class LlmService(LlmClientProtocol):
                     )
                 except OpenRouterClientError as in_exc:
                     lastError = in_exc
+                    if self._modelStatsService is not None:
+                        self._modelStatsService.recordAttempt(
+                            in_modelName=modelName,
+                            in_didSucceed=False,
+                            in_promptTokens=0,
+                            in_completionTokens=0,
+                            in_totalTokens=0,
+                            in_errorCode=in_exc.code,
+                        )
                     fallbackEvents.append(
                         {
                             "event": "model_error",

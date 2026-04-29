@@ -2,6 +2,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
+from app.application.services.modelStatsService import ModelStatsService
 from app.application.useCases.getRunListUseCase import GetRunListUseCase
 from app.config.settingsModels import SettingsModel
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
@@ -17,12 +18,14 @@ class DashboardSnapshotService:
         in_getRunListUseCase: GetRunListUseCase,
         in_toolRegistry: ToolRegistry,
         in_skillStore: MarkdownSkillStore,
+        in_modelStatsService: ModelStatsService,
         in_ttlSeconds: float = 2.0,
     ) -> None:
         self._settings = in_settings
         self._getRunListUseCase = in_getRunListUseCase
         self._toolRegistry = in_toolRegistry
         self._skillStore = in_skillStore
+        self._modelStatsService = in_modelStatsService
         self._ttlSeconds = max(0.1, float(in_ttlSeconds))
         self._cachedAtMonotonic = 0.0
         self._cachedStats: dict[str, Any] | None = None
@@ -88,6 +91,7 @@ class DashboardSnapshotService:
             "contextRecent": f"{int(recentSize.get('chars', 0))} chars, {self._formatBytes(in_sizeBytes=int(recentSize.get('bytes', 0)))}",
             "contextSummary": f"{int(summarySize.get('chars', 0))} chars, {self._formatBytes(in_sizeBytes=int(summarySize.get('bytes', 0)))}",
             "contextLongTerm": f"{int(longTermSize.get('chars', 0))} chars, {self._formatBytes(in_sizeBytes=int(longTermSize.get('bytes', 0)))}",
+            "modelStats": self._modelStatsService.getSnapshot(),
         }
         return ret
 

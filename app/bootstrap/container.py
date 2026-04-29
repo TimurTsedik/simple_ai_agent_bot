@@ -4,6 +4,7 @@ from pathlib import Path
 import requests
 
 from app.application.services.dashboardSnapshotService import DashboardSnapshotService
+from app.application.services.modelStatsService import ModelStatsService
 from app.application.useCases.getGitDiffUseCase import GetGitDiffUseCase
 from app.application.useCases.getGitStatusUseCase import GetGitStatusUseCase
 from app.application.useCases.getLogsUseCase import GetLogsUseCase
@@ -61,6 +62,7 @@ class ApplicationContainer:
     getGitDiffUseCase: GetGitDiffUseCase
     skillStore: MarkdownSkillStore
     dashboardSnapshotService: DashboardSnapshotService
+    modelStatsService: ModelStatsService
 
 
 def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
@@ -86,10 +88,12 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_apiKey=settings.openRouterApiKey,
         in_timeoutSeconds=settings.models.requestTimeoutSeconds,
     )
+    modelStatsService = ModelStatsService(in_dataRootPath=settings.app.dataRootPath)
     llmClient = LlmService(
         in_openRouterClient=openRouterClient,
         in_modelSettings=settings.models,
         in_loggingSettings=settings.logging,
+        in_modelStatsService=modelStatsService,
     )
     skillStore = MarkdownSkillStore(in_skillsDirPath=settings.skills.skillsDirPath)
     skillSelectorRules = SkillSelectorRules()
@@ -246,6 +250,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_getRunListUseCase=getRunListUseCase,
         in_toolRegistry=toolRegistry,
         in_skillStore=skillStore,
+        in_modelStatsService=modelStatsService,
         in_ttlSeconds=2.0,
     )
     ret = ApplicationContainer(
@@ -265,5 +270,6 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         getGitDiffUseCase=getGitDiffUseCase,
         skillStore=skillStore,
         dashboardSnapshotService=dashboardSnapshotService,
+        modelStatsService=modelStatsService,
     )
     return ret

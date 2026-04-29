@@ -62,6 +62,71 @@ def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> st
     return ret
 
 
+def _renderModelStatsSection(in_snapshot: Any) -> str:
+    ret = ""
+    if isinstance(in_snapshot, dict) is True:
+        totalsValue = in_snapshot.get("totals")
+        if isinstance(totalsValue, dict) is False:
+            totalsValue = {}
+        modelsList = in_snapshot.get("models")
+        if isinstance(modelsList, list) is False:
+            modelsList = []
+        updatedAt = str(in_snapshot.get("updatedAt", "") or "")
+
+        rowsHtmlParts: list[str] = []
+        rowsHtmlParts.append(
+            "<tr>"
+            "<td><strong>Итого</strong></td>"
+            f"<td>{html.escape(str(totalsValue.get('calls', 0)))}</td>"
+            f"<td>{html.escape(str(totalsValue.get('success', 0)))}</td>"
+            f"<td>{html.escape(str(totalsValue.get('errors', 0)))}</td>"
+            f"<td>{html.escape(str(totalsValue.get('promptTokens', 0)))}</td>"
+            f"<td>{html.escape(str(totalsValue.get('completionTokens', 0)))}</td>"
+            f"<td>{html.escape(str(totalsValue.get('totalTokens', 0)))}</td>"
+            "<td></td>"
+            "</tr>"
+        )
+        for row in modelsList:
+            if isinstance(row, dict) is False:
+                continue
+            rowsHtmlParts.append(
+                "<tr>"
+                f"<td>{html.escape(str(row.get('modelName', '')))}</td>"
+                f"<td>{html.escape(str(row.get('calls', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('success', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('errors', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('promptTokens', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('completionTokens', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('totalTokens', 0)))}</td>"
+                f"<td>{html.escape(str(row.get('lastErrorCode', '')))}</td>"
+                "</tr>"
+            )
+        rowsHtml = "".join(rowsHtmlParts)
+        metaLine = (
+            f"<p class='muted' style='margin:0 0 8px 0;'>Обновлено: {html.escape(updatedAt)}</p>"
+            if updatedAt
+            else "<p class='muted' style='margin:0 0 8px 0;'>Обновлено: —</p>"
+        )
+        ret = (
+            "<div class='card col12'>"
+            "<h3 style='margin:0 0 8px 0;'>Статистика LLM (provider)</h3>"
+            f"{metaLine}"
+            "<p class='muted' style='margin:0 0 8px 0;'>"
+            "Счётчики обновляются после каждого HTTP-вызова к провайдеру. "
+            "Токены берутся из поля <span class='muted'>usage</span> ответа (prompt / completion / total)."
+            "</p>"
+            "<table>"
+            "<thead><tr>"
+            "<th>Модель</th><th>Вызовы</th><th>Успехи</th><th>Ошибки</th>"
+            "<th>Токены (prompt)</th><th>Токены (completion)</th><th>Токены (total)</th><th>Последняя ошибка</th>"
+            "</tr></thead>"
+            f"<tbody>{rowsHtml}</tbody>"
+            "</table>"
+            "</div>"
+        )
+    return ret
+
+
 def _renderNav() -> str:
     ret: str
     ret = (
@@ -142,6 +207,7 @@ def renderIndexPage(in_stats: dict[str, Any]) -> str:
         f"<div class='kv'><div class='k'>summary.md</div><div class='v'>{html.escape(str(in_stats.get('contextSummary','—')))}</div></div>"
         f"<div class='kv'><div class='k'>long_term.md</div><div class='v'>{html.escape(str(in_stats.get('contextLongTerm','—')))}</div></div>"
         "</div>"
+        f"{_renderModelStatsSection(in_stats.get('modelStats'))}"
         "<div class='card col12'>"
         "<h3 style='margin:0 0 8px 0;'>Storage</h3>"
         f"<div class='kv'><div class='k'>tools.yaml</div><div class='v'>{html.escape(str(in_stats.get('toolsYamlInfo','—')))}</div></div>"

@@ -2,6 +2,7 @@ import time
 from tempfile import TemporaryDirectory
 
 from app.application.services.dashboardSnapshotService import DashboardSnapshotService
+from app.application.services.modelStatsService import ModelStatsService
 from app.application.useCases.getRunListUseCase import GetRunListUseCase
 from app.config.settingsModels import (
     AppSettings,
@@ -81,11 +82,13 @@ def testDashboardSnapshotServiceUsesTtlCache() -> None:
         runRepository = JsonRunRepository(in_dataRootPath=tempDir)
         getRunListUseCase = GetRunListUseCase(in_runRepository=runRepository)
         skillStore = MarkdownSkillStore(in_skillsDirPath=settings.skills.skillsDirPath)
+        modelStatsService = ModelStatsService(in_dataRootPath=tempDir)
         service = DashboardSnapshotService(
             in_settings=settings,
             in_getRunListUseCase=getRunListUseCase,
             in_toolRegistry=ToolRegistry(in_toolDefinitions=[]),
             in_skillStore=skillStore,
+            in_modelStatsService=modelStatsService,
             in_ttlSeconds=0.5,
         )
         firstStats = service.getDashboardStatsSnapshot()

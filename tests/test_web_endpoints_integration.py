@@ -80,10 +80,13 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch) -> None:
     mainModule.app.state.getGitDiffUseCase.execute = fakeGitDiffExecute
 
     runsResponse = client.get("/runs")
+    indexResponse = client.get("/")
     statusResponse = client.get("/git/status")
     diffResponse = client.get("/git/diff")
 
     assert runsResponse.status_code == 200
+    assert indexResponse.status_code == 200
+    assert "Статистика LLM (provider)" in indexResponse.text
     assert statusResponse.status_code == 200
     assert diffResponse.status_code == 200
     assert "<script>" not in statusResponse.text

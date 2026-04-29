@@ -1,5 +1,7 @@
 # simple_AI_agent_bot
 
+![simple_AI_agent_bot logo](logo.png)
+
 Монолитный MVP AI-агент с управляемым agentic loop, Telegram-ботом, fallback по OpenRouter и веб-админкой для наблюдаемости.
 
 ![Admin dashboard](image.png)
@@ -53,6 +55,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - **Логин**: `GET /login` + `POST /login` (admin token из `ADMIN_RAW_TOKENS`), cookie TTL 12h.
 - **Основные страницы**: `/`, `/runs`, `/logs`, `/tools`, `/skills`, `/config/tools`, `/git/status`, `/git/diff`.
+- **Favicon/branding**:
+  - используется `GET /favicon.ico` (файл `favicon.ico` в корне репозитория);
+  - для favicon выставлены anti-cache заголовки (`Cache-Control: no-store`, `Pragma: no-cache`, `Expires: 0`);
+  - в HTML используется версионирование URL (`/favicon.ico?v=1`) для стабильного cache-bust после замены иконки.
 - **JSON API** (`/internal/*`): без сессии возвращают **401** (без редиректа на `/login`).
 - **Read-only / writes enabled**:
   - по умолчанию админка в режиме read-only;
@@ -67,6 +73,13 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - `SESSION_COOKIE_SECRET` — минимум 32 символа
 - `ADMIN_RAW_TOKENS` — CSV, 1..`security.maxAdminTokens` токенов
 - каждый admin token — минимум 16 символов, только `A-Z a-z 0-9 . _ -`, без дублей
+
+## Time zone
+
+- **Отображение времени в web-админке** настраивается через `app.displayTimeZone` в `app/config/config.yaml` (IANA zone, например `Europe/Moscow` или `Asia/Jerusalem`).
+- Если `app.displayTimeZone` пустой или некорректный, отображение автоматически fallback в `UTC`.
+- **Scheduler** (`schedule.allowedHourStart / allowedHourEnd` в `app/config/schedules.yaml`) работает в **локальном времени сервера**.
+- Для стабильности логики в tools/runtime часть вычислений ведётся в `UTC` (например, `sinceUnixTs: 0` для news digest трактуется как начало текущих суток UTC).
 
 ## Инструменты и их настройки (`tools.yaml`)
 

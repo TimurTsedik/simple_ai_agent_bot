@@ -5,6 +5,11 @@ class AppSettings(BaseModel):
     appName: str
     environment: str
     dataRootPath: str
+    displayTimeZone: str = Field(
+        default="UTC",
+        min_length=1,
+        description="IANA time zone name for web admin display only (e.g. Europe/Moscow).",
+    )
 
 
 class TelegramSettings(BaseModel):

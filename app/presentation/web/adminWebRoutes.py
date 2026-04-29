@@ -8,9 +8,11 @@ from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.bootstrap.container import ApplicationContainer
+from app.common.webDisplayTime import resolveDisplayZone
 from app.config.settingsModels import EmailReaderToolSettings, TelegramNewsDigestToolSettings
 from app.presentation.web.adminPages import renderGitDiffPage
 from app.presentation.web.adminPages import renderGitStatusPage
@@ -107,12 +109,43 @@ def registerAdminWebRoutes(
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         stats = dashboardSnapshotService.getDashboardStatsSnapshot()
-        ret = renderIndexPage(in_stats=stats)
+        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        ret = renderIndexPage(in_stats=stats, in_displayZone=displayZone)
         return ret
 
     @in_app.get("/login", response_class=HTMLResponse)
     def getLoginPage() -> str:
         ret = renderLoginPage()
+        return ret
+
+    @in_app.get("/favicon.png")
+    def getFaviconPng() -> FileResponse:
+        ret: FileResponse
+        faviconPath = (Path(__file__).resolve().parents[3] / "favicon.png").resolve()
+        ret = FileResponse(
+            path=str(faviconPath),
+            media_type="image/png",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+        return ret
+
+    @in_app.get("/favicon.ico")
+    def getFaviconIco() -> FileResponse:
+        ret: FileResponse
+        faviconPath = (Path(__file__).resolve().parents[3] / "favicon.ico").resolve()
+        ret = FileResponse(
+            path=str(faviconPath),
+            media_type="image/x-icon",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
         return ret
 
     @in_app.post("/login")
@@ -158,7 +191,8 @@ def registerAdminWebRoutes(
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         logItems = getLogsUseCase.execute(in_limit=limit)
-        ret = renderLogsPage(in_logItems=logItems)
+        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        ret = renderLogsPage(in_logItems=logItems, in_displayZone=displayZone)
         return ret
 
     @in_app.get("/tools", response_class=HTMLResponse)
@@ -274,7 +308,8 @@ def registerAdminWebRoutes(
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         runItems = getRunListUseCase.execute(in_limit=limit, in_offset=offset)
-        ret = renderRunsPage(in_runItems=runItems)
+        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        ret = renderRunsPage(in_runItems=runItems, in_displayZone=displayZone)
         return ret
 
     @in_app.get("/runs/{runId}", response_class=HTMLResponse)
@@ -284,7 +319,12 @@ def registerAdminWebRoutes(
         runItem = getRunDetailsUseCase.execute(in_runId=runId)
         if runItem is None:
             raise HTTPException(status_code=404, detail="Run is not found")
-        ret = renderRunDetailsPage(in_runId=runId, in_runItem=runItem)
+        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        ret = renderRunDetailsPage(
+            in_runId=runId,
+            in_runItem=runItem,
+            in_displayZone=displayZone,
+        )
         return ret
 
     @in_app.get("/runs/{runId}/steps", response_class=HTMLResponse)

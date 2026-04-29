@@ -118,6 +118,7 @@
 | 2026-04-27 | Добавлен skill `compose_digest`: стандартный формат дайджеста (пункты с разделителем `---`, источник, краткое резюме, короткая цитата; перевод на русский для не-русских фрагментов). Правило выбора skills расширено: по фразам "составь/сделай дайджест" добавляется `compose_digest`. |
 | 2026-04-27 | Hardening email→дайджест: `read_email` теперь извлекает текст через `get_content()` (лучше для кодировок), очищает snippet от URL/CSS-шаблонов и добавляет `langHint`. Skill `compose_digest` закреплён с двухшаговой стратегией UNSEEN→ALL (если писем < N). В observation расширен `email_preview` (uid/date/langHint). Добавлены/обновлены тесты на очистку snippets. |
 | 2026-04-27 | Добавлен встроенный scheduler (variant B): конфиг `scheduler.*` в `config.yaml` + файл расписаний `app/config/schedules.yaml` (пример `schedules.example.yaml`, сам `schedules.yaml` игнорируется git). Реализован `SchedulerRunner` (фоновый thread в FastAPI lifespan), который запускает internal-run через `RunAgentUseCase.execute(sessionId, message)` и пишет состояние в `data/scheduler/jobs_state.json`. Добавлены unit-тесты `tests/test_scheduler_runner.py`. |
+| 2026-04-29 | Обновлён favicon-пайплайн в web-админке: `/favicon.ico` теперь отдаёт реальный `favicon.ico` с `image/x-icon` (вместо PNG), добавлены anti-cache заголовки (`no-store/no-cache`), а в HTML ссылка переключена на версионируемый URL `/favicon.ico?v=1` для надёжного cache-bust в браузерах. |
 
 ---
 

@@ -2,6 +2,10 @@ import html
 import json
 from urllib.parse import quote
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from app.common.webDisplayTime import formatIso8601ForWeb
+from app.common.webDisplayTime import formatTimestampFieldsDeepCopy
 
 
 def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> str:
@@ -11,6 +15,7 @@ def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> st
         "<!doctype html>"
         "<html><head>"
         f"<title>{html.escape(in_title)}</title>"
+        "<link rel='icon' href='/favicon.ico?v=1' type='image/x-icon' />"
         "<meta charset='utf-8' />"
         "<meta name='viewport' content='width=device-width, initial-scale=1' />"
         "<style>"
@@ -62,7 +67,7 @@ def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> st
     return ret
 
 
-def _renderModelStatsSection(in_snapshot: Any) -> str:
+def _renderModelStatsSection(in_snapshot: Any, in_displayZone: ZoneInfo) -> str:
     ret = ""
     if isinstance(in_snapshot, dict) is True:
         totalsValue = in_snapshot.get("totals")
@@ -71,7 +76,11 @@ def _renderModelStatsSection(in_snapshot: Any) -> str:
         modelsList = in_snapshot.get("models")
         if isinstance(modelsList, list) is False:
             modelsList = []
-        updatedAt = str(in_snapshot.get("updatedAt", "") or "")
+        updatedAtRaw = str(in_snapshot.get("updatedAt", "") or "").strip()
+        if updatedAtRaw != "":
+            updatedAt = formatIso8601ForWeb(in_value=updatedAtRaw, in_zone=in_displayZone)
+        else:
+            updatedAt = ""
 
         rowsHtmlParts: list[str] = []
         rowsHtmlParts.append(
@@ -149,7 +158,7 @@ def _renderNav() -> str:
     return ret
 
 
-def renderIndexPage(in_stats: dict[str, Any]) -> str:
+def renderIndexPage(in_stats: dict[str, Any], in_displayZone: ZoneInfo) -> str:
     ret: str
     badge = (
         "<span class='badge badge-ok'>writes enabled</span>"
@@ -207,7 +216,7 @@ def renderIndexPage(in_stats: dict[str, Any]) -> str:
         f"<div class='kv'><div class='k'>summary.md</div><div class='v'>{html.escape(str(in_stats.get('contextSummary','—')))}</div></div>"
         f"<div class='kv'><div class='k'>long_term.md</div><div class='v'>{html.escape(str(in_stats.get('contextLongTerm','—')))}</div></div>"
         "</div>"
-        f"{_renderModelStatsSection(in_stats.get('modelStats'))}"
+        f"{_renderModelStatsSection(in_snapshot=in_stats.get('modelStats'), in_displayZone=in_displayZone)}"
         "<div class='card col12'>"
         "<h3 style='margin:0 0 8px 0;'>Storage</h3>"
         f"<div class='kv'><div class='k'>tools.yaml</div><div class='v'>{html.escape(str(in_stats.get('toolsYamlInfo','—')))}</div></div>"
@@ -240,11 +249,22 @@ def renderLoginPage(in_errorText: str = "") -> str:
     return ret
 
 
-def renderLogsPage(in_logItems: list[Any]) -> str:
+def renderLogsPage(in_logItems: list[Any], in_displayZone: ZoneInfo) -> str:
     ret: str
     renderedItems = []
     for oneItem in in_logItems:
-        renderedItems.append(f"<pre>{html.escape(str(oneItem))}</pre>")
+        if isinstance(oneItem, dict) is True:
+            logDict = dict(oneItem)
+            tsValue = logDict.get("timestamp")
+            if isinstance(tsValue, str) is True:
+                logDict["timestamp"] = formatIso8601ForWeb(
+                    in_value=tsValue,
+                    in_zone=in_displayZone,
+                )
+            lineText = json.dumps(logDict, ensure_ascii=False)
+        else:
+            lineText = str(oneItem)
+        renderedItems.append(f"<pre>{html.escape(lineText)}</pre>")
     content = (
         "<h1 class='title'>Run Logs</h1>"
         f"<p class='muted'>Показаны последние {len(in_logItems)} записей.</p>"
@@ -254,7 +274,7 @@ def renderLogsPage(in_logItems: list[Any]) -> str:
     return ret
 
 
-def renderRunsPage(in_runItems: list[Any]) -> str:
+def renderRunsPage(in_runItems: list[Any], in_displayZone: ZoneInfo) -> str:
     ret: str
     rows = []
     for runItem in in_runItems:
@@ -262,7 +282,11 @@ def renderRunsPage(in_runItems: list[Any]) -> str:
         sessionId = str(runItem.get("sessionId", ""))
         status = str(runItem.get("runStatus", ""))
         reason = str(runItem.get("completionReason", ""))
-        createdAt = str(runItem.get("createdAt", ""))
+        createdAtRaw = str(runItem.get("createdAt", "")).strip()
+        if createdAtRaw != "":
+            createdAt = formatIso8601ForWeb(in_value=createdAtRaw, in_zone=in_displayZone)
+        else:
+            createdAt = ""
         rows.append(
             "<tr>"
             f"<td><a href='/runs/{html.escape(runId)}'>{html.escape(runId)}</a></td>"
@@ -286,9 +310,16 @@ def renderRunsPage(in_runItems: list[Any]) -> str:
     return ret
 
 
-def renderRunDetailsPage(in_runId: str, in_runItem: dict[str, Any]) -> str:
+def renderRunDetailsPage(
+    in_runId: str,
+    in_runItem: dict[str, Any],
+    in_displayZone: ZoneInfo,
+) -> str:
     ret: str
-    prettyJson = json.dumps(in_runItem, ensure_ascii=False, indent=2)
+    displayRunItem = formatTimestampFieldsDeepCopy(in_value=in_runItem, in_zone=in_displayZone)
+    if isinstance(displayRunItem, dict) is False:
+        displayRunItem = in_runItem
+    prettyJson = json.dumps(displayRunItem, ensure_ascii=False, indent=2)
     content = (
         f"<h1 class='title'>Run {html.escape(in_runId)}</h1>"
         f"<p><a href='/runs/{html.escape(in_runId)}/steps'>Открыть шаги agentic loop</a></p>"

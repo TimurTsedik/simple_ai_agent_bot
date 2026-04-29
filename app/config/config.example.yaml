@@ -2,6 +2,7 @@ app:
   appName: "simple-ai-agent-bot"
   environment: "local"
   dataRootPath: "./data"
+  displayTimeZone: "Europe/Moscow"
 
 telegram:
   pollingTimeoutSeconds: 30

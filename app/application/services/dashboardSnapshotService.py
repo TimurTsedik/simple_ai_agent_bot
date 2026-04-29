@@ -4,6 +4,9 @@ from typing import Any
 
 from app.application.services.modelStatsService import ModelStatsService
 from app.application.useCases.getRunListUseCase import GetRunListUseCase
+from app.common.webDisplayTime import formatIso8601ForWeb
+from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
+from app.common.webDisplayTime import resolveDisplayZone
 from app.config.settingsModels import SettingsModel
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 from app.tools.registry.toolRegistry import ToolRegistry
@@ -29,6 +32,7 @@ class DashboardSnapshotService:
         self._ttlSeconds = max(0.1, float(in_ttlSeconds))
         self._cachedAtMonotonic = 0.0
         self._cachedStats: dict[str, Any] | None = None
+        self._displayZone = resolveDisplayZone(in_timeZoneName=self._settings.app.displayTimeZone)
 
     def getDashboardStatsSnapshot(self) -> dict[str, Any]:
         ret: dict[str, Any]
@@ -67,6 +71,15 @@ class DashboardSnapshotService:
         activeContextChars = int(recentSize.get("chars", 0)) + int(summarySize.get("chars", 0))
         activeContextBytes = int(recentSize.get("bytes", 0)) + int(summarySize.get("bytes", 0))
 
+        lastRunCreatedRaw = str(lastRun.get("createdAt", "")).strip()
+        if lastRunCreatedRaw != "":
+            lastRunCreatedDisplay = formatIso8601ForWeb(
+                in_value=lastRunCreatedRaw,
+                in_zone=self._displayZone,
+            )
+        else:
+            lastRunCreatedDisplay = "—"
+
         ret = {
             "adminWritesEnabled": self._settings.security.adminWritesEnabled,
             "toolsCount": len(self._toolRegistry.listTools()),
@@ -82,7 +95,7 @@ class DashboardSnapshotService:
             "lastRunSessionId": lastSessionId,
             "lastRunStatus": str(lastRun.get("runStatus", "—")),
             "lastRunReason": str(lastRun.get("completionReason", "—")),
-            "lastRunCreatedAt": str(lastRun.get("createdAt", "—")),
+            "lastRunCreatedAt": lastRunCreatedDisplay,
             "lastRunSelectedModel": str(lastRun.get("selectedModel", "—")),
             "toolsYamlInfo": self._fileInfo(in_filePath=toolsYamlPath),
             "memoryInfo": self._dirInfo(in_dirPath=memoryRoot),
@@ -139,7 +152,11 @@ class DashboardSnapshotService:
         else:
             try:
                 statValue = in_filePath.stat()
-                ret = f"{self._formatBytes(in_sizeBytes=int(statValue.st_size))} (mtime={statValue.st_mtime:.0f})"
+                mtimeDisplay = formatUnixEpochSecondsForWeb(
+                    in_epochSeconds=float(statValue.st_mtime),
+                    in_zone=self._displayZone,
+                )
+                ret = f"{self._formatBytes(in_sizeBytes=int(statValue.st_size))} (mtime={mtimeDisplay})"
             except OSError:
                 ret = "unavailable"
         return ret

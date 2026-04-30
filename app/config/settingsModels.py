@@ -102,7 +102,9 @@ class LoggingSettings(BaseModel):
 
 
 class SkillsSettings(BaseModel):
-    skillsDirPath: str = "./app/skills/assets"
+    # In production containers, code directories are typically read-only.
+    # Default to a writable data directory (mounted volume) so admin skill editing works.
+    skillsDirPath: str = "./data/skills"
 
 
 class MemorySettings(BaseModel):

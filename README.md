@@ -63,6 +63,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **Read-only / writes enabled**:
   - по умолчанию админка в режиме read-only;
   - чтобы включить редактирование skills и `tools.yaml`, выставь `security.adminWritesEnabled: true` в `app/config/config.yaml` и перезапусти сервис.
+  - важно: для редактирования skills в production `skills.skillsDirPath` должен указывать на writable директорию (рекомендуется `./data/skills`, см. `app/config/config.example.yaml`); иначе будет 500 из-за `PermissionError`.
 
 ## Конфиги и секреты
 

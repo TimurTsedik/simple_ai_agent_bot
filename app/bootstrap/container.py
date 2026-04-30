@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 
 import requests
 
@@ -95,6 +96,9 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_modelSettings=settings.models,
         in_loggingSettings=settings.logging,
         in_modelStatsService=modelStatsService,
+    )
+    _ensureSkillsDirInitialized(
+        in_skillsDirPath=settings.skills.skillsDirPath,
     )
     skillStore = MarkdownSkillStore(in_skillsDirPath=settings.skills.skillsDirPath)
     skillSelectorRules = SkillSelectorRules()
@@ -274,3 +278,26 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         modelStatsService=modelStatsService,
     )
     return ret
+
+
+def _ensureSkillsDirInitialized(in_skillsDirPath: str) -> None:
+    targetDir = Path(in_skillsDirPath)
+    if targetDir.is_absolute() is False:
+        targetDir = targetDir.resolve()
+    targetDir.mkdir(parents=True, exist_ok=True)
+
+    sourceDir = (Path(__file__).resolve().parents[1] / "skills" / "assets").resolve()
+    if sourceDir.exists() is False or sourceDir.is_dir() is False:
+        return
+
+    for sourcePath in sourceDir.glob("*.md"):
+        if sourcePath.is_file() is False:
+            continue
+        targetPath = targetDir / sourcePath.name
+        if targetPath.exists() is True:
+            continue
+        try:
+            shutil.copyfile(sourcePath, targetPath)
+        except OSError:
+            # Best-effort initialization; service can still run without copying.
+            continue

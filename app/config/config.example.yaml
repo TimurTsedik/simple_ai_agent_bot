@@ -57,7 +57,8 @@ logging:
   backupCount: 5
 
 skills:
-  skillsDirPath: "./app/skills/assets"
+  # В контейнере директория кода может быть read-only, поэтому skills лучше хранить в ./data (volume).
+  skillsDirPath: "./data/skills"
 
 memory:
   memoryRootPath: "./data/memory"

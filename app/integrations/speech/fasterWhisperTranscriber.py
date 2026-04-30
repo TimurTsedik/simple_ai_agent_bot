@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any
+import os
 
 from app.integrations.speech.voiceTranscriberProtocol import VoiceTranscriberProtocol
 
@@ -67,6 +68,15 @@ class FasterWhisperTranscriber(VoiceTranscriberProtocol):
             from faster_whisper import WhisperModel
 
             downloadRootValue = self._downloadRoot if self._downloadRoot != "" else None
+            if downloadRootValue is not None:
+                downloadRootPath = Path(downloadRootValue).resolve()
+                downloadRootPath.mkdir(parents=True, exist_ok=True)
+                # Make sure HF/transformers/onnxruntime caches are writable in containers.
+                # Prefer explicit env overrides to avoid writing under /home/appuser/.cache or similar.
+                os.environ.setdefault("HF_HOME", str(downloadRootPath))
+                os.environ.setdefault("HUGGINGFACE_HUB_CACHE", str(downloadRootPath / "huggingface"))
+                os.environ.setdefault("XDG_CACHE_HOME", str(downloadRootPath / "xdg_cache"))
+                os.environ.setdefault("TORCH_HOME", str(downloadRootPath / "torch"))
             self._model = WhisperModel(
                 self._modelName,
                 device=self._device,

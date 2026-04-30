@@ -44,6 +44,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## Что это умеет (коротко)
 
 - **Telegram**: личные чаты, allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
+- **Voice-to-text**: голосовые/аудио в Telegram → транскрипт → дальше обычный пайплайн агента как для текста.
 - **Agent runtime**: strict JSON-выход, agentic loop, лимиты по шагам/времени/tool calls, repair-pass для JSON.
 - **OpenRouter**: primary/secondary/tertiary модели, retry и fallback с логированием.
 - **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `save_email_preference`, `web_search`, `read_memory_file`, `read_email`, `schedule_reminder`, `list_reminders`, `delete_reminder`.
@@ -81,6 +82,26 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - Если `app.displayTimeZone` пустой или некорректный, отображение автоматически fallback в `UTC`.
 - **Scheduler** (`schedule.allowedHourStart / allowedHourEnd` в `app/config/schedules.yaml`) работает в **локальном времени сервера**.
 - Для стабильности логики в tools/runtime часть вычислений ведётся в `UTC` (например, `sinceUnixTs: 0` для news digest трактуется как начало текущих суток UTC).
+
+## Voice-to-text (Telegram голосовые → текст)
+
+Поддерживается обработка `message.voice` и `message.audio` в Telegram: бот скачивает файл, распознаёт речь через `faster-whisper` и передаёт полученный текст в обычный пайплайн (`RunAgentUseCase`).
+
+Настройки в `app/config/config.yaml` (см. `app/config/config.example.yaml`):
+- `telegram.voiceLanguage`: подсказка языка (`ru`, `en`), пусто = авто
+- `telegram.voiceModelName`: `tiny|base|small|medium|large-v3` (для VPS обычно старт с `small`)
+- `telegram.voiceComputeType`: для CPU обычно `int8`
+- `telegram.voiceMaxSeconds`: лимит длительности голосового для синхронной обработки
+- `telegram.voiceMaxBytes`: лимит размера файла
+
+Наблюдаемость:
+- в `data/logs/run.jsonl` пишутся события:
+  - `voice_transcription_started`
+  - `voice_transcription_succeeded`
+  - `voice_transcription_failed`
+
+Troubleshooting:
+- если распознавание падает на проде, проверь, что в образ добавлен `ffmpeg` (в `Dockerfile`) и что хватает CPU/RAM.
 
 ## Инструменты и их настройки (`tools.yaml`)
 
@@ -169,6 +190,11 @@ cp app/config/schedules.example.yaml app/config/schedules.yaml
 
 State jobs/reminders сохраняется в: `data/scheduler/jobs_state.json` (`jobsState` + `remindersState`).
 
+Особенности reminder-функционала:
+- фразы вида `через N минут/часов` конвертируются моделью в абсолютное `HH:MM` по `app.displayTimeZone` и сразу отправляются в `schedule_reminder` (без лишнего уточнения времени);
+- для записи напоминаний `config/schedules.yaml` в контейнере должен быть **writable** (не `:ro`);
+- при ограничениях на создание `schedules.yaml.tmp` используется fallback-запись напрямую в `schedules.yaml`.
+
 ## Запуск тестов
 
 Запускай из venv из **корня репозитория** (чтобы пакет `app` находился на `PYTHONPATH`):
@@ -250,6 +276,7 @@ PYTHONPATH=. pytest
 - `config/config.yaml` обязателен: приложение стартует из `app/config/config.yaml`, а в контейнере он монтируется из `./config`.
 - `data/` обязательно монтировать, иначе потеряешь runs/logs/memory при пересоздании контейнера.
 - Не монтируй `./config` целиком поверх `/app/app/config`: это перекроет python-модули (`settingsModels.py` и т.д.). Монтируются только YAML-файлы.
+- `config/schedules.yaml` должен монтироваться без `:ro`, иначе `schedule_reminder` не сможет сохранять/обновлять напоминания.
 - Права на `data/`: контейнер должен иметь право писать в `./data` (логи/память/runs). В `docker-compose.prod.yml` используется `user: "1001:1001"` (UID/GID пользователя `deploy` на VPS). Если UID/GID на сервере другой — обнови значение.
 
 ### Скачать текущие `run`-файлы, логи и конфиги с VPS

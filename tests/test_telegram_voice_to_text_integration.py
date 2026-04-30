@@ -1,0 +1,248 @@
+from pathlib import Path
+
+from app.application.useCases.handleIncomingTelegramMessageUseCase import (
+    HandleIncomingTelegramMessageUseCase,
+)
+from app.common.structuredLogger import writeJsonlEvent
+from app.config.settingsModels import (
+    AppSettings,
+    LoggingSettings,
+    MemorySettings,
+    ModelSettings,
+    RuntimeSettings,
+    SchedulerSettings,
+    SecuritySettings,
+    SettingsModel,
+    SkillsSettings,
+    TelegramSettings,
+    ToolsSettings,
+)
+from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
+
+
+class FakeLogger:
+    def __init__(self) -> None:
+        self.infoMessages: list[str] = []
+        self.errorMessages: list[str] = []
+
+    def info(self, in_message: str) -> None:
+        self.infoMessages.append(in_message)
+
+    def error(self, in_message: str) -> None:
+        self.errorMessages.append(in_message)
+
+
+class FakeRunResult:
+    def __init__(self, in_finalAnswer: str) -> None:
+        self.finalAnswer = in_finalAnswer
+
+
+class FakeRunAgentUseCase:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def execute(self, in_sessionId: str, in_inputMessage: str) -> FakeRunResult:
+        self.calls.append((in_sessionId, in_inputMessage))
+        ret = FakeRunResult(in_finalAnswer=f"echo:{in_inputMessage}")
+        return ret
+
+
+class FakeMemoryService:
+    def resetSession(self, in_sessionId: str) -> None:
+        _ = in_sessionId
+
+    def buildMemoryBlock(self, in_sessionId: str) -> str:
+        _ = in_sessionId
+        return ""
+
+
+class FakeDownloader:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def downloadTelegramFileToPath(
+        self,
+        *,
+        in_fileId: str,
+        in_outPath: str,
+        in_maxBytes: int,
+        in_timeoutSeconds: float,
+    ) -> None:
+        self.calls.append(in_fileId)
+        _ = in_maxBytes
+        _ = in_timeoutSeconds
+        Path(in_outPath).write_bytes(b"fake")
+
+
+class FakeTranscriber:
+    def __init__(self, in_text: str) -> None:
+        self._text = in_text
+        self.calls: list[str] = []
+
+    def transcribeToText(
+        self,
+        *,
+        in_audioPath: str,
+        in_language: str,
+        in_maxSeconds: int,
+    ) -> str:
+        self.calls.append(in_audioPath)
+        _ = in_language
+        _ = in_maxSeconds
+        return self._text
+
+
+def _makeSettings(in_tmpDir: Path) -> SettingsModel:
+    ret = SettingsModel(
+        app=AppSettings(
+            appName="x",
+            environment="test",
+            dataRootPath=str(in_tmpDir),
+            displayTimeZone="UTC",
+        ),
+        telegram=TelegramSettings(
+            pollingTimeoutSeconds=30,
+            allowedUserIds=[111],
+            denyMessageText="deny",
+            voiceMaxSeconds=60,
+            voiceMaxBytes=5_000_000,
+        ),
+        tools=ToolsSettings(toolsConfigPath="./app/config/tools.yaml"),
+        models=ModelSettings(
+            openRouterBaseUrl="x",
+            primaryModel="x",
+            secondaryModel="x",
+            tertiaryModel="x",
+            requestTimeoutSeconds=45,
+            formatRepairRequestTimeoutSeconds=45,
+            retryCountBeforeFallback=0,
+            returnToPrimaryCooldownSeconds=300,
+        ),
+        runtime=RuntimeSettings(
+            maxSteps=5,
+            maxToolCalls=5,
+            maxExecutionSeconds=30,
+            maxToolOutputChars=1000,
+            maxPromptChars=5000,
+            recentMessagesLimit=12,
+            sessionSummaryMaxChars=2000,
+            skillSelectionMaxCount=4,
+            extraSecondsPerLlmError=0,
+            extraSecondsPerFormatFailureStep=0,
+            maxExtraSecondsTotal=0,
+            maxFormatRepairAttempts=2,
+            maxConsecutiveFormatFailureSteps=2,
+        ),
+        security=SecuritySettings(
+            webSessionCookieTtlSeconds=3600,
+            maxAdminTokens=3,
+            allowedReadOnlyPaths=[str(in_tmpDir)],
+            adminWritesEnabled=True,
+            bindSessionToIp=False,
+            trustProxyHeaders=False,
+            trustedProxyIps=[],
+        ),
+        logging=LoggingSettings(
+            logsDirPath=str(in_tmpDir / "logs"),
+            runLogsFileName="run.jsonl",
+            appLogsFileName="app.log",
+            maxBytes=1024 * 1024,
+            backupCount=1,
+        ),
+        skills=SkillsSettings(skillsDirPath=str(in_tmpDir / "skills")),
+        memory=MemorySettings(memoryRootPath=str(in_tmpDir / "memory")),
+        scheduler=SchedulerSettings(enabled=False),
+        telegramBotToken="token",
+        openRouterApiKey="k",
+        sessionCookieSecret="x" * 40,
+        emailAppPassword="",
+        adminRawTokens=["a" * 20],
+    )
+    return ret
+
+
+def testTelegramUpdateHandlerTranscribesVoiceAndRunsAgent(tmp_path: Path) -> None:
+    settings = _makeSettings(in_tmpDir=tmp_path)
+    logger = FakeLogger()
+    runAgentUseCase = FakeRunAgentUseCase()
+    memoryService = FakeMemoryService()
+    useCase = HandleIncomingTelegramMessageUseCase(
+        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_denyMessageText=settings.telegram.denyMessageText,
+        in_logger=logger,  # type: ignore[arg-type]
+        in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
+        in_memoryService=memoryService,  # type: ignore[arg-type]
+        in_runtimeSettings=settings.runtime,
+    )
+    downloader = FakeDownloader()
+    transcriber = FakeTranscriber(in_text="напомни через минуту выпить воды")
+    handler = TelegramUpdateHandler(
+        in_handleIncomingTelegramMessageUseCase=useCase,
+        in_settings=settings,
+        in_logger=logger,  # type: ignore[arg-type]
+        in_telegramFileDownloader=downloader,  # type: ignore[arg-type]
+        in_voiceTranscriber=transcriber,  # type: ignore[arg-type]
+    )
+
+    updateData = {
+        "update_id": 10,
+        "message": {
+            "from": {"id": 111},
+            "chat": {"id": 222, "type": "private"},
+            "voice": {"file_id": "file123", "duration": 3},
+        },
+    }
+
+    chatId, outgoingText = handler.handleUpdate(in_updateData=updateData)
+
+    assert chatId == 222
+    assert outgoingText == "echo:напомни через минуту выпить воды"
+    assert downloader.calls == ["file123"]
+    assert len(transcriber.calls) == 1
+    assert runAgentUseCase.calls == [("telegram:222", "напомни через минуту выпить воды")]
+
+
+def testTelegramUpdateHandlerVoiceFailureReturnsUserMessage(tmp_path: Path) -> None:
+    settings = _makeSettings(in_tmpDir=tmp_path)
+    logger = FakeLogger()
+    runAgentUseCase = FakeRunAgentUseCase()
+    memoryService = FakeMemoryService()
+    useCase = HandleIncomingTelegramMessageUseCase(
+        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_denyMessageText=settings.telegram.denyMessageText,
+        in_logger=logger,  # type: ignore[arg-type]
+        in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
+        in_memoryService=memoryService,  # type: ignore[arg-type]
+        in_runtimeSettings=settings.runtime,
+    )
+
+    class FailingDownloader(FakeDownloader):
+        def downloadTelegramFileToPath(self, **kwargs) -> None:  # type: ignore[override]
+            raise RuntimeError("download_failed")
+
+    downloader = FailingDownloader()
+    transcriber = FakeTranscriber(in_text="x")
+    handler = TelegramUpdateHandler(
+        in_handleIncomingTelegramMessageUseCase=useCase,
+        in_settings=settings,
+        in_logger=logger,  # type: ignore[arg-type]
+        in_telegramFileDownloader=downloader,  # type: ignore[arg-type]
+        in_voiceTranscriber=transcriber,  # type: ignore[arg-type]
+    )
+
+    updateData = {
+        "update_id": 10,
+        "message": {
+            "from": {"id": 111},
+            "chat": {"id": 222, "type": "private"},
+            "voice": {"file_id": "file123", "duration": 3},
+        },
+    }
+
+    chatId, outgoingText = handler.handleUpdate(in_updateData=updateData)
+
+    assert chatId == 222
+    assert outgoingText is not None
+    assert "Не удалось распознать" in outgoingText
+    assert runAgentUseCase.calls == []
+

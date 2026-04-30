@@ -6,3 +6,5 @@ class IncomingTelegramMessageDto(BaseModel):
     telegramUserId: int
     chatId: int
     text: str
+    messageType: str = "text"
+    telegramFileId: str = ""

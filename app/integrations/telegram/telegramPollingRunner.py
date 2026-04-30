@@ -91,8 +91,11 @@ class TelegramPollingRunner:
             ret = None
         else:
             textValue = messageData.get("text")
+            voiceValue = messageData.get("voice")
+            audioValue = messageData.get("audio")
             chatData = messageData.get("chat")
-            if not isinstance(textValue, str):
+            hasUserInput = isinstance(textValue, str) or isinstance(voiceValue, dict) or isinstance(audioValue, dict)
+            if hasUserInput is not True:
                 ret = None
             elif not isinstance(chatData, dict):
                 ret = None

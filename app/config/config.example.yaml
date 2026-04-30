@@ -9,6 +9,12 @@ telegram:
   allowedUserIds:
     - 123456789
   denyMessageText: "Доступ запрещён"
+  # Voice-to-text (Telegram voice/audio -> text -> normal agent pipeline)
+  voiceLanguage: ""      # empty = auto; examples: ru, en
+  voiceModelName: "small"
+  voiceComputeType: "int8"
+  voiceMaxSeconds: 60
+  voiceMaxBytes: 5000000
 
 tools:
   toolsConfigPath: "./app/config/tools.yaml"

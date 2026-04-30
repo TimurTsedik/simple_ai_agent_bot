@@ -29,6 +29,7 @@ from app.integrations.telegram.schedulerTelegramFormatter import formatReminderT
 from app.integrations.telegram.schedulerTelegramFormatter import formatSchedulerTelegramMessage
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
+from app.integrations.telegram.telegramFileDownloader import TelegramFileDownloader
 from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.models.providers.openRouterClient import OpenRouterClient
@@ -40,6 +41,7 @@ from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
 from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
 from app.scheduler.schedulerRunner import SchedulerRunner
+from app.integrations.speech.fasterWhisperTranscriber import FasterWhisperTranscriber
 from app.skills.services.skillSelectorRules import SkillSelectorRules
 from app.skills.services.skillService import SkillService
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
@@ -286,8 +288,24 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_memoryService=memoryService,
         in_runtimeSettings=settings.runtime,
     )
+    telegramFileDownloader = TelegramFileDownloader(
+        in_telegramBotToken=settings.telegramBotToken,
+        in_httpPolicy=contouringHttpPolicy,
+        in_logger=logger,
+    )
+    transcriberDownloadRoot = str(Path(settings.app.dataRootPath).resolve() / "models")
+    voiceTranscriber = FasterWhisperTranscriber(
+        in_modelName=str(getattr(settings.telegram, "voiceModelName", "") or "small"),
+        in_device="cpu",
+        in_computeType=str(getattr(settings.telegram, "voiceComputeType", "") or "int8"),
+        in_downloadRoot=transcriberDownloadRoot,
+    )
     updateHandler = TelegramUpdateHandler(
-        in_handleIncomingTelegramMessageUseCase=handleIncomingTelegramMessageUseCase
+        in_handleIncomingTelegramMessageUseCase=handleIncomingTelegramMessageUseCase,
+        in_settings=settings,
+        in_logger=logger,
+        in_telegramFileDownloader=telegramFileDownloader,
+        in_voiceTranscriber=voiceTranscriber,
     )
     telegramPollingRunner = TelegramPollingRunner(
         in_settings=settings,

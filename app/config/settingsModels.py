@@ -22,6 +22,30 @@ class TelegramSettings(BaseModel):
     outboundHttpMaxConcurrent: int = Field(default=2, ge=1, le=32)
     outboundHttpMaxRetries: int = Field(default=2, ge=0, le=8)
     outboundHttpDefaultTimeoutSeconds: int = Field(default=45, ge=5, le=180)
+    voiceLanguage: str = Field(
+        default="",
+        description="Optional language hint for voice transcription (e.g. ru, en). Empty = auto.",
+    )
+    voiceModelName: str = Field(
+        default="small",
+        description="faster-whisper model name (e.g. tiny, base, small, medium, large-v3).",
+    )
+    voiceComputeType: str = Field(
+        default="int8",
+        description="CTranslate2 compute type for CPU (e.g. int8, int8_float16, float16).",
+    )
+    voiceMaxSeconds: int = Field(
+        default=60,
+        ge=1,
+        le=600,
+        description="Max allowed voice duration (seconds) for synchronous transcription.",
+    )
+    voiceMaxBytes: int = Field(
+        default=5_000_000,
+        ge=50_000,
+        le=50_000_000,
+        description="Max allowed file size (bytes) for voice/audio download.",
+    )
 
 
 class ModelSettings(BaseModel):

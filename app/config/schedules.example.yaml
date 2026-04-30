@@ -23,3 +23,22 @@ jobs:
     actionInternalRun:
       sessionId: "scheduler:telegram_news"
       message: "покажи дайджест экономических новостей за последние 1 час"
+
+reminders:
+  - reminderId: "example-weekly"
+    enabled: false
+    message: "Напоминание: созвон с командой"
+    schedule:
+      kind: "weekly"
+      weekdays: [1] # 0=Mon..6=Sun; 1=Tue
+      timeLocal: "17:00"
+      timeZone: "" # пусто = settings.app.displayTimeZone
+      remainingRuns: null
+  - reminderId: "example-daily-4-runs"
+    enabled: false
+    message: "Напоминание: сделать перерыв"
+    schedule:
+      kind: "daily"
+      timeLocal: "12:00"
+      timeZone: ""
+      remainingRuns: 4

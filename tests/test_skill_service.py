@@ -243,3 +243,47 @@ def testSkillServiceDetectsWhenToolsAreNotRequired() -> None:
         isRequired = service.isToolLikelyRequired(in_userMessage="кто ты?")
 
     assert isRequired is False
+
+
+def testSkillServiceSelectsScheduleReminderSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "schedule_reminder.md").write_text(
+            "# Schedule Reminder\nreminders",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        selection = service.buildSkillsSelection(
+            in_userMessage="напомни завтра в 10:00 созвон"
+        )
+
+    assert "schedule_reminder" in selection.selectedSkillIds
+
+
+def testSkillServiceToolLikelyRequiredForReminderIntent() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        isRequired = service.isToolLikelyRequired(
+            in_userMessage="напомни мне завтра в 9:00"
+        )
+
+    assert isRequired is True

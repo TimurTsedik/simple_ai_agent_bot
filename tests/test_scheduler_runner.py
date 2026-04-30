@@ -17,6 +17,7 @@ def testSchedulerRunsJobOnFirstTick(tmp_path: Path) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
+        schedulesConfigPath=str(tmp_path / "test-schedules.yaml"),
         jobs=[
             SchedulerJobSettings(
                 jobId="job1",
@@ -62,6 +63,7 @@ def testSchedulerRespectsInterval(tmp_path: Path) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
+        schedulesConfigPath=str(tmp_path / "test-schedules.yaml"),
         jobs=[
             SchedulerJobSettings(
                 jobId="job1",
@@ -110,6 +112,7 @@ def testSchedulerRespectsHourWindow(tmp_path: Path, monkeypatch) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
+        schedulesConfigPath=str(tmp_path / "test-schedules.yaml"),
         jobs=[
             SchedulerJobSettings(
                 jobId="job1",
@@ -153,6 +156,7 @@ def testSchedulerHourWindowUsesConfiguredTimeZone(tmp_path: Path) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
+        schedulesConfigPath=str(tmp_path / "test-schedules.yaml"),
         jobs=[
             SchedulerJobSettings(
                 jobId="job1",
@@ -197,6 +201,7 @@ def testSchedulerCallsCompletionCallbackWithFinalAnswer(tmp_path: Path) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
+        schedulesConfigPath=str(tmp_path / "test-schedules.yaml"),
         jobs=[
             SchedulerJobSettings(
                 jobId="job1",

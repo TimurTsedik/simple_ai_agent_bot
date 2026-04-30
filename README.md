@@ -46,7 +46,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **Telegram**: личные чаты, allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
 - **Agent runtime**: strict JSON-выход, agentic loop, лимиты по шагам/времени/tool calls, repair-pass для JSON.
 - **OpenRouter**: primary/secondary/tertiary модели, retry и fallback с логированием.
-- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `save_email_preference`, `web_search`, `read_memory_file`, `read_email`.
+- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `save_email_preference`, `web_search`, `read_memory_file`, `read_email`, `schedule_reminder`, `list_reminders`, `delete_reminder`.
 - **Skills & memory**: Markdown skills, rule-based selection, память recent/summary/long-term.
 - **Observability**: runs в `data/runs/<runId>.json` + `index.jsonl`, JSONL-логи, web UI (`/`, `/runs`, `/logs`, `/tools`, `/skills`, `/git/*`).
 - **Scheduler (variant B)**: встроенные запуски внутренних run-ов по расписанию.
@@ -156,14 +156,18 @@ cp app/config/schedules.example.yaml app/config/schedules.yaml
   - `schedule.allowedHourStart / allowedHourEnd` — окно часов (например 8..23), локальное время сервера
   - `actionInternalRun.sessionId` — sessionId для этих run-ов (удобно выделять `scheduler:*`)
   - `actionInternalRun.message` — короткий intent-текст, который будет отправлен агенту как пользовательское сообщение
+- `reminders[]`:
+  - `reminderId`, `enabled`, `message`
+  - `schedule.kind` (`daily|weekly`), `schedule.weekdays` (для `weekly`), `schedule.timeLocal`, `schedule.timeZone`, `schedule.remainingRuns`
 
 Рекомендация:
 - держи `actionInternalRun.message` максимально коротким (без длинных шаблонов формата ответа);
 - правила формата/структуры ответа должны жить в skills (например `compose_digest`, `read_and_analyze_email`, `telegram_news_digest`).
+- для напоминаний используй skill `schedule_reminder`: модель формирует JSON строго по schema tool-а, без NLP-парсинга текста пользователя внутри tool.
 
 Важно: `scheduler.tickSeconds` задаётся только в `app/config/config.yaml`.
 
-State jobs сохраняется в: `data/scheduler/jobs_state.json` (lastRunAt/lastStatus/lastRunId).
+State jobs/reminders сохраняется в: `data/scheduler/jobs_state.json` (`jobsState` + `remindersState`).
 
 ## Запуск тестов
 

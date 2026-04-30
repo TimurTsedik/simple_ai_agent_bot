@@ -1,17 +1,24 @@
 from app.config.settingsModels import SettingsModel
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
+from app.reminders.reminderConfigStore import ReminderConfigStore
+from app.tools.implementations.deleteReminderTool import DeleteReminderTool
 from app.tools.digestTopicSeeds import collectSeedKeywordsForTopics
 from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsTool
+from app.tools.implementations.listRemindersTool import ListRemindersTool
 from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
+from app.tools.implementations.scheduleReminderTool import ScheduleReminderTool
 from app.tools.implementations.saveDigestPreferenceTool import SaveDigestPreferenceTool
 from app.tools.implementations.saveEmailPreferenceTool import SaveEmailPreferenceTool
 from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
+    DeleteReminderArgsModel,
     DigestTelegramNewsArgsModel,
+    ListRemindersArgsModel,
     ReadEmailArgsModel,
     ReadMemoryFileArgsModel,
+    ScheduleReminderArgsModel,
     SaveDigestPreferenceArgsModel,
     SaveEmailPreferenceArgsModel,
     WebSearchArgsModel,
@@ -53,6 +60,18 @@ def buildToolRegistry(
         in_password=in_settings.emailAppPassword,
     )
     webSearchTool = WebSearchTool()
+    reminderConfigStore = ReminderConfigStore(
+        in_schedulesConfigPath=in_settings.scheduler.schedulesConfigPath
+    )
+    scheduleReminderTool = ScheduleReminderTool(in_reminderConfigStore=reminderConfigStore)
+    listRemindersTool = ListRemindersTool(
+        in_reminderConfigStore=reminderConfigStore,
+        in_dataRootPath=in_settings.app.dataRootPath,
+    )
+    deleteReminderTool = DeleteReminderTool(
+        in_reminderConfigStore=reminderConfigStore,
+        in_dataRootPath=in_settings.app.dataRootPath,
+    )
     toolDefinitions = [
         ToolDefinitionModel(
             name="digest_telegram_news",
@@ -108,6 +127,34 @@ def buildToolRegistry(
             argsModel=ReadEmailArgsModel,
             timeoutSeconds=45,
             executeCallable=readEmailTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="schedule_reminder",
+            description=(
+                "Создает или обновляет напоминание в scheduler schedules.yaml "
+                "(строго структурированные поля расписания, без свободного NLP-парсинга)."
+            ),
+            argsModel=ScheduleReminderArgsModel,
+            timeoutSeconds=5,
+            executeCallable=scheduleReminderTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="list_reminders",
+            description=(
+                "Возвращает список reminder-ов из schedules.yaml и их runtime state из jobs_state.json."
+            ),
+            argsModel=ListRemindersArgsModel,
+            timeoutSeconds=5,
+            executeCallable=listRemindersTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="delete_reminder",
+            description=(
+                "Удаляет reminder по reminderId из schedules.yaml и runtime state."
+            ),
+            argsModel=DeleteReminderArgsModel,
+            timeoutSeconds=5,
+            executeCallable=deleteReminderTool.execute,
         ),
         ToolDefinitionModel(
             name="web_search",

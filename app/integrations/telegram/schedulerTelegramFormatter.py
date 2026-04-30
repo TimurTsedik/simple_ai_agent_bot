@@ -25,3 +25,16 @@ def formatSchedulerTelegramMessage(
     ret = headerText + "\n" + bodyText if bodyText else headerText
     return ret
 
+
+def formatReminderTelegramMessage(
+    in_reminderId: str,
+    in_message: str,
+) -> str:
+    ret: str
+    reminderIdValue = str(in_reminderId or "").strip()
+    messageValue = str(in_message or "").strip()
+    if messageValue == "":
+        messageValue = "Пустой текст напоминания."
+    ret = f"Напоминание ({reminderIdValue})\n\n{messageValue}"
+    return ret
+

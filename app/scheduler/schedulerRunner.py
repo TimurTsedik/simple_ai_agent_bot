@@ -8,11 +8,18 @@ from time import monotonic, time
 from typing import Any, Callable
 
 import requests
+import yaml
 from pydantic import ValidationError
 from zoneinfo import ZoneInfo
 
 from app.common.structuredLogger import writeJsonlEvent
-from app.config.settingsModels import SchedulerJobSettings, SchedulerSettings, LoggingSettings
+from app.config.settingsModels import (
+    LoggingSettings,
+    ReminderModel,
+    SchedulerJobSettings,
+    SchedulerSettings,
+)
+from app.reminders.reminderService import ReminderService
 
 
 def _atomicWriteJson(in_path: Path, in_data: dict[str, Any]) -> None:
@@ -42,6 +49,8 @@ class SchedulerRunner:
     in_dataRootPath: str
     in_runInternalCallable: Callable[[str, str], tuple[str, str]]
     in_onRunCompletedCallable: Callable[[str, str, str, str], None] | None = None
+    in_onReminderTriggeredCallable: Callable[[str, str], None] | None = None
+    in_onReminderCompletedCallable: Callable[[str], bool] | None = None
     in_timeZoneName: str = "UTC"
     in_nowUnixTsProvider: Callable[[], int] = lambda: int(time())
     in_sleepCallable: Callable[[float], None] = lambda seconds: Event().wait(seconds)
@@ -51,22 +60,39 @@ class SchedulerRunner:
         self._lock = Lock()
         self._runningJobs: set[str] = set()
         self._statePath = Path(self.in_dataRootPath) / "scheduler" / "jobs_state.json"
-        self._state = _loadJsonOrEmpty(in_path=self._statePath)
+        loadedState = _loadJsonOrEmpty(in_path=self._statePath)
+        if isinstance(loadedState.get("jobsState"), dict) is True:
+            jobsState = loadedState.get("jobsState", {})
+        else:
+            jobsState = loadedState
+        remindersState = loadedState.get("remindersState", {})
+        self._state = {
+            "jobsState": jobsState if isinstance(jobsState, dict) else {},
+            "remindersState": remindersState if isinstance(remindersState, dict) else {},
+        }
+
+        self._schedulesConfigPath = Path(str(self.in_schedulerSettings.schedulesConfigPath or "")).resolve()
+        self._schedulesMtimeNs: int | None = None
         try:
             self._timeZoneInfo = ZoneInfo(str(self.in_timeZoneName or "UTC"))
             self._timeZoneNameNormalized = str(self.in_timeZoneName or "UTC")
         except Exception:
             self._timeZoneInfo = ZoneInfo("UTC")
             self._timeZoneNameNormalized = "UTC"
+        self._reminderService = ReminderService(
+            in_defaultTimeZoneName=self._timeZoneNameNormalized
+        )
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,
             in_eventType="scheduler_runner_initialized",
             in_payload={
                 "statePath": str(self._statePath),
-                "loadedStateJobCount": len(self._state),
+                "loadedStateJobCount": len(self._getJobsState()),
                 "tickSeconds": int(self.in_schedulerSettings.tickSeconds),
                 "jobCount": len(self.in_schedulerSettings.jobs),
+                "remindersCount": len(self.in_schedulerSettings.reminders),
                 "timeZoneName": self._timeZoneNameNormalized,
+                "schedulesConfigPath": str(self._schedulesConfigPath),
             },
         )
 
@@ -103,6 +129,7 @@ class SchedulerRunner:
             )
 
     def _tickOnce(self) -> None:
+        self._reloadSchedulesIfChanged()
         nowTs = int(self.in_nowUnixTsProvider())
         for job in list(self.in_schedulerSettings.jobs):
             if job.enabled is not True:
@@ -131,6 +158,84 @@ class SchedulerRunner:
                 },
             )
             self._runJobIfNotRunning(in_job=job, in_nowUnixTs=nowTs)
+        self._processReminders(in_nowUnixTs=nowTs)
+
+    def _getJobsState(self) -> dict[str, Any]:
+        ret: dict[str, Any]
+        value = self._state.get("jobsState", {})
+        ret = value if isinstance(value, dict) else {}
+        return ret
+
+    def _getRemindersState(self) -> dict[str, Any]:
+        ret: dict[str, Any]
+        value = self._state.get("remindersState", {})
+        ret = value if isinstance(value, dict) else {}
+        return ret
+
+    def _persistState(self) -> None:
+        _atomicWriteJson(in_path=self._statePath, in_data=self._state)
+
+    def _reloadSchedulesIfChanged(self) -> None:
+        schedulesPath = self._schedulesConfigPath
+        if schedulesPath.exists() is False:
+            return
+        try:
+            mtimeNs = int(schedulesPath.stat().st_mtime_ns)
+        except OSError:
+            return
+        if self._schedulesMtimeNs is not None and mtimeNs == self._schedulesMtimeNs:
+            return
+
+        loadedData: Any
+        try:
+            loadedData = yaml.safe_load(schedulesPath.read_text(encoding="utf-8")) or {}
+        except Exception as in_exc:
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_schedules_reload_error",
+                in_payload={
+                    "error": str(in_exc),
+                    "path": str(schedulesPath),
+                    "errorType": type(in_exc).__name__,
+                },
+            )
+            return
+
+        if isinstance(loadedData, dict) is False:
+            loadedData = {}
+
+        try:
+            parsedScheduler = SchedulerSettings.model_validate({"enabled": True, **loadedData})
+        except ValidationError as in_exc:
+            writeJsonlEvent(
+                in_loggingSettings=self.in_loggingSettings,
+                in_eventType="scheduler_schedules_reload_error",
+                in_payload={
+                    "error": str(in_exc),
+                    "path": str(schedulesPath),
+                    "errorType": type(in_exc).__name__,
+                },
+            )
+            return
+
+        effectiveScheduler = parsedScheduler.model_copy(
+            update={
+                "enabled": self.in_schedulerSettings.enabled,
+                "schedulesConfigPath": self.in_schedulerSettings.schedulesConfigPath,
+                "tickSeconds": self.in_schedulerSettings.tickSeconds,
+            }
+        )
+        self.in_schedulerSettings = effectiveScheduler
+        self._schedulesMtimeNs = mtimeNs
+        writeJsonlEvent(
+            in_loggingSettings=self.in_loggingSettings,
+            in_eventType="scheduler_schedules_reloaded",
+            in_payload={
+                "path": str(schedulesPath),
+                "jobCount": len(self.in_schedulerSettings.jobs),
+                "remindersCount": len(getattr(self.in_schedulerSettings, "reminders", []) or []),
+            },
+        )
     def _buildDueInfo(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> dict[str, Any]:
         ret: dict[str, Any]
         allowedInfo = self._buildHourWindowInfo(in_job=in_job, in_nowUnixTs=in_nowUnixTs)
@@ -145,7 +250,8 @@ class SchedulerRunner:
         if intervalSeconds < 5:
             intervalSeconds = 5
         stateKey = in_job.jobId
-        lastRunAt = int(self._state.get(stateKey, {}).get("lastRunAtUnixTs", 0))
+        jobsState = self._getJobsState()
+        lastRunAt = int(jobsState.get(stateKey, {}).get("lastRunAtUnixTs", 0))
         sinceLastRun = in_nowUnixTs - lastRunAt if lastRunAt > 0 else -1
         secondsRemaining = (
             intervalSeconds - sinceLastRun if lastRunAt > 0 and sinceLastRun < intervalSeconds else 0
@@ -240,10 +346,12 @@ class SchedulerRunner:
 
     def _runJob(self, in_job: SchedulerJobSettings, in_nowUnixTs: int) -> None:
         stateKey = in_job.jobId
-        prev = self._state.get(stateKey, {}) if isinstance(self._state.get(stateKey), dict) else {}
+        jobsState = self._getJobsState()
+        prev = jobsState.get(stateKey, {}) if isinstance(jobsState.get(stateKey), dict) else {}
         startedAtUnixTs = int(in_nowUnixTs)
-        self._state[stateKey] = {**prev, "lastStartedAtUnixTs": startedAtUnixTs}
-        _atomicWriteJson(in_path=self._statePath, in_data=self._state)
+        jobsState[stateKey] = {**prev, "lastStartedAtUnixTs": startedAtUnixTs}
+        self._state["jobsState"] = jobsState
+        self._persistState()
 
         sessionId = str(in_job.actionInternalRun.sessionId)
         message = str(in_job.actionInternalRun.message)
@@ -313,15 +421,17 @@ class SchedulerRunner:
                 },
             )
         finishedAtUnixTs = int(self.in_nowUnixTsProvider())
-        self._state[stateKey] = {
-            **(self._state.get(stateKey, {}) if isinstance(self._state.get(stateKey), dict) else {}),
+        jobsState = self._getJobsState()
+        jobsState[stateKey] = {
+            **(jobsState.get(stateKey, {}) if isinstance(jobsState.get(stateKey), dict) else {}),
             "lastRunAtUnixTs": finishedAtUnixTs,
             "lastFinishedAtUnixTs": finishedAtUnixTs,
             "lastStatus": statusValue,
             "lastError": errorText,
             "lastRunId": runId,
         }
-        _atomicWriteJson(in_path=self._statePath, in_data=self._state)
+        self._state["jobsState"] = jobsState
+        self._persistState()
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,
             in_eventType="scheduler_job_finished",
@@ -332,4 +442,107 @@ class SchedulerRunner:
                 "error": errorText,
             },
         )
+
+    def _processReminders(self, in_nowUnixTs: int) -> None:
+        remindersState = self._getRemindersState()
+        didStateChange = False
+        for reminderItem in list(self.in_schedulerSettings.reminders):
+            if isinstance(reminderItem, ReminderModel) is False:
+                continue
+            reminderIdValue = str(reminderItem.reminderId or "").strip()
+            if reminderIdValue == "":
+                continue
+            oneStateRaw = remindersState.get(reminderIdValue, {})
+            oneState = oneStateRaw if isinstance(oneStateRaw, dict) else {}
+            evaluation = self._reminderService.evaluateReminder(
+                in_reminder=reminderItem,
+                in_state=oneState,
+                in_nowUnixTs=int(in_nowUnixTs),
+            )
+            mergedState = {
+                **oneState,
+                "nextFireAtUnixTs": evaluation.get("nextFireAtUnixTs"),
+                "remainingRuns": evaluation.get("remainingRuns"),
+                "enabled": evaluation.get("isEnabled"),
+            }
+            if mergedState != oneState:
+                remindersState[reminderIdValue] = mergedState
+                didStateChange = True
+            if evaluation.get("isDue") is not True:
+                continue
+            if self.in_onReminderTriggeredCallable is None:
+                continue
+            try:
+                self.in_onReminderTriggeredCallable(
+                    reminderIdValue,
+                    str(reminderItem.message or ""),
+                )
+                updatedState = self._reminderService.markReminderSent(
+                    in_reminder=reminderItem,
+                    in_state=remindersState.get(reminderIdValue, {}),
+                    in_nowUnixTs=int(in_nowUnixTs),
+                )
+                remindersState[reminderIdValue] = updatedState
+                didStateChange = True
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_reminder_triggered",
+                    in_payload={
+                        "reminderId": reminderIdValue,
+                        "nextFireAtUnixTs": updatedState.get("nextFireAtUnixTs"),
+                        "remainingRuns": updatedState.get("remainingRuns"),
+                        "enabled": updatedState.get("enabled"),
+                    },
+                )
+                shouldRemoveReminder = (
+                    isinstance(updatedState.get("remainingRuns"), int)
+                    and int(updatedState.get("remainingRuns")) == 0
+                    and bool(updatedState.get("enabled")) is False
+                )
+                if shouldRemoveReminder is True and self.in_onReminderCompletedCallable is not None:
+                    wasDeleted = self.in_onReminderCompletedCallable(reminderIdValue)
+                    if wasDeleted is True:
+                        if reminderIdValue in remindersState:
+                            del remindersState[reminderIdValue]
+                            didStateChange = True
+                        writeJsonlEvent(
+                            in_loggingSettings=self.in_loggingSettings,
+                            in_eventType="scheduler_reminder_removed",
+                            in_payload={
+                                "reminderId": reminderIdValue,
+                                "reason": "remaining_runs_exhausted",
+                            },
+                        )
+                    else:
+                        writeJsonlEvent(
+                            in_loggingSettings=self.in_loggingSettings,
+                            in_eventType="scheduler_reminder_remove_error",
+                            in_payload={
+                                "reminderId": reminderIdValue,
+                                "reason": "reminder_not_found_in_config",
+                            },
+                        )
+            except requests.RequestException as in_exc:
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_reminder_delivery_error",
+                    in_payload={
+                        "reminderId": reminderIdValue,
+                        "error": str(in_exc),
+                        "errorType": type(in_exc).__name__,
+                    },
+                )
+            except Exception as in_exc:
+                writeJsonlEvent(
+                    in_loggingSettings=self.in_loggingSettings,
+                    in_eventType="scheduler_reminder_delivery_error",
+                    in_payload={
+                        "reminderId": reminderIdValue,
+                        "error": str(in_exc),
+                        "errorType": type(in_exc).__name__,
+                    },
+                )
+        if didStateChange is True:
+            self._state["remindersState"] = remindersState
+            self._persistState()
 

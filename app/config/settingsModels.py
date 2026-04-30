@@ -139,6 +139,43 @@ class SchedulerSettings(BaseModel):
     schedulesConfigPath: str = "./app/config/schedules.yaml"
     tickSeconds: int = Field(default=1, ge=1, le=30)
     jobs: list[SchedulerJobSettings] = Field(default_factory=list)
+    reminders: list["ReminderModel"] = Field(default_factory=list)
+
+
+class ReminderScheduleModel(BaseModel):
+    kind: str = Field(
+        default="daily",
+        description='Schedule kind: "daily" or "weekly".',
+    )
+    weekdays: list[int] = Field(
+        default_factory=list,
+        description="0=Mon..6=Sun. Used only when kind=weekly.",
+    )
+    timeLocal: str = Field(
+        default="09:00",
+        min_length=4,
+        max_length=5,
+        description='Local time "HH:MM".',
+    )
+    timeZone: str = Field(
+        default="",
+        description="IANA time zone name. Empty means use app.displayTimeZone.",
+    )
+    remainingRuns: int | None = Field(
+        default=None,
+        ge=1,
+        description="If set, decremented on each fire; reminder disables when reaches 0.",
+    )
+
+
+class ReminderModel(BaseModel):
+    reminderId: str = Field(min_length=1)
+    enabled: bool = True
+    message: str = Field(default="", max_length=4000)
+    schedule: ReminderScheduleModel = Field(default_factory=ReminderScheduleModel)
+    createdAtUnixTs: int | None = Field(default=None, ge=0)
+    lastFiredAtUnixTs: int | None = Field(default=None, ge=0)
+    nextFireAtUnixTs: int | None = Field(default=None, ge=0)
 
 
 class TelegramNewsDigestToolSettings(BaseModel):

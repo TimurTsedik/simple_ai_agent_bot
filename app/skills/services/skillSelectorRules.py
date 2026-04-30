@@ -44,10 +44,19 @@ class SkillSelectorRules:
             "google",
             "duckduckgo",
         ]
+        reminderKeywords = [
+            "напомни",
+            "напомнить",
+            "напоминан",
+            "reminder",
+        ]
         looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
         wantsEmailPreferenceSave = any(item in loweredMessage for item in emailPreferenceKeywords)
-        ret = any(item in loweredMessage for item in newsKeywords + webKeywords) or (
-            wantsEmailPreferenceSave and looksLikeDomainList
+        hasReminderIntent = any(item in loweredMessage for item in reminderKeywords)
+        ret = (
+            any(item in loweredMessage for item in newsKeywords + webKeywords)
+            or hasReminderIntent
+            or (wantsEmailPreferenceSave and looksLikeDomainList)
         )
         return ret
 
@@ -109,6 +118,16 @@ class SkillSelectorRules:
             selectedIds.append("read_and_analyze_email")
         if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
             selectedIds.append("compose_digest")
+        if any(
+            item in loweredMessage
+            for item in [
+                "напомни",
+                "напомнить",
+                "напоминан",
+                "reminder",
+            ]
+        ):
+            selectedIds.append("schedule_reminder")
         if (
             hasFeedbackIntent is False
             and any(

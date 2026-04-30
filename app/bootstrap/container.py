@@ -25,6 +25,7 @@ from app.domain.policies.stopPolicy import StopPolicy
 from app.domain.protocols.loggerProtocol import LoggerProtocol
 from app.integrations.git.gitService import GitService
 from app.integrations.telegram.telegramMessageChunker import splitTelegramMessage
+from app.integrations.telegram.schedulerTelegramFormatter import formatReminderTelegramMessage
 from app.integrations.telegram.schedulerTelegramFormatter import formatSchedulerTelegramMessage
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
@@ -33,6 +34,7 @@ from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.models.providers.openRouterClient import OpenRouterClient
 from app.models.services.llmService import LlmService
 from app.observability.stores.jsonRunRepository import JsonRunRepository
+from app.reminders.reminderConfigStore import ReminderConfigStore
 from app.runtime.agentLoop import AgentLoop
 from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
@@ -199,6 +201,51 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
                         },
                     )
 
+    def notifyReminderToTelegram(
+        in_reminderId: str,
+        in_message: str,
+    ) -> None:
+        formattedText = formatReminderTelegramMessage(
+            in_reminderId=in_reminderId,
+            in_message=in_message,
+        )
+        chunkSize = 3500
+        textChunks = splitTelegramMessage(
+            in_text=formattedText,
+            in_maxChars=chunkSize,
+            in_preferSeparator="\n---\n",
+        )
+        apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
+        for chatId in settings.telegram.allowedUserIds:
+            for index, chunk in enumerate(textChunks, start=1):
+                chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
+                contouringHttpPolicy.post(
+                    apiUrl,
+                    in_json={"chat_id": int(chatId), "text": f"{chunkPrefix}{chunk}"},
+                    in_timeoutSeconds=15.0,
+                ).raise_for_status()
+                writeJsonlEvent(
+                    in_loggingSettings=settings.logging,
+                    in_eventType="scheduler_reminder_sent_to_telegram",
+                    in_payload={
+                        "reminderId": in_reminderId,
+                        "chatId": int(chatId),
+                        "messageChars": len(chunk),
+                        "chunkIndex": index,
+                        "chunkTotal": len(textChunks),
+                        "chunkMaxChars": chunkSize,
+                    },
+                )
+
+    reminderConfigStore = ReminderConfigStore(
+        in_schedulesConfigPath=settings.scheduler.schedulesConfigPath
+    )
+
+    def removeCompletedReminderFromConfig(in_reminderId: str) -> bool:
+        ret: bool
+        ret = reminderConfigStore.deleteReminder(in_reminderId=in_reminderId)
+        return ret
+
     schedulerRunner: SchedulerRunner | None
     if settings.scheduler.enabled is True:
         writeJsonlEvent(
@@ -216,6 +263,8 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_dataRootPath=settings.app.dataRootPath,
             in_runInternalCallable=runInternalForScheduler,
             in_onRunCompletedCallable=notifySchedulerResultToTelegram,
+            in_onReminderTriggeredCallable=notifyReminderToTelegram,
+            in_onReminderCompletedCallable=removeCompletedReminderFromConfig,
             in_timeZoneName=settings.app.displayTimeZone,
         )
     else:

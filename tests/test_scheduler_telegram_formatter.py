@@ -1,4 +1,7 @@
-from app.integrations.telegram.schedulerTelegramFormatter import formatSchedulerTelegramMessage
+from app.integrations.telegram.schedulerTelegramFormatter import (
+    formatReminderTelegramMessage,
+    formatSchedulerTelegramMessage,
+)
 
 
 def testFormatSchedulerTelegramMessageEmailDigestHeader() -> None:
@@ -46,4 +49,14 @@ def testFormatSchedulerTelegramMessageTelegramNewsAddsBlankLinesAroundSeparator(
     )
 
     assert "A\n\n---\n\nB" in text
+
+
+def testFormatReminderTelegramMessageBuildsReadableHeader() -> None:
+    text = formatReminderTelegramMessage(
+        in_reminderId="reminder-123",
+        in_message="Выпей воду",
+    )
+
+    assert text.startswith("Напоминание (reminder-123)")
+    assert "Выпей воду" in text
 

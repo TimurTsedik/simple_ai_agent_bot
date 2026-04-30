@@ -2,6 +2,21 @@ from app.skills.services.skillModels import SkillModel
 
 
 class SkillSelectorRules:
+    def _isShortConfirmationMessage(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        textValue = str(in_loweredMessage or "").strip()
+        confirmationWords = {
+            "да",
+            "ага",
+            "ок",
+            "окей",
+            "подтверждаю",
+            "yes",
+            "y",
+        }
+        ret = textValue in confirmationWords
+        return ret
+
     def isToolLikelyRequired(self, in_userMessage: str) -> bool:
         ret: bool
         loweredMessage = in_userMessage.lower()
@@ -53,9 +68,13 @@ class SkillSelectorRules:
         looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
         wantsEmailPreferenceSave = any(item in loweredMessage for item in emailPreferenceKeywords)
         hasReminderIntent = any(item in loweredMessage for item in reminderKeywords)
+        hasShortConfirmationIntent = self._isShortConfirmationMessage(
+            in_loweredMessage=loweredMessage
+        )
         ret = (
             any(item in loweredMessage for item in newsKeywords + webKeywords)
             or hasReminderIntent
+            or hasShortConfirmationIntent
             or (wantsEmailPreferenceSave and looksLikeDomainList)
         )
         return ret
@@ -128,6 +147,9 @@ class SkillSelectorRules:
             ]
         ):
             selectedIds.append("schedule_reminder")
+        if self._isShortConfirmationMessage(in_loweredMessage=loweredMessage):
+            if "schedule_reminder" not in selectedIds:
+                selectedIds.append("schedule_reminder")
         if (
             hasFeedbackIntent is False
             and any(

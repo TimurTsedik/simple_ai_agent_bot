@@ -27,6 +27,7 @@ from app.presentation.web.adminPages import renderRunStepsPage
 from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
 from app.presentation.web.adminPages import renderLongTermMemoryPage
+from app.presentation.web.adminPages import renderSchedulesConfigViewPage
 from app.presentation.web.adminPages import renderToolsConfigEditPage
 from app.presentation.web.adminPages import renderToolsPage
 from app.security.webSessionAuth import createSessionCookieValue
@@ -171,6 +172,25 @@ def registerAdminWebRoutes(
             ret = toolsPath.read_text(encoding="utf-8")
         else:
             ret = ""
+        return ret
+
+    def resolveSchedulesConfigPath() -> Path:
+        ret: Path
+        schedulesPath = Path(settings.scheduler.schedulesConfigPath)
+        if schedulesPath.is_absolute() is False:
+            ret = schedulesPath.resolve()
+        else:
+            ret = schedulesPath
+        return ret
+
+    def loadSchedulesYamlTextOrEmpty() -> tuple[str, str]:
+        ret: tuple[str, str]
+        schedulesPath = resolveSchedulesConfigPath()
+        if schedulesPath.exists():
+            yamlText = schedulesPath.read_text(encoding="utf-8")
+        else:
+            yamlText = ""
+        ret = (yamlText, str(schedulesPath))
         return ret
 
     def validateToolsYamlOrRaise(in_yamlText: str) -> None:
@@ -390,6 +410,17 @@ def registerAdminWebRoutes(
             in_toolsYamlText=toolsText,
             in_errorText="",
             in_adminWritesEnabled=settings.security.adminWritesEnabled,
+        )
+        return ret
+
+    @in_app.get("/config/schedules", response_class=HTMLResponse)
+    def getSchedulesConfigPage(in_request: Request):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        schedulesText, schedulesPathText = loadSchedulesYamlTextOrEmpty()
+        ret = renderSchedulesConfigViewPage(
+            in_schedulesYamlText=schedulesText,
+            in_schedulesPath=schedulesPathText,
         )
         return ret
 

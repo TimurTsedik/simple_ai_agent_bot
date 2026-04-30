@@ -9,6 +9,7 @@ from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from pydantic import BaseModel, ConfigDict
 import json
+from typing import Literal
 
 
 class SequenceLlmClient:
@@ -103,6 +104,17 @@ class DigestArgsForTestModel(BaseModel):
     channels: list[str] = []
     topics: list[str] = []
     keywords: list[str] = []
+
+
+class ReminderArgsForTestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scheduleType: Literal["daily", "weekly"]
+    message: str
+    timeLocal: str
+    weekdays: list[int] = []
+    timeZone: str = ""
+    remainingRuns: int | None = None
 
 
 def _echoTool(in_args: dict) -> dict:
@@ -1226,3 +1238,59 @@ def testToolCoordinatorKeepsValidJsonWhenTruncated() -> None:
     parsed = __import__("json").loads(str(result.data))
     assert parsed.get("_preview") is True
     assert parsed.get("_tool_name") == "web_search"
+
+
+def testAgentLoopBlocksFinalAfterToolValidationErrorAndForcesRetry() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            (
+                '{"type":"tool_call","reason":"r1","action":"schedule_reminder",'
+                '"args":{"scheduleType":"once","message":"Выпить воды","timeLocal":"16:43"}}'
+            ),
+            '{"type":"final","reason":"confirmation","final_answer":"Напоминание установлено"}',
+            (
+                '{"type":"tool_call","reason":"r2","action":"schedule_reminder",'
+                '"args":{"scheduleType":"daily","message":"Выпить воды","timeLocal":"16:43","remainingRuns":1}}'
+            ),
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    def _okReminderTool(in_args: dict) -> dict:
+        ret = {"ok": True, "saved": in_args}
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="schedule_reminder",
+                description="reminder tool",
+                argsModel=ReminderArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_okReminderTool,
+            )
+        ]
+    )
+
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+
+    assert result.completionReason == "final_answer"
+    assert result.finalAnswer == "ok"
+    statuses = [str(item.get("status", "")) for item in result.stepTraces]
+    assert "final_blocked_validation_retry" in statuses
+    assert statuses.count("tool_call") >= 2

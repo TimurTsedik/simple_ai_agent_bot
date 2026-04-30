@@ -93,6 +93,12 @@ class ScheduleReminderArgsModel(BaseModel):
     def _validateSchedulePayload(self):
         ret = self
         scheduleTypeValue = str(self.scheduleType or "").strip().lower()
+        if scheduleTypeValue == "once":
+            self.scheduleType = "daily"
+            self.weekdays = []
+            if self.remainingRuns is None:
+                self.remainingRuns = 1
+            scheduleTypeValue = "daily"
         if scheduleTypeValue not in {"daily", "weekly"}:
             raise ValueError('scheduleType must be either "daily" or "weekly".')
         if scheduleTypeValue == "weekly" and len(self.weekdays) == 0:

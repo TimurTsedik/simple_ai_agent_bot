@@ -160,12 +160,15 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch, tmp_path) -> None:
     indexResponse = client.get("/")
     statusResponse = client.get("/git/status")
     diffResponse = client.get("/git/diff")
+    schedulesResponse = client.get("/config/schedules")
 
     assert runsResponse.status_code == 200
     assert indexResponse.status_code == 200
     assert "Статистика LLM (provider)" in indexResponse.text
     assert statusResponse.status_code == 200
     assert diffResponse.status_code == 200
+    assert schedulesResponse.status_code == 200
+    assert "Scheduler settings (schedules.yaml)" in schedulesResponse.text
     assert "<script>" not in statusResponse.text
     assert "<script>" not in diffResponse.text
     assert "&lt;script&gt;" in statusResponse.text
@@ -203,6 +206,10 @@ def testToolsAndSkillsPagesRequireLogin(monkeypatch, tmp_path) -> None:
     toolsConfigResponse = client.get("/config/tools", follow_redirects=False)
     assert toolsConfigResponse.status_code == 303
     assert toolsConfigResponse.headers.get("location") == "/login"
+
+    schedulesConfigResponse = client.get("/config/schedules", follow_redirects=False)
+    assert schedulesConfigResponse.status_code == 303
+    assert schedulesConfigResponse.headers.get("location") == "/login"
 
 
 def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch, tmp_path) -> None:

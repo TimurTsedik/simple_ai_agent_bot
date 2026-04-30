@@ -252,13 +252,18 @@ PYTHONPATH=. pytest
 - Не монтируй `./config` целиком поверх `/app/app/config`: это перекроет python-модули (`settingsModels.py` и т.д.). Монтируются только YAML-файлы.
 - Права на `data/`: контейнер должен иметь право писать в `./data` (логи/память/runs). В `docker-compose.prod.yml` используется `user: "1001:1001"` (UID/GID пользователя `deploy` на VPS). Если UID/GID на сервере другой — обнови значение.
 
-### Скачать текущие `run`-файлы с VPS
+### Скачать текущие `run`-файлы, логи и конфиги с VPS
 
 Из корня репозитория:
 
 ```bash
-scp -i ~/.ssh/simple_ai_agent_bot_vps_deploy -P 22 "deploy@187.124.165.192:/opt/simple_ai_agent_bot/data/runs/*" "./data/runs/"
-```
+scripts/fetch_server_snapshot.sh \
+  --host 187.124.165.192 \
+  --user deploy \
+  --key ~/.ssh/simple_ai_agent_bot_vps_deploy \
+  --port 22 \
+  --remote-app-dir /opt/simple_ai_agent_bot \
+  --local-project-root .```
 
 ### 3) Секреты и конфиги на VPS
 

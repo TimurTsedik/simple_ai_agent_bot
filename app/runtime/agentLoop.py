@@ -89,6 +89,8 @@ class AgentLoop:
         maxTimeoutsPerTool = 2
         missingRequiredToolFinalCount = 0
         requiredToolName = in_requiredFirstSuccessfulToolName.strip()
+        pendingValidationRetryToolName = ""
+        pendingValidationRetryCount = 0
         formatFailureStepsCount = 0
         consecutiveFormatFailures = 0
         runtimeSettings = self._stopPolicy.runtimeSettings
@@ -228,7 +230,33 @@ class AgentLoop:
                     "memoryCandidates": parsedOutput.memoryCandidates,
                 }
                 if parsedOutput.outputType == "final":
-                    if requiredToolName and requiredToolName not in successfulToolNames:
+                    if pendingValidationRetryToolName != "":
+                        blockedObservation = json.dumps(
+                            {
+                                "kind": "final_blocked",
+                                "reason": "retry_required_after_validation_error",
+                                "required_tool_name": pendingValidationRetryToolName,
+                                "message": (
+                                    "Предыдущий вызов инструмента завершился ошибкой валидации. "
+                                    f"Сначала исправь args и повтори `{pendingValidationRetryToolName}`."
+                                ),
+                            },
+                            ensure_ascii=False,
+                        )
+                        observations.append(blockedObservation)
+                        stepTrace["status"] = "final_blocked_validation_retry"
+                        stepTrace["observation"] = blockedObservation
+                        completionReason = "running"
+                        finalAnswer = ""
+                        isFinished = False
+                        if pendingValidationRetryCount >= 2:
+                            completionReason = "validation_retry_missing"
+                            finalAnswer = (
+                                "Не удалось завершить запрос: модель не исправила "
+                                "ошибочный вызов инструмента после валидационной ошибки."
+                            )
+                            isFinished = True
+                    elif requiredToolName and requiredToolName not in successfulToolNames:
                         missingRequiredToolFinalCount += 1
                         blockedObservation = json.dumps(
                             {
@@ -494,6 +522,15 @@ class AgentLoop:
                         toolNameToLastOkArgs[toolName] = dict(toolArgs)
                         if requiredToolName and toolName == requiredToolName:
                             missingRequiredToolFinalCount = 0
+                        if toolName == pendingValidationRetryToolName:
+                            pendingValidationRetryToolName = ""
+                            pendingValidationRetryCount = 0
+                    elif (
+                        isinstance(toolResult.error, dict)
+                        and str(toolResult.error.get("code", "")) == "VALIDATION_ERROR"
+                    ):
+                        pendingValidationRetryToolName = toolName
+                        pendingValidationRetryCount += 1
                     self._appendToolSignatureWindow(
                         io_window=toolSignatureWindow,
                         in_signature=toolSignature,
@@ -503,6 +540,24 @@ class AgentLoop:
                         in_toolResult=toolResult
                     )
                     observations.append(observationText)
+                    if (
+                        isinstance(toolResult.error, dict)
+                        and str(toolResult.error.get("code", "")) == "VALIDATION_ERROR"
+                    ):
+                        validationHintObservation = json.dumps(
+                            {
+                                "kind": "tool_validation_error_retry_hint",
+                                "tool_name": toolName,
+                                "message": (
+                                    "Инструмент вернул VALIDATION_ERROR. "
+                                    "Сделай следующий шаг как tool_call с исправленными args. "
+                                    "Не отправляй final и не задавай пользователю уточнение на этом шаге."
+                                ),
+                                "validation_error": toolResult.error.get("message", ""),
+                            },
+                            ensure_ascii=False,
+                        )
+                        observations.append(validationHintObservation)
                     stepTrace["status"] = "tool_call"
                     stepTrace["toolCall"] = {
                         "toolName": toolName,

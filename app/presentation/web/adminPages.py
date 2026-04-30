@@ -148,6 +148,7 @@ def _renderNav() -> str:
         "<a href='/skills'>Skills</a>"
         "<a href='/memory/long-term'>Memory</a>"
         "<a href='/config/tools'>Tool config</a>"
+        "<a href='/config/schedules'>Schedules config</a>"
         "<a href='/git/status'>Git Status</a>"
         "<a href='/git/diff'>Git Diff</a>"
         "<form method='post' action='/logout' style='margin:0;'>"
@@ -647,4 +648,19 @@ def renderToolsConfigEditPage(
         "</form>"
     )
     ret = _renderLayout(in_title="Tool Config", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderSchedulesConfigViewPage(
+    in_schedulesYamlText: str,
+    in_schedulesPath: str,
+) -> str:
+    ret: str
+    content = (
+        "<h1 class='title'>Scheduler settings (schedules.yaml)</h1>"
+        "<p class='muted'>Read-only preview текущего scheduler-конфига.</p>"
+        f"<p class='muted'>Path: {html.escape(in_schedulesPath)}</p>"
+        f"<pre>{html.escape(in_schedulesYamlText)}</pre>"
+    )
+    ret = _renderLayout(in_title="Schedules Config", in_content=content, in_showNav=True)
     return ret

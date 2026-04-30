@@ -10,9 +10,7 @@ services:
       - ./.env
     volumes:
       - ./data:/app/data
-      - ./config/config.yaml:/app/app/config/config.yaml:ro
-      - ./config/tools.yaml:/app/app/config/tools.yaml:ro
-      - ./config/schedules.yaml:/app/app/config/schedules.yaml:ro
+      - ./config:/app/app/config
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read(); print('ok')\""]
       interval: 20s

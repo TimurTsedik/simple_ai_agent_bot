@@ -33,6 +33,17 @@ def _floorUnixTsToHour(in_unixTs: int) -> int:
     return ret
 
 
+def _floorUnixTsToDayUtc(in_unixTs: int) -> int:
+    ret: int
+    if in_unixTs <= 0:
+        ret = 0
+    else:
+        dt = datetime.fromtimestamp(in_unixTs, tz=UTC)
+        dayStart = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        ret = int(dayStart.timestamp())
+    return ret
+
+
 def _defaultFetchHtml(in_url: str, in_timeoutSeconds: int) -> str:
     ret: str
     response = requests.get(in_url, timeout=in_timeoutSeconds)
@@ -99,7 +110,7 @@ class DigestTelegramNewsTool:
             if rawSinceUnixTs > 0
             else (
                 (
-                    _floorUnixTsToHour(
+                    _floorUnixTsToDayUtc(
                         max(0, self.nowUnixTsProvider() - rawSinceHours * 3600)
                     )
                     if rawSinceHours >= 24

@@ -5,6 +5,19 @@ class SkillSelectorRules:
     def isToolLikelyRequired(self, in_userMessage: str) -> bool:
         ret: bool
         loweredMessage = in_userMessage.lower()
+        emailPreferenceKeywords = [
+            "отправител",
+            "домен",
+            "важные отправители",
+            "важный отправитель",
+            "e-mail",
+            "e‑mail",
+            "email",
+            "почт",
+            "запомни",
+            "сохрани",
+            "сохранить",
+        ]
         newsKeywords = [
             "news",
             "digest",
@@ -31,7 +44,11 @@ class SkillSelectorRules:
             "google",
             "duckduckgo",
         ]
-        ret = any(item in loweredMessage for item in newsKeywords + webKeywords)
+        looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
+        wantsEmailPreferenceSave = any(item in loweredMessage for item in emailPreferenceKeywords)
+        ret = any(item in loweredMessage for item in newsKeywords + webKeywords) or (
+            wantsEmailPreferenceSave and looksLikeDomainList
+        )
         return ret
 
     def selectRelevantSkillIds(self, in_userMessage: str) -> list[str]:
@@ -76,6 +93,12 @@ class SkillSelectorRules:
             elif any(word in loweredMessage for word in digestContextWords) or "предпочт" in loweredMessage:
                 if "telegram_digest_feedback" not in selectedIds:
                     selectedIds.insert(1, "telegram_digest_feedback")
+        else:
+            # Follow-up after clarification: user may provide domain/email list without repeating "save/remember" marker.
+            looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
+            if looksLikeDomainList and any(word in loweredMessage for word in emailContextWords):
+                if "email_preference_feedback" not in selectedIds:
+                    selectedIds.insert(1, "email_preference_feedback")
         hasFeedbackIntent = (
             "telegram_digest_feedback" in selectedIds
             or "email_preference_feedback" in selectedIds

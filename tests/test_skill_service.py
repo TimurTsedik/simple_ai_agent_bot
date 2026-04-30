@@ -154,6 +154,50 @@ def testSkillServiceSelectsEmailPreferenceFeedbackSkillForSaveImportantSendersMe
     assert "email_preference_feedback" in selection.selectedSkillIds
 
 
+def testSkillServiceSelectsEmailPreferenceFeedbackSkillForFollowupDomainListMessage() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "email_preference_feedback.md").write_text(
+            "# Email Preference Feedback\nemail-pref",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        selection = service.buildSkillsSelection(
+            in_userMessage="любые адреса с этих доменов @noip.com, @yaensb.ru"
+        )
+
+    assert "email_preference_feedback" in selection.selectedSkillIds
+
+
+def testSkillServiceToolLikelyRequiredForEmailPreferenceSaveFollowup() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        isRequired = service.isToolLikelyRequired(
+            in_userMessage="любые адреса с этих доменов @noip.com, @yaensb.ru"
+        )
+
+    assert isRequired is True
+
+
 def testSkillServiceFeedbackIntentDoesNotPullTelegramNewsDigestSkill() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)

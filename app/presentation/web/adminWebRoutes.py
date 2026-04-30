@@ -26,11 +26,13 @@ from app.presentation.web.adminPages import renderRunsPage
 from app.presentation.web.adminPages import renderRunStepsPage
 from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
+from app.presentation.web.adminPages import renderLongTermMemoryPage
 from app.presentation.web.adminPages import renderToolsConfigEditPage
 from app.presentation.web.adminPages import renderToolsPage
 from app.security.webSessionAuth import createSessionCookieValue
 from app.security.webSessionAuth import hashAdminToken
 from app.security.webSessionAuth import parseSessionCookieValue
+from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 
 
 def registerAdminWebRoutes(
@@ -46,6 +48,9 @@ def registerAdminWebRoutes(
     getGitStatusUseCase = in_container.getGitStatusUseCase
     getGitDiffUseCase = in_container.getGitDiffUseCase
     dashboardSnapshotService = in_container.dashboardSnapshotService
+    readMemoryFileTool = ReadMemoryFileTool(
+        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths
+    )
 
     if hasattr(in_app.state, "adminLoginBruteforceState") is False:
         in_app.state.adminLoginBruteforceState = {}
@@ -308,6 +313,26 @@ def registerAdminWebRoutes(
         ret = renderSkillsPage(
             in_skillItems=skillItems,
             in_adminWritesEnabled=settings.security.adminWritesEnabled,
+        )
+        return ret
+
+    @in_app.get("/memory/long-term", response_class=HTMLResponse)
+    def getLongTermMemoryPage(in_request: Request, maxChars: int = 50000):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        memoryRoot = Path(settings.memory.memoryRootPath).resolve()
+        longTermPath = (memoryRoot / settings.memory.longTermFileName).resolve()
+        result = readMemoryFileTool.execute(
+            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)}
+        )
+        contentText = str(result.get("content", "") or "")
+        pathText = str(result.get("path", "") or "")
+        truncated = len(contentText) >= int(maxChars)
+        ret = renderLongTermMemoryPage(
+            in_path=pathText,
+            in_contentText=contentText,
+            in_maxChars=int(maxChars),
+            in_truncated=truncated,
         )
         return ret
 

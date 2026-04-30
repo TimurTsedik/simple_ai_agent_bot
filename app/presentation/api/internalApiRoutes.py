@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Request
@@ -5,6 +6,7 @@ from fastapi import Request
 from app.bootstrap.container import ApplicationContainer
 from app.common.structuredLogger import writeJsonlEvent
 from app.security.webSessionAuth import parseSessionCookieValue
+from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 
 
 def registerInternalApiRoutes(
@@ -12,6 +14,9 @@ def registerInternalApiRoutes(
     in_container: ApplicationContainer,
 ) -> None:
     settings = in_container.settings
+    readMemoryFileTool = ReadMemoryFileTool(
+        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths
+    )
 
     def resolveClientIpText(in_request: Request) -> str:
         ret: str
@@ -152,3 +157,24 @@ def registerInternalApiRoutes(
             in_maxCharsPerFile=maxCharsPerFile,
         )
         return retDiff
+
+    @in_app.get("/internal/memory/long-term")
+    def getInternalLongTermMemory(
+        in_request: Request,
+        maxChars: int = 50000,
+    ) -> dict[str, object]:
+        ensureInternalApiAuthorizedOrRaise(in_request=in_request)
+        memoryRoot = Path(settings.memory.memoryRootPath).resolve()
+        longTermPath = (memoryRoot / settings.memory.longTermFileName).resolve()
+        result = readMemoryFileTool.execute(
+            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)}
+        )
+        contentText = str(result.get("content", "") or "")
+        truncated = len(contentText) >= int(maxChars)
+        ret = {
+            "path": str(result.get("path", "") or ""),
+            "maxChars": int(maxChars),
+            "truncated": truncated,
+            "content": contentText,
+        }
+        return ret

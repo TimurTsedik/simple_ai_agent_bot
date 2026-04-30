@@ -25,11 +25,20 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         encoding="utf-8",
     )
 
+    dataRoot = in_tmpPath / "data"
+    memoryRoot = dataRoot / "memory"
+    logsRoot = dataRoot / "logs"
+    runsRoot = dataRoot / "runs"
+    memoryRoot.mkdir(parents=True, exist_ok=True)
+    logsRoot.mkdir(parents=True, exist_ok=True)
+    runsRoot.mkdir(parents=True, exist_ok=True)
+    (memoryRoot / "long_term.md").write_text("line-one\n<script>x</script>\n", encoding="utf-8")
+
     configPath.write_text(
         "app:\n"
         "  appName: \"simple-ai-agent-bot\"\n"
         "  environment: \"test\"\n"
-        "  dataRootPath: \"./data\"\n"
+        f"  dataRootPath: \"{dataRoot.as_posix()}\"\n"
         "  displayTimeZone: \"UTC\"\n"
         "telegram:\n"
         "  pollingTimeoutSeconds: 30\n"
@@ -56,9 +65,9 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         "  webSessionCookieTtlSeconds: 43200\n"
         "  maxAdminTokens: 3\n"
         "  adminWritesEnabled: false\n"
-        "  allowedReadOnlyPaths: [\"./data/memory\",\"./data/runs\",\"./data/logs\"]\n"
+        f"  allowedReadOnlyPaths: [\"{memoryRoot.as_posix()}\",\"{runsRoot.as_posix()}\",\"{logsRoot.as_posix()}\"]\n"
         "logging:\n"
-        "  logsDirPath: \"./data/logs\"\n"
+        f"  logsDirPath: \"{logsRoot.as_posix()}\"\n"
         "  runLogsFileName: \"run.jsonl\"\n"
         "  appLogsFileName: \"app.log\"\n"
         "  maxBytes: 10485760\n"
@@ -68,7 +77,7 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         "tools:\n"
         f"  toolsConfigPath: \"{toolsPath.as_posix()}\"\n"
         "memory:\n"
-        "  memoryRootPath: \"./data/memory\"\n"
+        f"  memoryRootPath: \"{memoryRoot.as_posix()}\"\n"
         "scheduler:\n"
         "  enabled: false\n"
         "  schedulesConfigPath: \"./app/config/schedules.yaml\"\n"
@@ -165,6 +174,19 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch, tmp_path) -> None:
     internalRuns = client.get("/internal/runs", follow_redirects=False)
     assert internalRuns.status_code == 200
     assert "items" in internalRuns.json()
+
+    memoryPage = client.get("/memory/long-term")
+    assert memoryPage.status_code == 200
+    assert "Long-term memory" in memoryPage.text
+    assert "line-one" in memoryPage.text
+    assert "<script>" not in memoryPage.text
+    assert "&lt;script&gt;" in memoryPage.text
+
+    internalMemory = client.get("/internal/memory/long-term", follow_redirects=False)
+    assert internalMemory.status_code == 200
+    payload = internalMemory.json()
+    assert "content" in payload
+    assert "line-one" in str(payload.get("content", ""))
 
 
 def testToolsAndSkillsPagesRequireLogin(monkeypatch, tmp_path) -> None:

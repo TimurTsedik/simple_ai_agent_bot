@@ -146,6 +146,7 @@ def _renderNav() -> str:
         "<a href='/logs'>Logs</a>"
         "<a href='/tools'>Tools</a>"
         "<a href='/skills'>Skills</a>"
+        "<a href='/memory/long-term'>Memory</a>"
         "<a href='/config/tools'>Tool config</a>"
         "<a href='/git/status'>Git Status</a>"
         "<a href='/git/diff'>Git Diff</a>"
@@ -155,6 +156,29 @@ def _renderNav() -> str:
         "</div>"
         "</div>"
     )
+    return ret
+
+
+def renderLongTermMemoryPage(
+    in_path: str,
+    in_contentText: str,
+    in_maxChars: int,
+    in_truncated: bool,
+) -> str:
+    ret: str
+    truncatedNote = (
+        "<p class='warning'>Показан усечённый вывод (truncated).</p>"
+        if in_truncated is True
+        else ""
+    )
+    content = (
+        "<h1 class='title'>Long-term memory</h1>"
+        f"<p class='muted'>Файл: {html.escape(in_path)}</p>"
+        f"<p class='muted'>maxChars: {html.escape(str(in_maxChars))}</p>"
+        f"{truncatedNote}"
+        f"<pre>{html.escape(in_contentText)}</pre>"
+    )
+    ret = _renderLayout(in_title="Long-term memory", in_content=content, in_showNav=True)
     return ret
 
 

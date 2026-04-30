@@ -41,6 +41,8 @@ class SkillSelectorRules:
         feedbackMarkers = [
             "понравил",
             "запомни",
+            "сохрани",
+            "сохранить",
             "сохрани в память",
             "нравятся такие",
             "хочу больше так",
@@ -58,6 +60,8 @@ class SkillSelectorRules:
         ]
         emailContextWords = [
             "почт",
+            "e-mail",
+            "e‑mail",
             "email",
             "письм",
             "imap",

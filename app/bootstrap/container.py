@@ -24,6 +24,7 @@ from app.domain.policies.stopPolicy import StopPolicy
 from app.domain.protocols.loggerProtocol import LoggerProtocol
 from app.integrations.git.gitService import GitService
 from app.integrations.telegram.telegramMessageChunker import splitTelegramMessage
+from app.integrations.telegram.schedulerTelegramFormatter import formatSchedulerTelegramMessage
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
 from app.memory.services.memoryService import MemoryService
@@ -143,13 +144,12 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_runId: str,
         in_finalAnswer: str,
     ) -> None:
-        headerText = (
-            f"Расписание: {in_jobId}\n"
-            f"Сессия: {in_sessionId}\n"
-            f"RunId: {in_runId}\n"
+        formattedText = formatSchedulerTelegramMessage(
+            in_jobId=in_jobId,
+            in_sessionId=in_sessionId,
+            in_runId=in_runId,
+            in_finalAnswer=in_finalAnswer,
         )
-        bodyText = str(in_finalAnswer or "").strip()
-        formattedText = headerText + "\n" + bodyText if bodyText else headerText
         chunkSize = 3500
         textChunks = splitTelegramMessage(
             in_text=formattedText,
@@ -212,6 +212,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_dataRootPath=settings.app.dataRootPath,
             in_runInternalCallable=runInternalForScheduler,
             in_onRunCompletedCallable=notifySchedulerResultToTelegram,
+            in_timeZoneName=settings.app.displayTimeZone,
         )
     else:
         writeJsonlEvent(

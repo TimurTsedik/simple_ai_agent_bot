@@ -8,6 +8,7 @@ from app.config.settingsModels import (
     SchedulerSettings,
 )
 from app.scheduler.schedulerRunner import SchedulerRunner
+from datetime import datetime, timezone
 
 
 def testSchedulerRunsJobOnFirstTick(tmp_path: Path) -> None:
@@ -132,29 +133,63 @@ def testSchedulerRespectsHourWindow(tmp_path: Path, monkeypatch) -> None:
         maxBytes=1024 * 1024,
         backupCount=1,
     )
-
-    class _FakeDateTime:
-        def __init__(self, hourValue: int):
-            self.hour = hourValue
-
-    def _fakeFromTimestamp(_ts: int):
-        return _FakeDateTime(hourValue=7)
-
-    monkeypatch.setattr(
-        "app.scheduler.schedulerRunner.datetime",
-        type("DT", (), {"fromtimestamp": staticmethod(_fakeFromTimestamp)}),
-    )
+    nowUnixTs = int(datetime(2026, 1, 1, 7, 0, tzinfo=timezone.utc).timestamp())
 
     runner = SchedulerRunner(
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
         in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
-        in_nowUnixTsProvider=lambda: 1000,
+        in_nowUnixTsProvider=lambda: nowUnixTs,
         in_sleepCallable=lambda _: None,
+        in_timeZoneName="UTC",
     )
     runner._tickOnce()
     assert len(calls) == 0
+
+
+def testSchedulerHourWindowUsesConfiguredTimeZone(tmp_path: Path) -> None:
+    calls: list[str] = []
+    schedulerSettings = SchedulerSettings(
+        enabled=True,
+        tickSeconds=1,
+        jobs=[
+            SchedulerJobSettings(
+                jobId="job1",
+                enabled=True,
+                schedule=SchedulerJobSchedule(
+                    intervalSeconds=3600,
+                    allowedHourStart=8,
+                    allowedHourEnd=23,
+                ),
+                actionInternalRun=SchedulerJobInternalRunAction(
+                    sessionId="scheduler:test",
+                    message="hello",
+                ),
+            )
+        ],
+    )
+    loggingSettings = LoggingSettings(
+        logsDirPath=str(tmp_path / "logs"),
+        runLogsFileName="run.jsonl",
+        appLogsFileName="app.log",
+        maxBytes=1024 * 1024,
+        backupCount=1,
+    )
+    # 06:00 UTC == 09:00 Asia/Jerusalem (DST, UTC+3) at this date.
+    nowUnixTs = int(datetime(2026, 4, 29, 6, 0, tzinfo=timezone.utc).timestamp())
+
+    runner = SchedulerRunner(
+        in_schedulerSettings=schedulerSettings,
+        in_loggingSettings=loggingSettings,
+        in_dataRootPath=str(tmp_path),
+        in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
+        in_nowUnixTsProvider=lambda: nowUnixTs,
+        in_sleepCallable=lambda _: None,
+        in_timeZoneName="Asia/Jerusalem",
+    )
+    runner._tickOnce()
+    assert len(calls) == 1
 
 
 def testSchedulerCallsCompletionCallbackWithFinalAnswer(tmp_path: Path) -> None:

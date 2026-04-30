@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import requests
 from pydantic import ValidationError
+from zoneinfo import ZoneInfo
 
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsModels import SchedulerJobSettings, SchedulerSettings, LoggingSettings
@@ -41,6 +42,7 @@ class SchedulerRunner:
     in_dataRootPath: str
     in_runInternalCallable: Callable[[str, str], tuple[str, str]]
     in_onRunCompletedCallable: Callable[[str, str, str, str], None] | None = None
+    in_timeZoneName: str = "UTC"
     in_nowUnixTsProvider: Callable[[], int] = lambda: int(time())
     in_sleepCallable: Callable[[float], None] = lambda seconds: Event().wait(seconds)
 
@@ -50,6 +52,12 @@ class SchedulerRunner:
         self._runningJobs: set[str] = set()
         self._statePath = Path(self.in_dataRootPath) / "scheduler" / "jobs_state.json"
         self._state = _loadJsonOrEmpty(in_path=self._statePath)
+        try:
+            self._timeZoneInfo = ZoneInfo(str(self.in_timeZoneName or "UTC"))
+            self._timeZoneNameNormalized = str(self.in_timeZoneName or "UTC")
+        except Exception:
+            self._timeZoneInfo = ZoneInfo("UTC")
+            self._timeZoneNameNormalized = "UTC"
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,
             in_eventType="scheduler_runner_initialized",
@@ -58,6 +66,7 @@ class SchedulerRunner:
                 "loadedStateJobCount": len(self._state),
                 "tickSeconds": int(self.in_schedulerSettings.tickSeconds),
                 "jobCount": len(self.in_schedulerSettings.jobs),
+                "timeZoneName": self._timeZoneNameNormalized,
             },
         )
 
@@ -174,7 +183,7 @@ class SchedulerRunner:
         ret: dict[str, Any]
         startHour = in_job.schedule.allowedHourStart
         endHour = in_job.schedule.allowedHourEnd
-        currentHour = int(datetime.fromtimestamp(in_nowUnixTs).hour)
+        currentHour = int(datetime.fromtimestamp(in_nowUnixTs, tz=self._timeZoneInfo).hour)
         if startHour is None and endHour is None:
             ret = {
                 "isAllowed": True,
@@ -182,6 +191,7 @@ class SchedulerRunner:
                 "currentHour": currentHour,
                 "allowedHourStart": startHour,
                 "allowedHourEnd": endHour,
+                "timeZoneName": self._timeZoneNameNormalized,
             }
             return ret
         if startHour is None or endHour is None:
@@ -191,6 +201,7 @@ class SchedulerRunner:
                 "currentHour": currentHour,
                 "allowedHourStart": startHour,
                 "allowedHourEnd": endHour,
+                "timeZoneName": self._timeZoneNameNormalized,
             }
             return ret
         if startHour <= endHour:
@@ -204,6 +215,7 @@ class SchedulerRunner:
             "currentHour": currentHour,
             "allowedHourStart": startHour,
             "allowedHourEnd": endHour,
+            "timeZoneName": self._timeZoneNameNormalized,
         }
         return ret
 

@@ -72,7 +72,10 @@ class ApplicationContainer:
 def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
     settings = loadSettings(in_configPath=in_configPath)
     logger = createAppLogger(in_loggingSettings=settings.logging)
-    promptBuilder = PromptBuilder(in_runtimeSettings=settings.runtime)
+    promptBuilder = PromptBuilder(
+        in_runtimeSettings=settings.runtime,
+        in_displayTimeZoneName=settings.app.displayTimeZone,
+    )
     outputParser = OutputParser()
     stopPolicy = StopPolicy(in_runtimeSettings=settings.runtime)
     memoryStore = MarkdownMemoryStore(in_memorySettings=settings.memory)

@@ -1,11 +1,42 @@
 from app.config.settingsModels import RuntimeSettings
 from app.common.truncation import truncateText
 from datetime import datetime, timezone
+from typing import Callable
+from zoneinfo import ZoneInfo
 
 
 class PromptBuilder:
-    def __init__(self, in_runtimeSettings: RuntimeSettings) -> None:
+    def __init__(
+        self,
+        in_runtimeSettings: RuntimeSettings,
+        in_displayTimeZoneName: str = "UTC",
+        in_nowUtcProvider: Callable[[], datetime] | None = None,
+    ) -> None:
         self._runtimeSettings = in_runtimeSettings
+        self._displayTimeZoneName = str(in_displayTimeZoneName or "UTC").strip() or "UTC"
+        self._nowUtcProvider = in_nowUtcProvider or (lambda: datetime.now(timezone.utc))
+
+    def _buildTimeContextBlock(self) -> str:
+        ret: str
+        nowUtcValue = self._nowUtcProvider()
+        if nowUtcValue.tzinfo is None:
+            nowUtcValue = nowUtcValue.replace(tzinfo=timezone.utc)
+        nowUtcValue = nowUtcValue.astimezone(timezone.utc)
+        configuredTimeZoneName = self._displayTimeZoneName
+        effectiveTimeZoneName = configuredTimeZoneName
+        try:
+            configuredZone = ZoneInfo(configuredTimeZoneName)
+        except Exception:
+            configuredZone = ZoneInfo("UTC")
+            effectiveTimeZoneName = "UTC"
+        configuredLocalNow = nowUtcValue.astimezone(configuredZone)
+        ret = (
+            f"Server current UTC time: {nowUtcValue.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+            f"Configured business timezone: {configuredTimeZoneName}\n"
+            f"Current time in configured timezone ({effectiveTimeZoneName}): "
+            f"{configuredLocalNow.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        return ret
 
     def buildPrompt(
         self,
@@ -16,12 +47,12 @@ class PromptBuilder:
         in_memoryBlock: str,
     ) -> str:
         ret: str
-        nowUtcText = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        timeContextBlock = self._buildTimeContextBlock()
         observationsBlock = "\n".join(in_observations)
         promptText = (
             "You are an AI runtime. Respond ONLY with one valid YAML document (a single mapping).\n"
             "Do not wrap in markdown fences. Do not add any prose before or after the YAML.\n"
-            f"Current date/time: {nowUtcText}\n"
+            f"{timeContextBlock}"
             "YAML rule for multi-line user-visible text: use a literal block scalar for final_answer, e.g.\n"
             "final_answer: |\n"
             "  line one\n"

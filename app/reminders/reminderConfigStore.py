@@ -31,8 +31,13 @@ class ReminderConfigStore:
         self._schedulesConfigPath.parent.mkdir(parents=True, exist_ok=True)
         tempPath = self._schedulesConfigPath.with_suffix(self._schedulesConfigPath.suffix + ".tmp")
         textValue = yaml.safe_dump(in_data, allow_unicode=True, sort_keys=False)
-        tempPath.write_text(textValue, encoding="utf-8")
-        os.replace(tempPath, self._schedulesConfigPath)
+        try:
+            tempPath.write_text(textValue, encoding="utf-8")
+            os.replace(tempPath, self._schedulesConfigPath)
+        except PermissionError:
+            # Fallback for bind-mounted single files where directory rename/write
+            # permissions can be restricted for temp files.
+            self._schedulesConfigPath.write_text(textValue, encoding="utf-8")
 
     def _validateAndNormalize(self, in_data: dict[str, Any]) -> dict[str, Any]:
         ret: dict[str, Any]

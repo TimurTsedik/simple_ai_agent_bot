@@ -39,9 +39,19 @@ class FakeSkillService:
 
 
 class FakeMemoryService:
+    def __init__(self) -> None:
+        self.calledBuildMemoryBlock = False
+        self.calledBuildLongTermOnlyMemoryBlock = False
+
     def buildMemoryBlock(self, in_sessionId: str) -> str:
         _ = in_sessionId
+        self.calledBuildMemoryBlock = True
         ret = "memory block"
+        return ret
+
+    def buildLongTermOnlyMemoryBlock(self) -> str:
+        self.calledBuildLongTermOnlyMemoryBlock = True
+        ret = "long-term only memory block"
         return ret
 
     def updateAfterRun(
@@ -69,6 +79,7 @@ class FakeAgentLoop:
     def __init__(self, in_result: AgentLoopResultModel) -> None:
         self._result = in_result
         self.lastRequiredFirstToolName = ""
+        self.lastMemoryBlock = ""
 
     def run(
         self,
@@ -80,7 +91,7 @@ class FakeAgentLoop:
     ) -> AgentLoopResultModel:
         _ = in_userMessage
         _ = in_skillsBlock
-        _ = in_memoryBlock
+        self.lastMemoryBlock = in_memoryBlock
         _ = in_allowToolCalls
         self.lastRequiredFirstToolName = in_requiredFirstSuccessfulToolName
         ret = self._result
@@ -250,10 +261,11 @@ def testRunAgentUseCaseRequiresReadEmailForEmailDigestSkills() -> None:
     fakeSkillService.setSelectedSkillIds(
         ["default_assistant", "compose_digest", "read_and_analyze_email"]
     )
+    fakeMemoryService = FakeMemoryService()
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
         in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_memoryService=fakeMemoryService,  # type: ignore[arg-type]
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -264,6 +276,9 @@ def testRunAgentUseCaseRequiresReadEmailForEmailDigestSkills() -> None:
     )
 
     assert fakeAgentLoop.lastRequiredFirstToolName == "read_email"
+    assert fakeAgentLoop.lastMemoryBlock == "long-term only memory block"
+    assert fakeMemoryService.calledBuildLongTermOnlyMemoryBlock is True
+    assert fakeMemoryService.calledBuildMemoryBlock is False
 
 
 def testRunAgentUseCaseRequiresDigestToolForTelegramNewsSkill() -> None:

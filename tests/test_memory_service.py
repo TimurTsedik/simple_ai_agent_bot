@@ -104,6 +104,36 @@ def testMemoryServiceIncludesDigestPreferenceHintsInMemoryBlock() -> None:
     assert "gpt" in memoryBlock
 
 
+def testMemoryServiceBuildsLongTermOnlyMemoryBlockForDigestFlows() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=10,
+            in_sessionSummaryMaxChars=2000,
+        )
+        service.updateAfterRun(
+            in_sessionId="scheduler:email",
+            in_userMessage="прочитай письма",
+            in_finalAnswer="дайджест уже был выше",
+            in_memoryCandidates=["Пользователь предпочитает краткий дайджест"],
+        )
+
+        memoryBlock = service.buildLongTermOnlyMemoryBlock()
+
+    assert "## Session Summary" not in memoryBlock
+    assert "## Recent Messages" not in memoryBlock
+    assert "## Long-Term Memory" in memoryBlock
+    assert "Пользователь предпочитает краткий дайджест" in memoryBlock
+
+
 def testMemoryServiceSkipsWebSearchAccessDeniedInRecentAndSummary() -> None:
     with TemporaryDirectory() as tempDir:
         memorySettings = MemorySettings(

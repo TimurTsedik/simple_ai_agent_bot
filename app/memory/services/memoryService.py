@@ -24,15 +24,28 @@ class MemoryService:
         recentLines = self._memoryStore.readSessionRecentMessages(in_sessionId=in_sessionId)
         summaryText = self._memoryStore.readSessionSummary(in_sessionId=in_sessionId)
         longTermLines = self._memoryStore.readLongTermMemory()
-        digestHintsBlock = self._buildDigestPreferenceHintsBlock(in_longTermLines=longTermLines)
         ret = (
             "## Session Summary\n"
             + summaryText
             + "\n\n## Recent Messages\n"
             + "\n".join(recentLines)
-            + "\n\n## Long-Term Memory\n"
-            + "\n".join(longTermLines)
+            + "\n\n"
+            + self._buildLongTermBlock(in_longTermLines=longTermLines)
         )
+        return ret
+
+    def buildLongTermOnlyMemoryBlock(self) -> str:
+        ret: str
+        longTermLines = self._memoryStore.readLongTermMemory()
+        ret = self._buildLongTermBlock(in_longTermLines=longTermLines)
+        return ret
+
+    def _buildLongTermBlock(self, in_longTermLines: list[str]) -> str:
+        ret: str
+        digestHintsBlock = self._buildDigestPreferenceHintsBlock(
+            in_longTermLines=in_longTermLines
+        )
+        ret = "## Long-Term Memory\n" + "\n".join(in_longTermLines)
         if digestHintsBlock.strip() != "":
             ret += (
                 "\n\n## Digest preference hints (soft guidance)\n"

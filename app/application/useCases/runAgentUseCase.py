@@ -32,7 +32,10 @@ class RunAgentUseCase:
             in_userMessage=in_inputMessage
         )
         skillsBlock = selectionResult.skillsBlock
-        memoryBlock = self._memoryService.buildMemoryBlock(in_sessionId=in_sessionId)
+        memoryBlock = self._resolveMemoryBlock(
+            in_sessionId=in_sessionId,
+            in_selectedSkillIds=selectionResult.selectedSkillIds,
+        )
         loopResult = self._agentLoop.run(
             in_userMessage=in_inputMessage,
             in_skillsBlock=skillsBlock,
@@ -118,6 +121,22 @@ class RunAgentUseCase:
             finalAnswer=loopResult.finalAnswer,
             selectedModel=loopResult.selectedModel,
         )
+        return ret
+
+    def _resolveMemoryBlock(
+        self,
+        in_sessionId: str,
+        in_selectedSkillIds: list[str],
+    ) -> str:
+        ret: str
+        selectedSet = set(in_selectedSkillIds)
+        if (
+            "compose_digest" in selectedSet
+            and "read_and_analyze_email" in selectedSet
+        ):
+            ret = self._memoryService.buildLongTermOnlyMemoryBlock()
+        else:
+            ret = self._memoryService.buildMemoryBlock(in_sessionId=in_sessionId)
         return ret
 
     def _resolveRequiredFirstSuccessfulToolName(

@@ -131,7 +131,11 @@ cp app/config/schedules.example.yaml app/config/schedules.yaml
   - `schedule.intervalSeconds` — интервал в секундах (минимум 5)
   - `schedule.allowedHourStart / allowedHourEnd` — окно часов (например 8..23), локальное время сервера
   - `actionInternalRun.sessionId` — sessionId для этих run-ов (удобно выделять `scheduler:*`)
-  - `actionInternalRun.message` — текст, который будет отправлен агенту как пользовательское сообщение
+  - `actionInternalRun.message` — короткий intent-текст, который будет отправлен агенту как пользовательское сообщение
+
+Рекомендация:
+- держи `actionInternalRun.message` максимально коротким (без длинных шаблонов формата ответа);
+- правила формата/структуры ответа должны жить в skills (например `compose_digest`, `read_and_analyze_email`, `telegram_news_digest`).
 
 Важно: `scheduler.tickSeconds` задаётся только в `app/config/config.yaml`.
 
@@ -219,6 +223,14 @@ PYTHONPATH=. pytest
 - `data/` обязательно монтировать, иначе потеряешь runs/logs/memory при пересоздании контейнера.
 - Не монтируй `./config` целиком поверх `/app/app/config`: это перекроет python-модули (`settingsModels.py` и т.д.). Монтируются только YAML-файлы.
 - Права на `data/`: контейнер должен иметь право писать в `./data` (логи/память/runs). В `docker-compose.prod.yml` используется `user: "1001:1001"` (UID/GID пользователя `deploy` на VPS). Если UID/GID на сервере другой — обнови значение.
+
+### Скачать текущие `run`-файлы с VPS
+
+Из корня репозитория:
+
+```bash
+scp -i ~/.ssh/simple_ai_agent_bot_vps_deploy -P 22 "deploy@187.124.165.192:/opt/simple_ai_agent_bot/data/runs/*" "./data/runs/"
+```
 
 ### 3) Секреты и конфиги на VPS
 

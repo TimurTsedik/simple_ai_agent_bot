@@ -149,6 +149,45 @@ PYTHONPATH=. pytest
 
 Ниже — рекомендуемый production-процесс: GitHub Actions собирает Docker image и публикует в GHCR, а VPS делает `docker compose pull && up -d`.
 
+### Что уже настроено для деплоя (чеклист операций)
+
+1) В репозитории добавлен ручной workflow GitHub Actions:
+- файл: `.github/workflows/deploy_vps_manual.yml`
+- триггер: `workflow_dispatch` (ручной запуск)
+- входной параметр: `ref` (ветка / tag / commit SHA)
+
+2) В workflow настроены права и пайплайн сборки:
+- `permissions`: `contents: read`, `packages: write`
+- checkout выбранного `ref`
+- установка Python 3.12 и зависимостей
+- прогон unit-тестов: `PYTHONPATH=. pytest -q`
+- сборка Docker image и push в GHCR
+- теги image: `ghcr.io/<owner>/<repo>:sha-<shortSha>` и `manual-latest`
+
+3) В workflow настроен отдельный deploy job на VPS:
+- environment: `production`
+- установка SSH-ключа из GitHub Secret
+- добавление VPS в `known_hosts`
+- загрузка на VPS файлов деплоя:
+  - `docker-compose.prod.yml`
+  - `scripts/deploy_prod.sh`
+- выставление executable-права на `scripts/deploy_prod.sh`
+- запуск деплоя по SSH с передачей `APP_IMAGE`, `GHCR_USERNAME`, `GHCR_TOKEN`
+
+4) На VPS подготовлена структура для деплоя:
+- директория приложения (по умолчанию: `/opt/simple_ai_agent_bot`)
+- подкаталоги: `scripts`, `config`, `data`
+- персистентные данные вынесены в `data/` (runs/logs/memory/scheduler)
+
+5) Для GitHub Environment `production` используются секреты:
+- `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_APP_DIR`
+- `GHCR_USERNAME`, `GHCR_TOKEN`
+
+6) Подготовлена эксплуатационная схема выката:
+- деплой запускается вручную через Actions (`Deploy to VPS (manual)`)
+- health-check выполняется на этапе deploy job
+- rollback выполняется повторным запуском workflow на нужный предыдущий commit/ref
+
 ### 1) Одноразовая подготовка VPS
 
 На VPS нужно:

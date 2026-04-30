@@ -11,4 +11,5 @@ def testScheduleReminderSkillDeclaresSchemaFirstContract() -> None:
     assert "никакого разбора естественного языка" in text
     assert "weekdays" in text
     assert "timeLocal" in text
+    assert "через N минут/часов" in text
 

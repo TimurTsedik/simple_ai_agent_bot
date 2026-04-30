@@ -39,4 +39,5 @@ def testPromptBuilderIncludesUtcAndConfiguredTimeZoneContext() -> None:
     assert "Server current UTC time: 2026-04-30 12:34:56 UTC" in prompt
     assert "Configured business timezone: Europe/Moscow" in prompt
     assert "Current time in configured timezone (Europe/Moscow):" in prompt
+    assert "If user asks relative time like 'in N minutes/hours'" in prompt
 

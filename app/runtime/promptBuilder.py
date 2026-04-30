@@ -82,6 +82,8 @@ class PromptBuilder:
             "only after the user confirms what to remember.\n"
             "For schedule_reminder: NEVER use scheduleType=once. Allowed values are daily|weekly only. "
             "If user asks one-time reminder, map it to scheduleType=daily with remainingRuns=1 and weekdays=[]. "
+            "If user asks relative time like 'in N minutes/hours', compute absolute HH:MM using "
+            "Current time in configured timezone and call schedule_reminder immediately; do not ask extra clarification. "
             "Do not claim reminder is set until schedule_reminder tool returns ok=true. "
             "If previous observation contains schedule_reminder VALIDATION_ERROR, immediately retry "
             "with corrected args in the next tool_call.\n"

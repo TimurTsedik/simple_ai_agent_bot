@@ -7,6 +7,22 @@
 
 ![Admin dashboard](image.png)
 
+## Оглавление
+
+- [Почему интересно попробовать](#почему-интересно-попробовать)
+- [Что умеет](#что-умеет-главные-фичи)
+- [Use cases (сценарии)](#use-cases-сценарии)
+- [Быстрый старт (локально)](#быстрый-старт-локально)
+- [Веб-админка](#веб-админка)
+- [Конфигурация](#конфигурация)
+- [Voice-to-text (Telegram голосовые → текст)](#voice-to-text-telegram-голосовые--текст)
+- [Инструменты и их настройки (`tools.yaml`)](#инструменты-и-их-настройки-toolsyaml)
+- [Scheduler и reminders](#scheduler-и-reminders)
+- [Запуск тестов](#запуск-тестов)
+- [Production deploy (VPS + GitHub Actions + Docker Compose)](#production-deploy-vps--github-actions--docker-compose)
+- [Частые проблемы](#частые-проблемы)
+- [История развития](#история-развития)
+
 ### Почему интересно попробовать
 - **Живой агент в Telegram**: пиши текстом или голосом — дальше всё идёт по одному пайплайну.
 - **Управляемость**: строгий runtime‑контракт (`tool_call`/`final`/`stop`), лимиты, repair‑pass, анти‑циклы.
@@ -24,15 +40,77 @@
 - **Web‑админка**: runs/logs/tools/skills/git, internal JSON API `/internal/*` под той же auth‑схемой.
 - **Scheduler (variant B)**: periodic internal runs + reminders, state в `data/scheduler/jobs_state.json`.
 
-### Быстрый “вкус” локально (2 команды после конфига)
-После базовой настройки (см. ниже) можно:\n
-1) Запустить сервер:\n
+## Use cases (сценарии)
+
+Ниже — сценарии, ради которых этот проект реально удобно запускать и развивать.
+
+1) **Личный Telegram‑агент “на каждый день”**  
+   Пишешь в чат: “составь список дел”, “помоги сформулировать сообщение”, “объясни код”. Агент работает как обычный бот, но все шаги сохраняются в runs.
+
+2) **Голосовые команды → действия**  
+   Отправляешь voice: “напомни через минуту выпить воды” → voice→text → skill `schedule_reminder` → reminder попадает в `schedules.yaml` и отработает.
+
+3) **Дайджест новостей из Telegram‑каналов**  
+   “Сделай дайджест экономических новостей за последний час” → tool `digest_telegram_news` → аккуратный формат дайджеста (через skills).
+
+4) **Email‑дайджест непрочитанных писем**  
+   “Сделай дайджест непрочитанных писем” → tool `read_email` → агент собирает 3 категории и выдаёт компактный итог.
+
+5) **Проверка качества prompt/skills на воспроизводимых run‑ах**  
+   Меняешь skill‑файл, повторяешь запрос, смотришь “что изменилось” в `/runs/<runId>/steps` (prompt snapshot + tool results).
+
+6) **Наблюдаемость и разбор ошибок без гадания**  
+   Если “что-то не сработало” — в `data/runs/<runId>.json` видно: какой prompt ушёл в LLM, что модель ответила, какие tool calls были, какие ошибки вернулись.
+
+7) **Scheduler для регулярных внутренних запусков**  
+   Настраиваешь `schedules.yaml` — сервис сам запускает internal runs по расписанию (и пишет state в `data/scheduler/jobs_state.json`).
+
+## Быстрый старт (локально)
+
+1) Создать venv и поставить зависимости:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+2) Подготовить конфиг и `.env`:
+
+```bash
+cp app/config/config.example.yaml app/config/config.yaml
+cp .env.example .env
+```
+
+3) Заполнить `.env`:
+
+```env
+TELEGRAM_BOT_TOKEN=...
+OPENROUTER_API_KEY=...
+SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
+ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
+EMAIL_APP_PASSWORD=your_gmail_app_password
+```
+
+4) Запустить приложение:
+
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
-```\n
-2) Открыть web‑админку и смотреть runs/logs:\n
-- `GET /login` → вставить admin token\n
-- `GET /runs` → открыть run и увидеть шаги
+```
+
+Дальше:
+- web‑админка: `GET /login` → вставить admin token → `GET /runs`
+- Telegram: напиши боту `/start`, затем любой запрос
+
+## Конфигурация
+
+- **Основной конфиг**: `app/config/config.yaml` (без секретов).
+- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`.
+
+Требования к web-auth:
+- `SESSION_COOKIE_SECRET` — минимум 32 символа
+- `ADMIN_RAW_TOKENS` — CSV, 1..`security.maxAdminTokens` токенов
+- каждый admin token — минимум 16 символов, только `A-Z a-z 0-9 . _ -`, без дублей
 
 ## Веб-админка
 
@@ -47,16 +125,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
   - по умолчанию админка в режиме read-only;
   - чтобы включить редактирование skills и `tools.yaml`, выставь `security.adminWritesEnabled: true` в `app/config/config.yaml` и перезапусти сервис.
   - важно: для редактирования skills в production `skills.skillsDirPath` должен указывать на writable директорию (рекомендуется `./data/skills`, см. `app/config/config.example.yaml`); иначе будет 500 из-за `PermissionError`.
-
-## Конфиги и секреты
-
-- **Основной конфиг**: `app/config/config.yaml` (без секретов).
-- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`.
-
-Требования к web-auth:
-- `SESSION_COOKIE_SECRET` — минимум 32 символа
-- `ADMIN_RAW_TOKENS` — CSV, 1..`security.maxAdminTokens` токенов
-- каждый admin token — минимум 16 символов, только `A-Z a-z 0-9 . _ -`, без дублей
 
 ## Time zone
 
@@ -129,6 +197,14 @@ Email-дайджест строится агентом по skill-инструк
 ### Изоляция памяти для email-дайджеста
 
 Когда выбраны skills `compose_digest + read_and_analyze_email` (например, scheduler-job `email_digest_hourly`), `RunAgentUseCase` подаёт в prompt **только** блок Long-Term Memory (без Session Summary и Recent Messages), чтобы каждый периодический запуск дайджеста заново читал почту, не отвечая "уже было выше".
+
+## Scheduler и reminders
+
+Два режима:\n
+- **Scheduler jobs**: регулярные внутренние run‑ы агента по интервалу и часовому окну.\n
+- **Reminders**: напоминания, которые записываются в `schedules.yaml`, имеют `remainingRuns` и автоматически удаляются после завершения (если включена соответствующая логика).\n
+
+Ниже описан общий формат `app/config/schedules.yaml` и как включить планировщик.
 
 ## Scheduler (variant B): автоматические запуски по расписанию
 

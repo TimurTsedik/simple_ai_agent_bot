@@ -5,6 +5,7 @@ from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsT
 from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 from app.tools.implementations.saveDigestPreferenceTool import SaveDigestPreferenceTool
+from app.tools.implementations.saveEmailPreferenceTool import SaveEmailPreferenceTool
 from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
@@ -12,6 +13,7 @@ from app.tools.registry.toolSchemas import (
     ReadEmailArgsModel,
     ReadMemoryFileArgsModel,
     SaveDigestPreferenceArgsModel,
+    SaveEmailPreferenceArgsModel,
     WebSearchArgsModel,
 )
 
@@ -42,6 +44,7 @@ def buildToolRegistry(
         getTopicSeedsForTopics=collectSeedKeywordsForTopics,
     )
     saveDigestPreferenceTool = SaveDigestPreferenceTool(in_memoryStore=in_memoryStore)
+    saveEmailPreferenceTool = SaveEmailPreferenceTool(in_memoryStore=in_memoryStore)
     readMemoryFileTool = ReadMemoryFileTool(
         in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths
     )
@@ -75,6 +78,18 @@ def buildToolRegistry(
             argsModel=SaveDigestPreferenceArgsModel,
             timeoutSeconds=5,
             executeCallable=saveDigestPreferenceTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="save_email_preference",
+            description=(
+                "Сохраняет в долгосрочную память предпочтения пользователя по email "
+                "(preferredSenders, preferredKeywords, userNote). Письма от preferredSenders "
+                "должны попадать в категорию 1 email-дайджеста. Вызывай после явного подтверждения "
+                "пользователем того, кого/что считать предпочтительным."
+            ),
+            argsModel=SaveEmailPreferenceArgsModel,
+            timeoutSeconds=5,
+            executeCallable=saveEmailPreferenceTool.execute,
         ),
         ToolDefinitionModel(
             name="read_memory_file",

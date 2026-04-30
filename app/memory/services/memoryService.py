@@ -45,6 +45,9 @@ class MemoryService:
         digestHintsBlock = self._buildDigestPreferenceHintsBlock(
             in_longTermLines=in_longTermLines
         )
+        emailHintsBlock = self._buildEmailPreferenceHintsBlock(
+            in_longTermLines=in_longTermLines
+        )
         ret = "## Long-Term Memory\n" + "\n".join(in_longTermLines)
         if digestHintsBlock.strip() != "":
             ret += (
@@ -52,6 +55,13 @@ class MemoryService:
                 "Use only when the user did not explicitly override topics/channels/keywords. "
                 "Prefer matching these hints in digest_telegram_news args.\n"
                 + digestHintsBlock
+            )
+        if emailHintsBlock.strip() != "":
+            ret += (
+                "\n\n## Email preference hints (soft guidance)\n"
+                "Treat senders/keywords below as preferred. "
+                "Letters from preferredSenders MUST go to category 1 of the email digest.\n"
+                + emailHintsBlock
             )
         return ret
 
@@ -83,6 +93,45 @@ class MemoryService:
             renderedLines.append(
                 f"- savedAt={savedAtValue}; topics=[{topicsText}]; channels=[{channelsText}]; "
                 f"keywords=[{keywordsText}]; note={noteValue}"
+            )
+        keptLines = renderedLines[-12:]
+        ret = "\n".join(keptLines)
+        return ret
+
+    def _buildEmailPreferenceHintsBlock(self, in_longTermLines: list[str]) -> str:
+        ret: str
+        renderedLines: list[str] = []
+        prefixText = "- email_pref_json:"
+        for lineText in in_longTermLines:
+            strippedLine = lineText.strip()
+            if strippedLine.startswith(prefixText) is False:
+                continue
+            jsonPart = strippedLine[len(prefixText) :].strip()
+            try:
+                payload = json.loads(jsonPart)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) is False:
+                continue
+            if str(payload.get("kind", "")) != "email_user_preference":
+                continue
+            sendersValue = payload.get("preferredSenders", [])
+            keywordsValue = payload.get("preferredKeywords", [])
+            noteValue = str(payload.get("userNote", "") or "")
+            savedAtValue = str(payload.get("savedAt", "") or "")
+            sendersText = (
+                ", ".join(str(s) for s in sendersValue)
+                if isinstance(sendersValue, list)
+                else ""
+            )
+            keywordsText = (
+                ", ".join(str(k) for k in keywordsValue)
+                if isinstance(keywordsValue, list)
+                else ""
+            )
+            renderedLines.append(
+                f"- savedAt={savedAtValue}; preferredSenders=[{sendersText}]; "
+                f"preferredKeywords=[{keywordsText}]; note={noteValue}"
             )
         keptLines = renderedLines[-12:]
         ret = "\n".join(keptLines)

@@ -56,11 +56,26 @@ class SkillSelectorRules:
             "телеграм",
             "стать",
         ]
+        emailContextWords = [
+            "почт",
+            "email",
+            "письм",
+            "imap",
+            "inbox",
+            "отправител",
+            "домен",
+        ]
         if any(marker in loweredMessage for marker in feedbackMarkers):
-            if any(word in loweredMessage for word in digestContextWords) or "предпочт" in loweredMessage:
+            if any(word in loweredMessage for word in emailContextWords):
+                if "email_preference_feedback" not in selectedIds:
+                    selectedIds.insert(1, "email_preference_feedback")
+            elif any(word in loweredMessage for word in digestContextWords) or "предпочт" in loweredMessage:
                 if "telegram_digest_feedback" not in selectedIds:
                     selectedIds.insert(1, "telegram_digest_feedback")
-        hasFeedbackIntent = "telegram_digest_feedback" in selectedIds
+        hasFeedbackIntent = (
+            "telegram_digest_feedback" in selectedIds
+            or "email_preference_feedback" in selectedIds
+        )
         if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
             selectedIds.append("web_research")
         if any(item in loweredMessage for item in ["почт", "email", "письм", "imap", "inbox"]):

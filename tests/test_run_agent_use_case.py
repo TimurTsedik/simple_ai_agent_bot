@@ -316,6 +316,76 @@ def testRunAgentUseCaseRequiresDigestToolForTelegramNewsSkill() -> None:
     assert fakeAgentLoop.lastRequiredFirstToolName == "digest_telegram_news"
 
 
+def testRunAgentUseCaseRequiresReadEmailForEmailOnlySkill() -> None:
+    loopResult = AgentLoopResultModel(
+        completionReason="final_answer",
+        finalAnswer="ok",
+        stepCount=1,
+        toolCallCount=0,
+        selectedModel="m1",
+        memoryCandidates=[],
+        executionDurationMs=10,
+        stepTraces=[],
+        promptSnapshot="prompt",
+        fallbackEvents=(),
+    )
+    repository = FakeRunRepository()
+    fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
+    fakeSkillService = FakeSkillService()
+    fakeSkillService.setSelectedSkillIds(
+        ["default_assistant", "read_and_analyze_email"]
+    )
+    useCase = RunAgentUseCase(
+        in_agentLoop=fakeAgentLoop,
+        in_skillService=fakeSkillService,  # type: ignore[arg-type]
+        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_settings=_buildSettings(),
+    )
+
+    _ = useCase.execute(
+        in_sessionId="telegram:1",
+        in_inputMessage="прочитай непрочитанные письма",
+    )
+
+    assert fakeAgentLoop.lastRequiredFirstToolName == "read_email"
+
+
+def testRunAgentUseCaseDoesNotRequireToolForEmailPreferenceFeedbackSkill() -> None:
+    loopResult = AgentLoopResultModel(
+        completionReason="final_answer",
+        finalAnswer="ok",
+        stepCount=1,
+        toolCallCount=0,
+        selectedModel="m1",
+        memoryCandidates=[],
+        executionDurationMs=10,
+        stepTraces=[],
+        promptSnapshot="prompt",
+        fallbackEvents=(),
+    )
+    repository = FakeRunRepository()
+    fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
+    fakeSkillService = FakeSkillService()
+    fakeSkillService.setSelectedSkillIds(
+        ["default_assistant", "email_preference_feedback", "read_and_analyze_email"]
+    )
+    useCase = RunAgentUseCase(
+        in_agentLoop=fakeAgentLoop,
+        in_skillService=fakeSkillService,  # type: ignore[arg-type]
+        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_settings=_buildSettings(),
+    )
+
+    _ = useCase.execute(
+        in_sessionId="telegram:1",
+        in_inputMessage="запомни: письма от research@aton.ru важные",
+    )
+
+    assert fakeAgentLoop.lastRequiredFirstToolName == ""
+
+
 def testRunAgentUseCaseDoesNotRequireDigestToolForFeedbackSkill() -> None:
     loopResult = AgentLoopResultModel(
         completionReason="final_answer",

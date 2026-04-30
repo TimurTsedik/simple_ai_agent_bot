@@ -46,7 +46,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **Telegram**: личные чаты, allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
 - **Agent runtime**: strict JSON-выход, agentic loop, лимиты по шагам/времени/tool calls, repair-pass для JSON.
 - **OpenRouter**: primary/secondary/tertiary модели, retry и fallback с логированием.
-- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `web_search`, `read_memory_file`, `read_email`.
+- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `save_email_preference`, `web_search`, `read_memory_file`, `read_email`.
 - **Skills & memory**: Markdown skills, rule-based selection, память recent/summary/long-term.
 - **Observability**: runs в `data/runs/<runId>.json` + `index.jsonl`, JSONL-логи, web UI (`/`, `/runs`, `/logs`, `/tools`, `/skills`, `/git/*`).
 - **Scheduler (variant B)**: встроенные запуски внутренних run-ов по расписанию.
@@ -92,6 +92,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 Что там настраивается:
 - **`digest_telegram_news`**: `telegramNewsDigest.digestChannelUsernames`, `telegramNewsDigest.portfolioTickers`, `telegramNewsDigest.digestSemanticKeywords`; в вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
 - **`save_digest_preference`**: пишет строку предпочтений в долгосрочную память (`digest_pref_json` в `long_term.md`); вызывать после уточнения у пользователя
+- **`save_email_preference`**: пишет строку email-предпочтений (`email_pref_json` в `long_term.md`) с полями `preferredSenders` (email/домены) и `preferredKeywords`; используется skill-ом `email_preference_feedback`
 - **`read_email`**: `emailReader.*` (host/port/ssl/email и т.д.), пароль — только в env: `EMAIL_APP_PASSWORD`
 
 Путь к `tools.yaml` задаётся в `app/config/config.yaml`:
@@ -102,6 +103,28 @@ tools:
 ```
 
 Изменения в `tools.yaml` применяются **без перезапуска**.
+
+## Email-дайджест и категории
+
+Email-дайджест строится агентом по skill-инструкциям `compose_digest` + `read_and_analyze_email` и всегда содержит ровно 3 категории (даже если какая-то пустая):
+
+1. `Требуют ответа/действия или предпочтительные отправители` — письма, требующие действий (вопросы/просьбы/верификации/доставки/банковские/корпоративные действия), а также письма от **предпочтительных отправителей** из long-term памяти.
+2. `Важные` — содержательные письма без явного действия (аналитика, профильные дайджесты, работа, личное); промо/реклама сюда не попадает.
+3. `Остальное/мусор` — промо/реклама/рассылки/маркетинг/низкоценностные авто-уведомления соцсетей.
+
+### Предпочтительные отправители (preferred senders)
+
+- хранятся в `data/memory/long_term.md` строкой вида `- email_pref_json: {...}` (`kind=email_user_preference`);
+- ключевые поля: `preferredSenders` (список email-адресов или доменов в нижнем регистре, например `research@aton.ru`, `alfabank.ru`), `preferredKeywords`, `userNote`;
+- в run-prompt подставляются как блок **`## Email preference hints`** (только в long-term-only режиме памяти, см. ниже);
+- сохраняются через tool `save_email_preference` (вызывается skill-ом `email_preference_feedback` после уточнения у пользователя).
+
+Пример пользовательского сценария:
+- "запомни, что письма от research@aton.ru важные и должны попадать в первую категорию" → `email_preference_feedback` → `save_email_preference`.
+
+### Изоляция памяти для email-дайджеста
+
+Когда выбраны skills `compose_digest + read_and_analyze_email` (например, scheduler-job `email_digest_hourly`), `RunAgentUseCase` подаёт в prompt **только** блок Long-Term Memory (без Session Summary и Recent Messages), чтобы каждый периодический запуск дайджеста заново читал почту, не отвечая "уже было выше".
 
 ## Scheduler (variant B): автоматические запуски по расписанию
 

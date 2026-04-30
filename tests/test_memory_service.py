@@ -104,6 +104,39 @@ def testMemoryServiceIncludesDigestPreferenceHintsInMemoryBlock() -> None:
     assert "gpt" in memoryBlock
 
 
+def testMemoryServiceIncludesEmailPreferenceHintsInMemoryBlock() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        store.writeLongTermMemory(
+            in_lines=[
+                "- email_pref_json: "
+                '{"kind":"email_user_preference",'
+                '"preferredSenders":["research@aton.ru","alfabank.ru"],'
+                '"preferredKeywords":["облигации"],'
+                '"savedAt":"2026-01-01T00:00:00+00:00",'
+                '"userNote":"corporate actions"}'
+            ]
+        )
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=4,
+            in_sessionSummaryMaxChars=2000,
+        )
+        memoryBlock = service.buildLongTermOnlyMemoryBlock()
+
+    assert "## Email preference hints" in memoryBlock
+    assert "research@aton.ru" in memoryBlock
+    assert "alfabank.ru" in memoryBlock
+    assert "облигации" in memoryBlock
+
+
 def testMemoryServiceBuildsLongTermOnlyMemoryBlockForDigestFlows() -> None:
     with TemporaryDirectory() as tempDir:
         memorySettings = MemorySettings(

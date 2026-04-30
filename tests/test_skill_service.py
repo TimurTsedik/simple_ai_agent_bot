@@ -101,6 +101,35 @@ def testSkillServiceSelectsDigestFeedbackSkill() -> None:
     assert "Skill: Feedback" in block
 
 
+def testSkillServiceSelectsEmailPreferenceFeedbackSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "email_preference_feedback.md").write_text(
+            "# Email Preference Feedback\nemail-pref",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "read_and_analyze_email.md").write_text(
+            "# Read and Analyze Email\nemail",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        selection = service.buildSkillsSelection(
+            in_userMessage="запомни, что письма от research@aton.ru важные"
+        )
+
+    assert "email_preference_feedback" in selection.selectedSkillIds
+    assert "telegram_digest_feedback" not in selection.selectedSkillIds
+
+
 def testSkillServiceFeedbackIntentDoesNotPullTelegramNewsDigestSkill() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)

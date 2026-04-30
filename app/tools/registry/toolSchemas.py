@@ -27,6 +27,13 @@ class SaveDigestPreferenceArgsModel(BaseModel):
     userNote: str = Field(default="", max_length=800)
 
 
+class SaveEmailPreferenceArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preferredSenders: list[str] = Field(default_factory=list, max_length=50)
+    preferredKeywords: list[str] = Field(default_factory=list, max_length=30)
+    userNote: str = Field(default="", max_length=800)
+
+
 class ReadMemoryFileArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     relativePath: str = Field(min_length=1)

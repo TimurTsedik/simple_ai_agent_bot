@@ -145,13 +145,18 @@ class RunAgentUseCase:
     ) -> str:
         ret: str
         selectedSet = set(in_selectedSkillIds)
-        if "telegram_digest_feedback" in selectedSet:
+        if (
+            "telegram_digest_feedback" in selectedSet
+            or "email_preference_feedback" in selectedSet
+        ):
             ret = ""
             return ret
         if (
             "compose_digest" in selectedSet
             and "read_and_analyze_email" in selectedSet
         ):
+            ret = "read_email"
+        elif "read_and_analyze_email" in selectedSet:
             ret = "read_email"
         elif "telegram_news_digest" in selectedSet:
             ret = "digest_telegram_news"

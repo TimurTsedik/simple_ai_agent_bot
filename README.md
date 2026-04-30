@@ -2,55 +2,37 @@
 
 ![simple_AI_agent_bot logo](logo.png)
 
-Монолитный MVP AI-агент с управляемым agentic loop, Telegram-ботом, fallback по OpenRouter и веб-админкой для наблюдаемости.
+Монолитный AI‑агент, которого действительно хочется “потрогать руками”: Telegram‑бот с голосом→текст, управляемым agentic loop, набором tools, Markdown skills/памятью и web‑админкой для наблюдаемости.  
+Если ты любишь системы, где можно **видеть каждый шаг**, **воспроизводить run**, **контролировать tool‑вызовы** и **не ловить магию “оно само что-то сделало”** — тебе сюда.
 
 ![Admin dashboard](image.png)
 
-## Быстрый старт (локально)
+### Почему интересно попробовать
+- **Живой агент в Telegram**: пиши текстом или голосом — дальше всё идёт по одному пайплайну.
+- **Управляемость**: строгий runtime‑контракт (`tool_call`/`final`/`stop`), лимиты, repair‑pass, анти‑циклы.
+- **Наблюдаемость “из коробки”**: каждый run сохраняется на диск вместе с prompt snapshot, raw/parsed ответами модели, tool calls/results и observations.
+- **Skills как продуктовая логика**: поведение/форматы живут в Markdown‑skills (можно читать и править), а не “в коде где-то глубоко”.
+- **Scheduler + reminders**: планировщик внутренних run‑ов + напоминания, которые хранятся в `schedules.yaml` и автоматически чистятся после отработки.
 
-1) Создать venv и поставить зависимости:
+### Что умеет (главные фичи)
+- **Telegram‑бот**: allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
+- **Voice‑to‑text**: `message.voice` и `message.audio` → `faster-whisper` → транскрипт → обычный агентский пайплайн.
+- **Agent runtime**: шаги, лимиты времени/инструментов, repair‑pass на формат, anti‑loop guards.
+- **OpenRouter**: primary/secondary/tertiary модель + retry/fallback с логированием выбранной модели.
+- **Tools**: `digest_telegram_news`, `read_email`, `web_search`, `read_memory_file`, `schedule_reminder`, `list_reminders`, `delete_reminder`, и др.
+- **Skills & memory**: Markdown skills, rule‑based выбор релевантных skills, память recent/summary/long‑term.
+- **Web‑админка**: runs/logs/tools/skills/git, internal JSON API `/internal/*` под той же auth‑схемой.
+- **Scheduler (variant B)**: periodic internal runs + reminders, state в `data/scheduler/jobs_state.json`.
 
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-2) Подготовить конфиг и `.env`:
-
-```bash
-cp app/config/config.example.yaml app/config/config.yaml
-cp .env.example .env
-```
-
-3) Заполнить `.env`:
-
-```env
-TELEGRAM_BOT_TOKEN=...
-OPENROUTER_API_KEY=...
-SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
-ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
-EMAIL_APP_PASSWORD=your_gmail_app_password
-```
-
-4) Запустить приложение:
-
+### Быстрый “вкус” локально (2 команды после конфига)
+После базовой настройки (см. ниже) можно:\n
+1) Запустить сервер:\n
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Переменные из окружения терминала имеют приоритет над значениями из `.env`.
-
-## Что это умеет (коротко)
-
-- **Telegram**: личные чаты, allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
-- **Voice-to-text**: голосовые/аудио в Telegram → транскрипт → дальше обычный пайплайн агента как для текста.
-- **Agent runtime**: strict JSON-выход, agentic loop, лимиты по шагам/времени/tool calls, repair-pass для JSON.
-- **OpenRouter**: primary/secondary/tertiary модели, retry и fallback с логированием.
-- **Инструменты (tools)**: `digest_telegram_news`, `save_digest_preference`, `save_email_preference`, `web_search`, `read_memory_file`, `read_email`, `schedule_reminder`, `list_reminders`, `delete_reminder`.
-- **Skills & memory**: Markdown skills, rule-based selection, память recent/summary/long-term.
-- **Observability**: runs в `data/runs/<runId>.json` + `index.jsonl`, JSONL-логи, web UI (`/`, `/runs`, `/logs`, `/tools`, `/skills`, `/git/*`).
-- **Scheduler (variant B)**: встроенные запуски внутренних run-ов по расписанию.
+```\n
+2) Открыть web‑админку и смотреть runs/logs:\n
+- `GET /login` → вставить admin token\n
+- `GET /runs` → открыть run и увидеть шаги
 
 ## Веб-админка
 
@@ -379,66 +361,6 @@ crontab -e
 
 ---
 
-## Примечание (история)
+## История развития
 
-- каркас layered-архитектуры;
-- typed-конфиг с fail-fast загрузкой;
-- базовый FastAPI app и health endpoint;
-- базовый Telegram polling skeleton с allowlist-проверкой;
-- базовые доменные модели и протоколы;
-- strict JSON output parser (`tool_call` / `final` / `stop`);
-- базовый agent loop с лимитами шагов/времени/tool calls и controlled stop;
-- skeleton prompt builder с ограничением размера;
-- tools subsystem: registry, schemas, metadata renderer, execution coordinator;
-- standardized tool result envelope и стандартные error-codes;
-- read-only tools:
-  - `digest_telegram_news`
-  - `web_search`
-  - `read_memory_file`
-  - `read_email`;
-- OpenRouter client integration;
-- retries + fallback policy по primary/secondary/tertiary;
-- raw provider response logging и fallback events в JSONL;
-- markdown skills store и rule-based skill selection;
-- markdown memory store:
-  - recent messages
-  - session summary
-  - long-term memory;
-- memory policy для отбора `memory_candidates`;
-- обновление summary/long-term после завершения run;
-- внутренний endpoint для отладки запуска loop: `POST /internal/run`;
-- web просмотр логов:
-  - `GET /logs`
-  - `GET /internal/logs`;
-- Telegram polling подключен в lifecycle FastAPI (`startup/shutdown`);
-- Telegram команды:
-  - `/start`
-  - `/health`
-  - `/reset`;
-- run persistence model:
-  - `data/runs/<runId>.json`
-  - `data/runs/index.jsonl`;
-- в run trace сохраняются:
-  - prompt snapshot
-  - raw/parsed model responses
-  - tool calls/results
-  - observations
-  - effective config snapshot (masked);
-- run read API:
-  - `GET /internal/runs`
-  - `GET /internal/runs/{runId}`
-  - `GET /internal/runs/{runId}/steps`;
-- web страницы runs:
-  - `GET /runs`
-  - `GET /runs/{runId}`
-  - `GET /runs/{runId}/steps`;
-- web auth для admin surface:
-  - `GET /login`
-  - `POST /login` (вход по admin token из env)
-  - `POST /logout`
-  - `/logs`, `/runs`, `/runs/{runId}`, `/runs/{runId}/steps` защищены cookie-сессией;
-- git admin pages:
-  - `GET /git/status`
-  - `GET /git/diff`
-  - внутренние API: `GET /internal/git/status`, `GET /internal/git/diff`;
-- unit-тесты на конфиг, Telegram authorization behavior, parser, loop, tool executor, llm fallback, skills и memory.
+История развития, этапы и важные решения ведутся отдельно: [`how_project_was_developed.md`](how_project_was_developed.md).

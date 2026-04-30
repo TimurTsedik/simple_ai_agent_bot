@@ -119,6 +119,35 @@
 | 2026-04-27 | Hardening email→дайджест: `read_email` теперь извлекает текст через `get_content()` (лучше для кодировок), очищает snippet от URL/CSS-шаблонов и добавляет `langHint`. Skill `compose_digest` закреплён с двухшаговой стратегией UNSEEN→ALL (если писем < N). В observation расширен `email_preview` (uid/date/langHint). Добавлены/обновлены тесты на очистку snippets. |
 | 2026-04-27 | Добавлен встроенный scheduler (variant B): конфиг `scheduler.*` в `config.yaml` + файл расписаний `app/config/schedules.yaml` (пример `schedules.example.yaml`, сам `schedules.yaml` игнорируется git). Реализован `SchedulerRunner` (фоновый thread в FastAPI lifespan), который запускает internal-run через `RunAgentUseCase.execute(sessionId, message)` и пишет состояние в `data/scheduler/jobs_state.json`. Добавлены unit-тесты `tests/test_scheduler_runner.py`. |
 | 2026-04-29 | Обновлён favicon-пайплайн в web-админке: `/favicon.ico` теперь отдаёт реальный `favicon.ico` с `image/x-icon` (вместо PNG), добавлены anti-cache заголовки (`no-store/no-cache`), а в HTML ссылка переключена на версионируемый URL `/favicon.ico?v=1` для надёжного cache-bust в браузерах. |
+| 2026-04-30 | Добавлены reminders в unified scheduler: tools `schedule_reminder/list_reminders/delete_reminder`, skill `schedule_reminder` (schema-first JSON), runtime guard на `VALIDATION_ERROR`, авто-удаление отработавших reminders из `schedules.yaml`, observability в web. |
+| 2026-04-30 | Добавлена поддержка Telegram voice/audio → text через `faster-whisper` (CPU). Добавлены события `voice_transcription_started/succeeded/failed`, лимиты по длительности/размеру, docker dependency `ffmpeg`, кэш моделей направлен в `/app/data/models`. |
+
+---
+
+## 8. Сводка “что уже сделано” (перенесено из README)
+
+Ранее в `README.md` поддерживался список выполненных шагов/компонентов. Чтобы README оставался чистой эксплуатационной документацией, эта сводка живёт здесь.
+
+- layered-архитектура монолита;
+- typed-конфиг с fail-fast загрузкой;
+- базовый FastAPI app + `/health`;
+- Telegram polling skeleton с allowlist и typing-индикатором;
+- strict YAML/JSON контракт runtime (`tool_call` / `final` / `stop`), repair-pass;
+- agent loop с лимитами шагов/времени/tool calls и anti-loop guards;
+- prompt builder с усечением prompt и time-context (UTC + business timezone);
+- tools subsystem: registry, schemas, metadata renderer, execution coordinator;
+- стандартизированный tool-result envelope + error codes;
+- read-only tools: `digest_telegram_news`, `web_search`, `read_memory_file`, `read_email`;
+- OpenRouter интеграция: retries + fallback policy primary/secondary/tertiary;
+- Markdown skills store + rule-based skill selection;
+- Markdown memory store: recent, session summary, long-term memory;
+- обновление summary/long-term после завершения run;
+- внутренний endpoint для отладки: `POST /internal/run`;
+- web UI (runs/logs/tools/skills/git) + web auth;
+- run persistence model: `data/runs/<runId>.json` + `data/runs/index.jsonl`, trace prompt/raw/parsed/tool/observations/config snapshot;
+- run read API: `GET /internal/runs`, `GET /internal/runs/{runId}`, `GET /internal/runs/{runId}/steps`;
+- git admin pages: `/git/status`, `/git/diff` (+ internal API);
+- unit/integration тесты на config, loop, tools, fallback, skills, memory, web auth.
 
 ---
 

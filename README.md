@@ -35,7 +35,7 @@
 - **Voice‑to‑text**: `message.voice` и `message.audio` → `faster-whisper` → транскрипт → обычный агентский пайплайн.
 - **Agent runtime**: шаги, лимиты времени/инструментов, repair‑pass на формат, anti‑loop guards.
 - **OpenRouter**: primary/secondary/tertiary модель + retry/fallback с логированием выбранной модели.
-- **Tools**: `digest_telegram_news`, `read_email`, `web_search`, `read_memory_file`, `schedule_reminder`, `list_reminders`, `delete_reminder`, и др.
+- **Tools**: `digest_telegram_news`, `user_topic_telegram_digest`, `read_email`, `web_search`, `read_memory_file`, `schedule_reminder`, `list_reminders`, `delete_reminder`, и др.
 - **Skills & memory**: Markdown skills, rule‑based выбор релевантных skills, память recent/summary/long‑term.
 - **Web‑админка**: runs/logs/tools/skills/git, internal JSON API `/internal/*` под той же auth‑схемой.
 - **Scheduler (variant B)**: periodic internal runs + reminders, state в `data/scheduler/jobs_state.json`.
@@ -163,6 +163,7 @@ Troubleshooting:
 
 Что там настраивается:
 - **`digest_telegram_news`**: `telegramNewsDigest.digestChannelUsernames`, `telegramNewsDigest.portfolioTickers`, `telegramNewsDigest.digestSemanticKeywords`; в вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
+- **`user_topic_telegram_digest`**: пользовательские тематические дайджесты; хранит каналы и ключевые слова в долгосрочной памяти (`digest_topic_config_json` в `long_term.md`), state непрочитанных — `data/state/telegram_digest_read_state.json` (рядом с `dataRootPath`); args `topic`, `channels`, `keywords`, `fetchUnread`, `deleteTopic`; сценарий и формат — skill `user_topic_telegram_digest`
 - **`save_digest_preference`**: пишет строку предпочтений в долгосрочную память (`digest_pref_json` в `long_term.md`); вызывать после уточнения у пользователя
 - **`save_email_preference`**: пишет строку email-предпочтений (`email_pref_json` в `long_term.md`) с полями `preferredSenders` (email/домены) и `preferredKeywords`; используется skill-ом `email_preference_feedback`
 - **`read_email`**: `emailReader.*` (host/port/ssl/email и т.д.), пароль — только в env: `EMAIL_APP_PASSWORD`

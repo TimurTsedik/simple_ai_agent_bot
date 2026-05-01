@@ -158,6 +158,8 @@ class RunAgentUseCase:
             ret = "read_email"
         elif "read_and_analyze_email" in selectedSet:
             ret = "read_email"
+        elif "user_topic_telegram_digest" in selectedSet:
+            ret = "user_topic_telegram_digest"
         elif "telegram_news_digest" in selectedSet:
             ret = "digest_telegram_news"
         else:

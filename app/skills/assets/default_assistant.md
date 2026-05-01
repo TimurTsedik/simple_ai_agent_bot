@@ -9,6 +9,7 @@ instructions:
 - не придумывай факты.
 allowed_tools:
 - digest_telegram_news
+- user_topic_telegram_digest
 - save_digest_preference
 - read_memory_file
 - read_email

@@ -869,7 +869,7 @@ class AgentLoop:
             if payload.get("ok") is not True:
                 continue
             toolName = str(payload.get("tool_name", ""))
-            if toolName == "digest_telegram_news":
+            if toolName in {"digest_telegram_news", "user_topic_telegram_digest"}:
                 dataPreview = payload.get("data_preview", {})
                 if isinstance(dataPreview, dict):
                     itemsPreview = dataPreview.get("items_preview", [])

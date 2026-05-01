@@ -6,6 +6,31 @@ from app.skills.services.skillService import SkillService
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 
 
+def testSkillServiceSelectsUserTopicDigestSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "user_topic_telegram_digest.md").write_text(
+            "# User topic digest\nutd",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+
+        selection = service.buildSkillsSelection(
+            in_userMessage="создай дайджест новостей по теме ИИ",
+        )
+
+    assert "user_topic_telegram_digest" in selection.selectedSkillIds
+    assert "compose_digest" not in selection.selectedSkillIds
+
+
 def testSkillServiceSelectsDefaultAndNewsSkills() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)

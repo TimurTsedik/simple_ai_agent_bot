@@ -316,7 +316,7 @@ def testDigestToolDiagnosticsShowsKeywordFiltering() -> None:
             "channels": ["@larchanka"],
             "topics": ["ai"],
             "keywords": [],
-            "sinceHours": 24,
+            "sinceUnixTs": 1,
             "maxItems": 10,
         }
     )

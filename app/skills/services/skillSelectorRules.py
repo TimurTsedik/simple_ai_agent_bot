@@ -139,12 +139,31 @@ class SkillSelectorRules:
             "telegram_digest_feedback" in selectedIds
             or "email_preference_feedback" in selectedIds
         )
+        hasUserTopicDigestIntent = (
+            "по теме" in loweredMessage
+            and any(
+                marker in loweredMessage
+                for marker in [
+                    "дайджест",
+                    "digest",
+                    "новост",
+                    "телеграм",
+                    "telegram",
+                    "сводк",
+                    "обзор",
+                ]
+            )
+        )
+        if hasFeedbackIntent is False and hasUserTopicDigestIntent is True:
+            if "user_topic_telegram_digest" not in selectedIds:
+                selectedIds.insert(1, "user_topic_telegram_digest")
         if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
             selectedIds.append("web_research")
         if any(item in loweredMessage for item in ["почт", "email", "письм", "imap", "inbox"]):
             selectedIds.append("read_and_analyze_email")
         if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
-            selectedIds.append("compose_digest")
+            if "user_topic_telegram_digest" not in selectedIds:
+                selectedIds.append("compose_digest")
         if self._hasReminderIntent(in_loweredMessage=loweredMessage):
             selectedIds.append("schedule_reminder")
         if self._isShortConfirmationMessage(in_loweredMessage=loweredMessage):
@@ -152,6 +171,7 @@ class SkillSelectorRules:
                 selectedIds.append("schedule_reminder")
         if (
             hasFeedbackIntent is False
+            and "user_topic_telegram_digest" not in selectedIds
             and any(
                 item in loweredMessage
                 for item in [

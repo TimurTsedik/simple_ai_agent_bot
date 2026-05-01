@@ -204,6 +204,26 @@ class ToolExecutionCoordinator:
             ret = payload
             return ret
 
+        if in_toolName == "user_topic_telegram_digest":
+            payload["status"] = in_data.get("status")
+            payload["topicKey"] = in_data.get("topicKey")
+            payload["hint"] = in_data.get("hint")
+            payload["message"] = in_data.get("message")
+            items = in_data.get("items", [])
+            if isinstance(items, list):
+                payload["itemsPreviewCount"] = len(items)
+                sampleLinksUserTopic: list[str] = []
+                for oneItem in items[:3]:
+                    if isinstance(oneItem, dict) and isinstance(oneItem.get("link"), str):
+                        sampleLinksUserTopic.append(oneItem["link"])
+                payload["sampleLinks"] = sampleLinksUserTopic
+            channelErrors = in_data.get("channelErrors", {})
+            payload["channelErrorsCount"] = (
+                len(channelErrors) if isinstance(channelErrors, dict) else None
+            )
+            ret = payload
+            return ret
+
         if in_toolName == "digest_telegram_news":
             items = in_data.get("items", [])
             sampleLinks: list[str] = []

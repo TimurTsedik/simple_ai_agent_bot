@@ -19,6 +19,33 @@ class DigestTelegramNewsArgsModel(BaseModel):
     maxItems: int = Field(default=10, ge=1, le=50)
 
 
+class UserTopicTelegramDigestArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    topic: str = Field(
+        min_length=1,
+        max_length=200,
+        description='Тема дайджеста (например "ИИ", "экономика РФ"). Нормализуется в topicKey.',
+    )
+    channels: list[str] = Field(
+        default_factory=list,
+        max_length=40,
+        description="Публичные username каналов (опционально; merge с сохранённой конфигурацией).",
+    )
+    keywords: list[str] = Field(
+        default_factory=list,
+        max_length=48,
+        description="Ключевые слова/фразы фильтрации (опционально; merge с сохранённой конфигурацией).",
+    )
+    fetchUnread: bool = Field(
+        default=False,
+        description="Если true — загрузить непрочитанные посты по сохранённой теме (после настройки).",
+    )
+    deleteTopic: bool = Field(
+        default=False,
+        description="Если true — удалить сохранённую конфигурацию темы из долгосрочной памяти.",
+    )
+
+
 class SaveDigestPreferenceArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     likedTopics: list[str] = Field(default_factory=list, max_length=12)

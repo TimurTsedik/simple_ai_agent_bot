@@ -256,6 +256,25 @@ class DigestTelegramNewsTool:
         ret = collectedItems
         return ret
 
+    def fetchRawPostsForChannels(
+        self,
+        in_channels: list[str],
+        io_channelErrors: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Loads and deduplicates parsed posts for public channels (no keyword/time filtering)."""
+        ret: list[dict[str, Any]]
+        errorBucket: dict[str, str]
+        if io_channelErrors is None:
+            errorBucket = {}
+        else:
+            errorBucket = io_channelErrors
+        collectedPosts = self._loadChannelPosts(
+            in_channels=in_channels,
+            io_channelErrors=errorBucket,
+        )
+        ret = self._dedupePosts(in_posts=collectedPosts)
+        return ret
+
     def _fetchHtmlWithRetries(self, in_url: str) -> tuple[str, str | None]:
         ret: tuple[str, str | None]
         lastErrorText: str | None = None

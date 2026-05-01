@@ -45,6 +45,9 @@ class MemoryService:
         digestHintsBlock = self._buildDigestPreferenceHintsBlock(
             in_longTermLines=in_longTermLines
         )
+        digestTopicHintsBlock = self._buildDigestTopicConfigHintsBlock(
+            in_longTermLines=in_longTermLines
+        )
         emailHintsBlock = self._buildEmailPreferenceHintsBlock(
             in_longTermLines=in_longTermLines
         )
@@ -55,6 +58,13 @@ class MemoryService:
                 "Use only when the user did not explicitly override topics/channels/keywords. "
                 "Prefer matching these hints in digest_telegram_news args.\n"
                 + digestHintsBlock
+            )
+        if digestTopicHintsBlock.strip() != "":
+            ret += (
+                "\n\n## Digest topic configs (reference)\n"
+                "Saved topic digests (channels/keywords). "
+                "Use user_topic_telegram_digest tool with matching topic text.\n"
+                + digestTopicHintsBlock
             )
         if emailHintsBlock.strip() != "":
             ret += (
@@ -95,6 +105,46 @@ class MemoryService:
                 f"keywords=[{keywordsText}]; note={noteValue}"
             )
         keptLines = renderedLines[-12:]
+        ret = "\n".join(keptLines)
+        return ret
+
+    def _buildDigestTopicConfigHintsBlock(self, in_longTermLines: list[str]) -> str:
+        ret: str
+        renderedLines: list[str] = []
+        prefixText = "- digest_topic_config_json:"
+        for lineText in in_longTermLines:
+            strippedLine = lineText.strip()
+            if strippedLine.startswith(prefixText) is False:
+                continue
+            jsonPart = strippedLine[len(prefixText) :].strip()
+            try:
+                payload = json.loads(jsonPart)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) is False:
+                continue
+            if str(payload.get("kind", "")) != "digest_topic_config":
+                continue
+            topicKeyValue = str(payload.get("topicKey", "") or "")
+            topicLabelValue = str(payload.get("topicLabel", "") or "")
+            channelsValue = payload.get("channels", [])
+            keywordsValue = payload.get("keywords", [])
+            updatedAtValue = str(payload.get("updatedAt", "") or "")
+            channelsText = (
+                ", ".join(str(c) for c in channelsValue)
+                if isinstance(channelsValue, list)
+                else ""
+            )
+            keywordsText = (
+                ", ".join(str(k) for k in keywordsValue)
+                if isinstance(keywordsValue, list)
+                else ""
+            )
+            renderedLines.append(
+                f"- topicKey={topicKeyValue}; label={topicLabelValue}; "
+                f"channels=[{channelsText}]; keywords=[{keywordsText}]; updatedAt={updatedAtValue}"
+            )
+        keptLines = renderedLines[-24:]
         ret = "\n".join(keptLines)
         return ret
 

@@ -281,6 +281,41 @@ def testRunAgentUseCaseRequiresReadEmailForEmailDigestSkills() -> None:
     assert fakeMemoryService.calledBuildMemoryBlock is False
 
 
+def testRunAgentUseCaseRequiresUserTopicDigestToolForUserTopicSkill() -> None:
+    loopResult = AgentLoopResultModel(
+        completionReason="final_answer",
+        finalAnswer="ok",
+        stepCount=1,
+        toolCallCount=0,
+        selectedModel="m1",
+        memoryCandidates=[],
+        executionDurationMs=10,
+        stepTraces=[],
+        promptSnapshot="prompt",
+        fallbackEvents=(),
+    )
+    repository = FakeRunRepository()
+    fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
+    fakeSkillService = FakeSkillService()
+    fakeSkillService.setSelectedSkillIds(
+        ["default_assistant", "user_topic_telegram_digest"]
+    )
+    useCase = RunAgentUseCase(
+        in_agentLoop=fakeAgentLoop,
+        in_skillService=fakeSkillService,  # type: ignore[arg-type]
+        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_settings=_buildSettings(),
+    )
+
+    _ = useCase.execute(
+        in_sessionId="telegram:topic",
+        in_inputMessage="создай дайджест новостей по теме ИИ",
+    )
+
+    assert fakeAgentLoop.lastRequiredFirstToolName == "user_topic_telegram_digest"
+
+
 def testRunAgentUseCaseRequiresDigestToolForTelegramNewsSkill() -> None:
     loopResult = AgentLoopResultModel(
         completionReason="final_answer",

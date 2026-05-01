@@ -74,6 +74,34 @@ def testMemoryServiceSkipsServiceAnswersInRecentAndSummary() -> None:
     assert "Сделай дайджест" in memoryBlock
 
 
+def testMemoryServiceIncludesDigestTopicConfigHintsInMemoryBlock() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        store.writeLongTermMemory(
+            in_lines=[
+                '- digest_topic_config_json: {"channels":["chan_one"],"kind":"digest_topic_config",'
+                '"keywords":["macro"],"topicKey":"рынок","topicLabel":"Рынок","updatedAt":"2026-01-02"}'
+            ]
+        )
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=4,
+            in_sessionSummaryMaxChars=2000,
+        )
+        memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
+
+    assert "## Digest topic configs (reference)" in memoryBlock
+    assert "chan_one" in memoryBlock
+    assert "macro" in memoryBlock
+
+
 def testMemoryServiceIncludesDigestPreferenceHintsInMemoryBlock() -> None:
     with TemporaryDirectory() as tempDir:
         memorySettings = MemorySettings(

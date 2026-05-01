@@ -4,6 +4,7 @@ from app.reminders.reminderConfigStore import ReminderConfigStore
 from app.tools.implementations.deleteReminderTool import DeleteReminderTool
 from app.tools.digestTopicSeeds import collectSeedKeywordsForTopics
 from app.tools.implementations.digestTelegramNewsTool import DigestTelegramNewsTool
+from app.tools.implementations.userTopicDigestTool import UserTopicDigestTool
 from app.tools.implementations.listRemindersTool import ListRemindersTool
 from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
@@ -21,6 +22,7 @@ from app.tools.registry.toolSchemas import (
     ScheduleReminderArgsModel,
     SaveDigestPreferenceArgsModel,
     SaveEmailPreferenceArgsModel,
+    UserTopicTelegramDigestArgsModel,
     WebSearchArgsModel,
 )
 
@@ -49,6 +51,16 @@ def buildToolRegistry(
         getDigestChannelUsernames=_getDigestChannels,
         getDefaultKeywords=_getDefaultNewsKeywords,
         getTopicSeedsForTopics=collectSeedKeywordsForTopics,
+    )
+    userTopicFetchEngine = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: [],
+        getDefaultKeywords=lambda: [],
+        getTopicSeedsForTopics=collectSeedKeywordsForTopics,
+    )
+    userTopicDigestTool = UserTopicDigestTool(
+        in_memoryStore=in_memoryStore,
+        in_dataRootPath=in_settings.app.dataRootPath,
+        in_fetchEngine=userTopicFetchEngine,
     )
     saveDigestPreferenceTool = SaveDigestPreferenceTool(in_memoryStore=in_memoryStore)
     saveEmailPreferenceTool = SaveEmailPreferenceTool(in_memoryStore=in_memoryStore)
@@ -86,6 +98,18 @@ def buildToolRegistry(
             argsModel=DigestTelegramNewsArgsModel,
             timeoutSeconds=20,
             executeCallable=digestTool.execute,
+        ),
+        ToolDefinitionModel(
+            name="user_topic_telegram_digest",
+            description=(
+                "Пользовательские дайджесты Telegram по именованной теме: хранит каналы и ключевые слова "
+                "в долгосрочной памяти, ведёт state непрочитанных постов, до 20 постов на канал. "
+                "fetchUnread=false — проверка/пошаговая настройка (merge channels/keywords); "
+                "fetchUnread=true — загрузка новых постов; deleteTopic=true — удалить настройки темы."
+            ),
+            argsModel=UserTopicTelegramDigestArgsModel,
+            timeoutSeconds=45,
+            executeCallable=userTopicDigestTool.execute,
         ),
         ToolDefinitionModel(
             name="save_digest_preference",

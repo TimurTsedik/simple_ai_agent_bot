@@ -9,6 +9,7 @@ instructions:
 - если пользователь просит тематику (ИИ, экономика, крипто и т.д.), добавь соответствующие id в args `topics` (например `ai`, `economy`, `crypto`, `markets`, `tech`, `custom`); `custom` не добавляет seed-слова;
 - явные слова/фразы для фильтрации передавай в `keywords`; порядок приоритета ключей: пользовательские keywords, затем seeds по topics, затем дефолты из конфигурации;
 - если в Memory block есть раздел "Digest preference hints", мягко учитывай его в `topics`/`channels`/`keywords`, но явные требования пользователя в текущем сообщении важнее;
+- если в observation для `digest_telegram_news` есть `data_preview.digest_followup_hint` с `suggest_configure_named_topic_digest: true`, не завершай ответом «новостей нет»; вызови `user_topic_telegram_digest` с `fetchUnread=false` и `topic` из запроса пользователя (область темы), затем действуй по `status`/`hint` этого тула и задавай пользователю уточнения про каналы/ключевые слова;
 - если `digest_telegram_news` вернул `count=0`, но в `data_preview.filteredOutByTime > 0`, сделай еще один вызов с более широким окном (`sinceHours`: сначала 72, затем 168), после чего переходи к final;
 - при успехе возвращай короткий итог в final;
 - форматируй итог максимально читабельно:
@@ -27,6 +28,7 @@ instructions:
 - если данных нет, сообщай об этом явно.
 allowed_tools:
 - digest_telegram_news
+- user_topic_telegram_digest
 limitations:
 - не запрашивать нерелевантные источники;
 - не выводить слишком длинный ответ.

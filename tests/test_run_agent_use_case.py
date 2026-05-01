@@ -1,3 +1,5 @@
+from typing import Literal
+
 from app.application.useCases.runAgentUseCase import RunAgentUseCase
 from app.config.settingsModels import (
     AppSettings,
@@ -10,32 +12,18 @@ from app.config.settingsModels import (
     SkillsSettings,
     TelegramSettings,
 )
+from app.domain.entities.routingResolution import RoutingResolutionEntity
 from app.runtime.agentLoop import AgentLoopResultModel
-from app.skills.services.skillService import SkillSelectionResultModel
 
 
-class FakeSkillService:
-    def __init__(self) -> None:
-        self._selectionResult = SkillSelectionResultModel(
-            selectedSkillIds=["default_assistant"],
-            skillsBlock="skill block",
-        )
+class FakeRoutingPlanResolver:
+    def __init__(self, in_entity: RoutingResolutionEntity) -> None:
+        self._entity = in_entity
 
-    def buildSkillsSelection(self, in_userMessage: str) -> SkillSelectionResultModel:
+    def resolve(self, in_userMessage: str) -> RoutingResolutionEntity:
         _ = in_userMessage
-        ret = self._selectionResult
+        ret = self._entity
         return ret
-
-    def isToolLikelyRequired(self, in_userMessage: str) -> bool:
-        _ = in_userMessage
-        ret = True
-        return ret
-
-    def setSelectedSkillIds(self, in_skillIds: list[str]) -> None:
-        self._selectionResult = SkillSelectionResultModel(
-            selectedSkillIds=in_skillIds,
-            skillsBlock="skill block",
-        )
 
 
 class FakeMemoryService:
@@ -96,6 +84,38 @@ class FakeAgentLoop:
         self.lastRequiredFirstToolName = in_requiredFirstSuccessfulToolName
         ret = self._result
         return ret
+
+
+def _baseRoutingEntity(
+    *,
+    skillsBlock: str,
+    selectedSkillIds: list[str],
+    allowToolCalls: bool,
+    requiredFirstSuccessfulToolName: str,
+    memoryMode: Literal["full", "long_term_only"],
+) -> RoutingResolutionEntity:
+    ret = RoutingResolutionEntity(
+        skillsBlock=skillsBlock,
+        selectedSkillIds=list(selectedSkillIds),
+        allowToolCalls=allowToolCalls,
+        requiredFirstSuccessfulToolName=requiredFirstSuccessfulToolName,
+        memoryMode=memoryMode,
+        routingSource="llm",
+        routingPlanDump={
+            "type": "route_plan",
+            "selected_skill_ids": selectedSkillIds,
+            "allow_tool_calls": allowToolCalls,
+            "required_first_successful_tool_name": requiredFirstSuccessfulToolName,
+            "memory_mode": memoryMode,
+        },
+        routingPromptSnapshot="routing snapshot",
+        routingRawModelResponse=None,
+        routingParseErrorCode=None,
+        routingParseErrorMessage=None,
+        routingFallbackReason=None,
+        routingDiagnostics=(),
+    )
+    return ret
 
 
 def _buildSettings() -> SettingsModel:
@@ -179,10 +199,17 @@ def testRunAgentUseCaseDropsToolConfigWhenNoToolCalls() -> None:
         fallbackEvents=(),
     )
     repository = FakeRunRepository()
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="",
+        memoryMode="full",
+    )
     useCase = RunAgentUseCase(
         in_agentLoop=FakeAgentLoop(in_result=loopResult),  # type: ignore[arg-type]
-        in_skillService=FakeSkillService(),  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -193,6 +220,8 @@ def testRunAgentUseCaseDropsToolConfigWhenNoToolCalls() -> None:
     configSnapshot = repository.savedRunRecord["effectiveConfigSnapshot"]
     assert "telegram" not in configSnapshot
     assert repository.savedRunRecord["fallbackEvents"] == []
+    assert repository.savedRunRecord["routingSource"] == "llm"
+    assert isinstance(repository.savedRunRecord["routingPlan"], dict)
 
 
 def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
@@ -219,10 +248,17 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
         ),
     )
     repository = FakeRunRepository()
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="",
+        memoryMode="full",
+    )
     useCase = RunAgentUseCase(
         in_agentLoop=FakeAgentLoop(in_result=loopResult),  # type: ignore[arg-type]
-        in_skillService=FakeSkillService(),  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -257,15 +293,18 @@ def testRunAgentUseCaseRequiresReadEmailForEmailDigestSkills() -> None:
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "compose_digest", "read_and_analyze_email"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant", "compose_digest", "read_and_analyze_email"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="read_email",
+        memoryMode="long_term_only",
     )
     fakeMemoryService = FakeMemoryService()
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=fakeMemoryService,  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=fakeMemoryService,
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -296,14 +335,17 @@ def testRunAgentUseCaseRequiresUserTopicDigestToolForUserTopicSkill() -> None:
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "user_topic_telegram_digest"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant", "user_topic_telegram_digest"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="user_topic_telegram_digest",
+        memoryMode="full",
     )
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -331,14 +373,17 @@ def testRunAgentUseCaseRequiresDigestToolForTelegramNewsSkill() -> None:
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "telegram_news_digest"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant", "telegram_news_digest"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="digest_telegram_news",
+        memoryMode="full",
     )
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -366,14 +411,17 @@ def testRunAgentUseCaseRequiresReadEmailForEmailOnlySkill() -> None:
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "read_and_analyze_email"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=["default_assistant", "read_and_analyze_email"],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="read_email",
+        memoryMode="full",
     )
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -401,14 +449,21 @@ def testRunAgentUseCaseDoesNotRequireToolForEmailPreferenceFeedbackSkill() -> No
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "email_preference_feedback", "read_and_analyze_email"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=[
+            "default_assistant",
+            "email_preference_feedback",
+            "read_and_analyze_email",
+        ],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="",
+        memoryMode="full",
     )
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )
@@ -436,14 +491,21 @@ def testRunAgentUseCaseDoesNotRequireDigestToolForFeedbackSkill() -> None:
     )
     repository = FakeRunRepository()
     fakeAgentLoop = FakeAgentLoop(in_result=loopResult)  # type: ignore[arg-type]
-    fakeSkillService = FakeSkillService()
-    fakeSkillService.setSelectedSkillIds(
-        ["default_assistant", "telegram_digest_feedback", "telegram_news_digest"]
+    routingEntity = _baseRoutingEntity(
+        skillsBlock="skill block",
+        selectedSkillIds=[
+            "default_assistant",
+            "telegram_digest_feedback",
+            "telegram_news_digest",
+        ],
+        allowToolCalls=True,
+        requiredFirstSuccessfulToolName="",
+        memoryMode="full",
     )
     useCase = RunAgentUseCase(
         in_agentLoop=fakeAgentLoop,
-        in_skillService=fakeSkillService,  # type: ignore[arg-type]
-        in_memoryService=FakeMemoryService(),  # type: ignore[arg-type]
+        in_routingPlanResolver=FakeRoutingPlanResolver(in_entity=routingEntity),
+        in_memoryService=FakeMemoryService(),
         in_runRepository=repository,  # type: ignore[arg-type]
         in_settings=_buildSettings(),
     )

@@ -106,6 +106,16 @@ class DigestArgsForTestModel(BaseModel):
     keywords: list[str] = []
 
 
+class UserTopicDigestArgsForTestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic: str
+    channels: list[str] = []
+    keywords: list[str] = []
+    fetchUnread: bool = False
+    deleteTopic: bool = False
+
+
 class ReminderArgsForTestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1109,6 +1119,195 @@ def testDigestObservationContainsUpToTenItems() -> None:
     dataPreview = obsPayload.get("data_preview", {})
     previewItems = dataPreview.get("items_preview", [])
     assert len(previewItems) == 6
+
+
+def testDigestObservationAddsFollowupHintWhenNoChannelsFetched() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=4)
+    runtimeSettings.maxToolOutputChars = 20000
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"digest_telegram_news","args":{"maxItems":10}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    def _emptyDigestTool(_in_args: dict) -> dict:
+        ret = {
+            "items": [],
+            "count": 0,
+            "sinceUnixTsUsed": 1777507200,
+            "resolvedChannels": [],
+            "resolvedTopics": ["economy"],
+            "channelErrors": {},
+            "diagnostics": {
+                "requestedChannelsCount": 0,
+                "resolvedChannelsCount": 0,
+                "filteredOutByTime": 0,
+                "filteredOutByKeywords": 0,
+                "totalParsedPosts": 0,
+                "returnedItemsCount": 0,
+            },
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="digest_telegram_news",
+                description="digest",
+                argsModel=DigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_emptyDigestTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    obsText = str(result.stepTraces[0].get("observation", ""))
+    obsPayload = json.loads(obsText)
+    dataPreview = obsPayload.get("data_preview", {})
+    followupPayload = dataPreview.get("digest_followup_hint", {})
+    assert followupPayload.get("suggest_configure_named_topic_digest") is True
+    assert isinstance(followupPayload.get("hint"), str)
+
+
+def testUserTopicDigestObservationContainsStatusHintAndTopic() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=4)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"user_topic_telegram_digest","args":{"topic":"техника","fetchUnread":false}}',
+            '{"type":"final","reason":"done","final_answer":"ok"}',
+        ]
+    )
+
+    def _userTopicTool(_in_args: dict) -> dict:
+        ret = {
+            "ok": True,
+            "status": "needs_channels",
+            "topicKey": "техника",
+            "topicLabel": "техника",
+            "savedConfig": None,
+            "hint": "Нужен список публичных Telegram-каналов (@name или t.me/name).",
+        }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="user_topic_telegram_digest",
+                description="topic digest",
+                argsModel=UserTopicDigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_userTopicTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    obsText = str(result.stepTraces[0].get("observation", ""))
+    obsPayload = json.loads(obsText)
+    userTopicPreview = obsPayload.get("user_topic_preview", {})
+
+    assert userTopicPreview.get("status") == "needs_channels"
+    assert userTopicPreview.get("topicKey") == "техника"
+    assert "каналов" in str(userTopicPreview.get("hint", ""))
+
+
+def testUserTopicDigestAllowsFetchUnreadAfterConfigureInSameRun() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=6)
+    runtimeSettings.maxToolCalls = 4
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"user_topic_telegram_digest","args":{"topic":"экономика","fetchUnread":false}}',
+            '{"type":"tool_call","reason":"x","action":"user_topic_telegram_digest","args":{"topic":"экономика","fetchUnread":true}}',
+            '{"type":"final","reason":"done","final_answer":"готово"}',
+        ]
+    )
+
+    def _userTopicTwoPhaseTool(in_args: dict) -> dict:
+        fetchUnreadFlag = bool(in_args.get("fetchUnread", False))
+        ret: dict
+        if fetchUnreadFlag is False:
+            ret = {
+                "ok": True,
+                "status": "ready",
+                "topicKey": "экономика",
+                "topicLabel": "экономика",
+                "hint": "fetch unread next",
+            }
+        else:
+            ret = {
+                "ok": True,
+                "status": "fetched",
+                "topicKey": "экономика",
+                "count": 0,
+                "items": [],
+                "hint": "",
+            }
+        return ret
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="user_topic_telegram_digest",
+                description="topic digest",
+                argsModel=UserTopicDigestArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_userTopicTwoPhaseTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    blockedStatuses = [
+        traceItem.get("status")
+        for traceItem in result.stepTraces
+        if traceItem.get("status") == "tool_call_blocked"
+    ]
+    assert blockedStatuses == []
+    secondObservationText = str(result.stepTraces[1].get("observation", ""))
+    secondObservationPayload = json.loads(secondObservationText)
+    assert secondObservationPayload.get("kind") == "tool_observation"
+    assert secondObservationPayload.get("tool_name") == "user_topic_telegram_digest"
 
 
 def testAgentLoopBuildsDigestFallbackFromSuccessfulObservation() -> None:

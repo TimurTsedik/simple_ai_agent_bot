@@ -165,3 +165,60 @@ def testAuthorizedUserContextCommandShowsContextAndWindow() -> None:
     assert "max context window" in result.outgoingText
     assert "5000" in result.outgoingText
     assert runAgentUseCase.calls == []
+
+
+def testAuthorizedUserHelpCommandReturnsTemplatesWithoutAgentRun() -> None:
+    logger = FakeLogger()
+    runAgentUseCase = FakeRunAgentUseCase()
+    memoryService = FakeMemoryService()
+    useCase = HandleIncomingTelegramMessageUseCase(
+        in_allowedUserIds=[100],
+        in_denyMessageText="Доступ запрещён",
+        in_logger=logger,
+        in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
+        in_memoryService=memoryService,  # type: ignore[arg-type]
+        in_runtimeSettings=_makeRuntimeSettings(),
+    )
+    dto = IncomingTelegramMessageDto(
+        updateId=1,
+        telegramUserId=100,
+        chatId=777,
+        text="/help",
+    )
+
+    result = useCase.execute(in_messageDto=dto)
+
+    assert result.isAuthorized is True
+    assert "Шаблоны запросов" in result.outgoingText
+    assert "Telegram дайджест (общий)" in result.outgoingText
+    assert "Telegram дайджест по теме" in result.outgoingText
+    assert "Email сценарии" in result.outgoingText
+    assert "Веб-поиск" in result.outgoingText
+    assert "Напоминания" in result.outgoingText
+    assert runAgentUseCase.calls == []
+
+
+def testAuthorizedUserStartCommandMentionsHelpCommand() -> None:
+    logger = FakeLogger()
+    runAgentUseCase = FakeRunAgentUseCase()
+    memoryService = FakeMemoryService()
+    useCase = HandleIncomingTelegramMessageUseCase(
+        in_allowedUserIds=[100],
+        in_denyMessageText="Доступ запрещён",
+        in_logger=logger,
+        in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
+        in_memoryService=memoryService,  # type: ignore[arg-type]
+        in_runtimeSettings=_makeRuntimeSettings(),
+    )
+    dto = IncomingTelegramMessageDto(
+        updateId=1,
+        telegramUserId=100,
+        chatId=777,
+        text="/start",
+    )
+
+    result = useCase.execute(in_messageDto=dto)
+
+    assert result.isAuthorized is True
+    assert "/help" in result.outgoingText
+    assert runAgentUseCase.calls == []

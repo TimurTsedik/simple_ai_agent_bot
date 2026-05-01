@@ -8,8 +8,16 @@ from app.tools.implementations.readEmailTool import ReadEmailTool
 
 
 class FakeImapClient:
-    def __init__(self, in_messagesByUid: dict[bytes, bytes]) -> None:
+    def __init__(
+        self,
+        in_messagesByUid: dict[bytes, bytes],
+        in_initialSeenUids: set[bytes] | None = None,
+        *,
+        in_searchUnseenReturnsAll: bool = False,
+    ) -> None:
         self._messagesByUid = dict(in_messagesByUid)
+        self.seenUids = set(in_initialSeenUids) if in_initialSeenUids is not None else set()
+        self.searchUnseenReturnsAll = in_searchUnseenReturnsAll
         self.loggedOut = False
         self.selectedReadonly: bool | None = None
         self.storedSeenUids: list[str] = []
@@ -24,14 +32,39 @@ class FakeImapClient:
     def uid(self, command: str, *args):
         cmd = command.upper()
         if cmd == "SEARCH":
-            uids = b" ".join(sorted(self._messagesByUid.keys()))
+            criteriaRaw = args[-1]
+            criteriaText = (
+                criteriaRaw.decode("ascii", errors="replace").upper()
+                if isinstance(criteriaRaw, bytes)
+                else str(criteriaRaw).upper()
+            )
+            if "UNSEEN" in criteriaText:
+                if self.searchUnseenReturnsAll is True:
+                    uidKeys = sorted(self._messagesByUid.keys())
+                else:
+                    uidKeys = [k for k in sorted(self._messagesByUid.keys()) if k not in self.seenUids]
+            else:
+                uidKeys = sorted(self._messagesByUid.keys())
+            uids = b" ".join(uidKeys)
             return "OK", [uids]
         if cmd == "FETCH":
             uid = args[0]
+            specRaw = args[1]
+            specText = (
+                specRaw.decode("ascii", errors="replace")
+                if isinstance(specRaw, bytes)
+                else str(specRaw)
+            )
+            if "FLAGS" in specText and "BODY" not in specText.upper():
+                seenFlag = uid in self.seenUids
+                innerFlags = "\\Seen" if seenFlag else ""
+                prefixText = f'{uid.decode("ascii", errors="replace")} (FLAGS ({innerFlags}))'
+                return "OK", [(prefixText.encode("ascii", errors="replace"), b"")]
             msg = self._messagesByUid.get(uid, b"")
             return "OK", [(b"RFC822", msg)]
         if cmd == "STORE":
             uid = args[0]
+            self.seenUids.add(uid)
             self.storedSeenUids.append(uid.decode("ascii", errors="replace"))
             return "OK", [b"stored"]
         raise RuntimeError(f"unsupported command: {command}")
@@ -180,4 +213,27 @@ def testReadEmailToolCanKeepUnreadWithoutSeenFlag() -> None:
     assert result["markedAsReadCount"] == 0
     assert fake.selectedReadonly is True
     assert fake.storedSeenUids == []
+
+
+def testReadEmailToolFiltersOutSeenFlagWhenUnreadOnly() -> None:
+    settings = EmailReaderToolSettings(email="me@example.com")
+    now = datetime.now(timezone.utc)
+    unreadMsg = _makeRfc822Bytes("U <u@example.com>", "Unread ok", "Body u", now)
+    readMsg = _makeRfc822Bytes("R <r@example.com>", "Already read", "Body r", now)
+    fake = FakeImapClient(
+        {b"10": unreadMsg, b"11": readMsg},
+        in_initialSeenUids={b"11"},
+        in_searchUnseenReturnsAll=True,
+    )
+    tool = ReadEmailTool(
+        in_emailSettings=settings,
+        in_password="app_password",
+        in_imapClientFactory=lambda _s: fake,
+    )
+    result = tool.execute(
+        {"unreadOnly": True, "markAsRead": True, "sinceHours": 24, "maxItems": 10}
+    )
+    assert result["count"] == 1
+    assert result["items"][0]["subject"] == "Unread ok"
+    assert result["filteredOutAlreadySeen"] == 1
 

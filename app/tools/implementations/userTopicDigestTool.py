@@ -23,6 +23,83 @@ def normalizeUserDigestTopicKey(in_topicLabel: str) -> str:
     return ret
 
 
+def partitionTelegramHandlesFromKeywordBatch(
+    in_channelsArgRaw: list[str],
+    in_keywordsArgRaw: list[str],
+) -> tuple[list[str], list[str], tuple[str, ...]]:
+    """Move keyword-batch tokens into channels only when they look like explicit handles.
+
+    Bare Latin tokens (tickers like POSI) are NOT auto-promoted to channels; use @username
+    or t.me/name so they are not confused with filter keywords.
+    """
+
+    normalizedFromArgsCount = 0
+    for rawChannelEntry in list(in_channelsArgRaw or []):
+        if normalizeTelegramChannelUsername(in_raw=str(rawChannelEntry)) is None:
+            continue
+        normalizedFromArgsCount += 1
+
+    normalizedChannelsLiftedNames: tuple[str, ...]
+    retChannelsAdjusted: list[str]
+    retKeywordsAdjusted: list[str]
+
+    if normalizedFromArgsCount > 0:
+        retChannelsAdjusted = list(in_channelsArgRaw)
+        retKeywordsAdjusted = list(in_keywordsArgRaw)
+        normalizedChannelsLiftedNames = tuple()
+        return (retChannelsAdjusted, retKeywordsAdjusted, normalizedChannelsLiftedNames)
+
+    liftedHandlesRawList: list[str] = []
+    keywordsRemainderList: list[str] = []
+
+    for keywordEntry in list(in_keywordsArgRaw or []):
+        strippedPhrase = str(keywordEntry or "").strip()
+        if strippedPhrase == "":
+            continue
+        loweredStripPhrase = strippedPhrase.lower()
+        urlMatchValue = re.search(
+            r"(?:https?://)?t\.me/([a-z0-9_]{4,})\b",
+            loweredStripPhrase,
+        )
+        if urlMatchValue is not None:
+            handleTokenCandidate = urlMatchValue.group(1)
+            if normalizeTelegramChannelUsername(in_raw=handleTokenCandidate) is not None:
+                liftedHandlesRawList.append(handleTokenCandidate)
+            else:
+                keywordsRemainderList.append(str(keywordEntry))
+            continue
+        if strippedPhrase.startswith("@"):
+            normalizedHandleGuess = normalizeTelegramChannelUsername(in_raw=strippedPhrase)
+            if normalizedHandleGuess is not None:
+                liftedHandlesRawList.append(strippedPhrase)
+            else:
+                keywordsRemainderList.append(str(keywordEntry))
+            continue
+        keywordsRemainderList.append(str(keywordEntry))
+
+    if len(liftedHandlesRawList) == 0:
+        retChannelsAdjusted = list(in_channelsArgRaw)
+        retKeywordsAdjusted = list(in_keywordsArgRaw)
+        normalizedChannelsLiftedNames = tuple()
+        return (retChannelsAdjusted, retKeywordsAdjusted, normalizedChannelsLiftedNames)
+
+    promotionKeysOrdered: list[str] = []
+    promotionsSeenBlocked: set[str] = set()
+    for liftedItem in liftedHandlesRawList:
+        normalizedLiftedGuess = normalizeTelegramChannelUsername(in_raw=liftedItem)
+        if normalizedLiftedGuess is None:
+            continue
+        if normalizedLiftedGuess in promotionsSeenBlocked:
+            continue
+        promotionsSeenBlocked.add(normalizedLiftedGuess)
+        promotionKeysOrdered.append(normalizedLiftedGuess)
+
+    normalizedChannelsLiftedNames = tuple(promotionKeysOrdered)
+    retChannelsAdjusted = list(liftedHandlesRawList)
+    retKeywordsAdjusted = keywordsRemainderList
+    return (retChannelsAdjusted, retKeywordsAdjusted, normalizedChannelsLiftedNames)
+
+
 @dataclass
 class UserTopicDigestTool:
     in_memoryStore: MarkdownMemoryStore
@@ -37,6 +114,23 @@ class UserTopicDigestTool:
         fetchUnreadFlag = bool(in_args.get("fetchUnread", False))
         channelsArgRaw = [c for c in in_args.get("channels", []) if isinstance(c, str)]
         keywordsArgRaw = [k for k in in_args.get("keywords", []) if isinstance(k, str)]
+
+        if deleteTopicFlag is False and topicKey == "":
+            ret = {
+                "ok": True,
+                "status": "needs_topic",
+                "topicKey": "",
+                "topicLabel": topicLabel,
+                "hint": (
+                    "Не задано короткое название темы дайджеста (поле topic пустое). "
+                    "Спроси у пользователя, как назвать тему одной короткой фразой "
+                    "(например «техника», «нейросети», «спорт»). Не переходи к каналам/ключевым словам, "
+                    "пока пользователь это не назовёт; не отвечай, что тема или дайджест «не описаны», "
+                    "без этого вопроса. Затем снова вызови этот инструмент с fetchUnread=false, тем же словом в topic, "
+                    "channels=[], keywords=[]."
+                ),
+            }
+            return ret
 
         if deleteTopicFlag is True:
             deletedFlag = self._deleteTopicConfigLines(in_topicKey=topicKey)
@@ -68,18 +162,27 @@ class UserTopicDigestTool:
         in_keywordsArgRaw: list[str],
     ) -> dict[str, Any]:
         ret: dict[str, Any]
+        effectiveChannelsLiftedTuple: tuple[str, ...]
+        channelsForMergeList: list[str]
+        keywordsForMergeList: list[str]
+        channelsForMergeList, keywordsForMergeList, effectiveChannelsLiftedTuple = (
+            partitionTelegramHandlesFromKeywordBatch(
+                in_channelsArgRaw=in_channelsArgRaw,
+                in_keywordsArgRaw=in_keywordsArgRaw,
+            )
+        )
         existingConfig = self._loadTopicConfig(in_topicKey=in_topicKey)
         mergedChannels = self._mergeChannelLists(
             in_existing=list(existingConfig.get("channels", []))
             if isinstance(existingConfig, dict)
             else [],
-            in_newRaw=in_channelsArgRaw,
+            in_newRaw=channelsForMergeList,
         )
         mergedKeywords = self._mergeKeywordLists(
             in_existing=list(existingConfig.get("keywords", []))
             if isinstance(existingConfig, dict)
             else [],
-            in_newRaw=in_keywordsArgRaw,
+            in_newRaw=keywordsForMergeList,
         )
         baseLabel = in_topicLabel
         if isinstance(existingConfig, dict):
@@ -136,6 +239,8 @@ class UserTopicDigestTool:
                     "savedConfig": refreshedConfig,
                     "hint": "Конфигурация темы готова. Вызови снова с fetchUnread=true для загрузки непрочитанных постов.",
                 }
+        if len(effectiveChannelsLiftedTuple) > 0:
+            ret["handlesPromotedFromKeywords"] = list(effectiveChannelsLiftedTuple)
         return ret
 
     def _executeFetchUnreadBranch(

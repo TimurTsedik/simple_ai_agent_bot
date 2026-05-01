@@ -6,6 +6,7 @@ from app.config.settingsModels import MemorySettings
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.tools.implementations.userTopicDigestTool import UserTopicDigestTool
 from app.tools.implementations.userTopicDigestTool import normalizeUserDigestTopicKey
+from app.tools.implementations.userTopicDigestTool import partitionTelegramHandlesFromKeywordBatch
 
 
 class FakeFetchEngine:
@@ -30,6 +31,64 @@ class FakeFetchEngine:
 def testNormalizeUserDigestTopicKeyCollapsesWhitespace() -> None:
     ret = normalizeUserDigestTopicKey(in_topicLabel="  ИИ   рынок  ")
     assert ret == "ии рынок"
+
+
+def testPartitionTelegramHandlesDoesNotLiftBareLatinTickers() -> None:
+    channelsOut, keywordsOut, lifted = partitionTelegramHandlesFromKeywordBatch(
+        in_channelsArgRaw=[],
+        in_keywordsArgRaw=["POSI", "BELU", "инфляция"],
+    )
+    assert channelsOut == []
+    assert keywordsOut == ["POSI", "BELU", "инфляция"]
+    assert lifted == ()
+
+
+def testPartitionTelegramHandlesLiftsAtPrefixedHandles() -> None:
+    channelsOut, keywordsOut, lifted = partitionTelegramHandlesFromKeywordBatch(
+        in_channelsArgRaw=[],
+        in_keywordsArgRaw=["@alpha_news", "инфляция"],
+    )
+    assert channelsOut == ["@alpha_news"]
+    assert keywordsOut == ["инфляция"]
+    assert lifted == ("alpha_news",)
+
+
+def testPartitionTelegramHandlesLiftsFromTmeUrlToken() -> None:
+    channelsOut, keywordsOut, lifted = partitionTelegramHandlesFromKeywordBatch(
+        in_channelsArgRaw=[],
+        in_keywordsArgRaw=["https://t.me/beta_feed", "ключ"],
+    )
+    assert channelsOut == ["beta_feed"]
+    assert keywordsOut == ["ключ"]
+    assert lifted == ("beta_feed",)
+
+
+def testUserTopicDigestToolNeedsTopicWhenTopicBlank() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        tool = UserTopicDigestTool(
+            in_memoryStore=store,
+            in_dataRootPath=str(Path(tempDir) / "data"),
+            in_fetchEngine=FakeFetchEngine(in_postsByChannel={}),
+        )
+        result = tool.execute(
+            in_args={
+                "topic": "",
+                "channels": [],
+                "keywords": [],
+                "fetchUnread": False,
+                "deleteTopic": False,
+            }
+        )
+    assert result["status"] == "needs_topic"
+    assert result["topicKey"] == ""
+    assert "hint" in result
 
 
 def testUserTopicDigestToolNeedsChannelsOnFirstCall() -> None:

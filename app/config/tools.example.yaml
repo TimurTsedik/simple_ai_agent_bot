@@ -1,34 +1,9 @@
+# Defaults for tool `digest_telegram_news` / skill `telegram_news_digest` when the user omits channels/keywords.
+# User-topic digests («по теме …») use long-term memory + `user_topic_telegram_digest`; they do NOT read these lists.
 telegramNewsDigest:
-  digestChannelUsernames:
-    - "markettwits"
-    - "headlines_for_traders"
-    - "cbrstocks"
-  portfolioTickers:
-    - "POSI"
-    - "X5"
-    - "T-технологии"
-    - "BELU"
-    - "YANDEX"
-    - "Русгидро"
-    - "ТГК-14"
-    - "ГТЛК"
-    - "Полипласт"
-    - "ГМК Норникель"
-    - "ВИС"
-    - "ОФЗ"
-  digestSemanticKeywords:
-    - "россия"
-    - "рф"
-    - "цб"
-    - "банк россии"
-    - "ключевая ставка РФ"
-    - "процентная ставка РФ"
-    - "инфляция РФ"
-    - "денежно-кредитная политика РФ"
-    - "монетарная политика РФ"
-    - "офз"
-    - "минфин РФ"
-    - "валютный рынок РФ"
+  digestChannelUsernames: []
+  portfolioTickers: []
+  digestSemanticKeywords: []
 
 emailReader:
   accountName: "gmail"

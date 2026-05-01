@@ -75,10 +75,17 @@ class PromptBuilder:
             "Never use keys tool, response, text, or content instead of required schema keys.\n"
             "For digest_telegram_news: pass channels/topics/keywords in args when the user names "
             "channels (@handle), themes (AI/economy/etc.), or filter words; empty channels means "
-            "use configured defaults. If observation has digest data_preview.count=0 and "
-            "data_preview.filteredOutByTime>0, perform one more digest call with broader sinceHours "
-            "(72 then 168). For user_topic_telegram_digest: use fetchUnread=false to configure/check "
-            "(merge channels/keywords); follow status needs_channels/needs_keywords with a user-facing "
+            "use configured defaults when the server has defaults. If observation JSON includes "
+            "data_preview.digest_followup_hint.suggest_configure_named_topic_digest=true, do NOT answer "
+            "final with only «nothing found»; immediately tool_call user_topic_telegram_digest with "
+            "fetchUnread=false and topic derived from the user message (e.g. economy/экономика), then "
+            "follow user_topic statuses (needs_channels/needs_keywords). If observation has digest "
+            "data_preview.count=0 and data_preview.filteredOutByTime>0, retry digest_telegram_news with "
+            "broader sinceHours (72 then 168). For user_topic_telegram_digest: use fetchUnread=false "
+            "to configure/check "
+            "(merge channels/keywords); put Telegram channels only as @username or t.me/name in channels "
+            "(bare Latin tickers like POSI belong in keywords, not channels); follow status "
+            "needs_channels/needs_keywords with a user-facing "
             "final question; only call fetchUnread=true after status=ready; deleteTopic=true removes saved "
             "topic settings from long-term memory. For user feedback on liked digest items, follow the "
             "active skill: ask a short clarifying question first, then call save_digest_preference "
@@ -101,6 +108,81 @@ class PromptBuilder:
             in_maxChars=self._runtimeSettings.maxPromptChars,
         )
         ret = truncatedText
+        return ret
+
+    def buildRoutingPrompt(
+        self,
+        in_userMessage: str,
+        in_registeredToolBulletList: str,
+        in_skillsCatalogBlock: str,
+    ) -> str:
+        ret: str
+        timeContextBlockText = self._buildTimeContextBlock()
+        routingContractText = (
+            "You are a routing classifier for this AI agent runtime.\n"
+            "Return ONLY one valid YAML document (single mapping). "
+            "No markdown fences and no prose before or after YAML.\n"
+            "Exactly this shape:\n"
+            "type: route_plan\n"
+            "selected_skill_ids:\n"
+            "  - skill_id_from_catalog\n"
+            "allow_tool_calls: true|false\n"
+            "required_first_successful_tool_name: \"\"|registered_tool_name\n"
+            "memory_mode: full|long_term_only\n"
+            "Rules:\n"
+            "- `selected_skill_ids` MUST be copied from Known skills catalog ids only "
+            "(multi-select, ordering preserved).\n"
+            "- Always include skill `default_assistant` unless strictly impossible "
+            "(if unsure, include it).\n"
+            "- `allow_tool_calls` is false only for greeting/small-talk/clarifying question "
+            "without tools, or purely conversational requests that need no integrations.\n"
+            "- When `allow_tool_calls` is false, set `required_first_successful_tool_name` to \"\".\n"
+            "- Feedback-only preference skills MUST NOT force a tool-call gate: "
+            "if ids include telegram_digest_feedback or email_preference_feedback, "
+            "`required_first_successful_tool_name` MUST be \"\".\n"
+            "- `required_first_successful_tool_name` must be \"\" or "
+            "one of Registered tool names. It is enforced before the assistant may answer:\n"
+            "  compose_digest AND read_and_analyze_email activated together → "
+            "`read_email`;\n"
+            "  read_and_analyze_email without compose_digest digest intent → "
+            "`read_email`;\n"
+            "  user_topic_telegram_digest → `user_topic_telegram_digest`;\n"
+            "  telegram_news_digest → `digest_telegram_news`;\n"
+            "  otherwise → \"\" unless user clearly needs another registered tool immediately.\n"
+            "- Thematic digest wording (economics/markets/Tech topic area / naming a SUBJECT AREA) "
+            "without listing @channels and WITHOUT an explicit time-window phrase "
+            "(e.g. «за последний час», «за день», «за час», «сегодня» in the NEWS digest sense) "
+            "→ prefer skill `user_topic_telegram_digest` and "
+            "`required_first_successful_tool_name: user_topic_telegram_digest`. "
+            "Topic-level digests need per-user channels/keywords; use `telegram_news_digest` when the "
+            "user wants preset/default channels snapshot or names a rolling time window "
+            "(or lists @handles for one-off fetch).\n"
+            "- Follow-up Telegram topic digest configuration (only channel handles / "
+            "only keyword lists) still needs tools: "
+            "`allow_tool_calls: true`, skill `user_topic_telegram_digest`, "
+            "required_first_successful_tool_name: `user_topic_telegram_digest`. "
+            "If the message is mainly comma-separated "
+            "`@channel` / `t.me/...` handles (digest setup follow-up), never set "
+            "`allow_tool_calls: false`.\n"
+            "- Email digest wording (письма/писем/inbox/email/почта/непрочитанн) → activate "
+            "read_and_analyze_email (+ compose_digest if user asks explicitly for compose digest), "
+            "required_first_successful_tool_name: `read_email` when почта должна быть прочитана.\n"
+            "- `memory_mode` is long_term_only when scheduled email compose digest pipelines "
+            "need fresh mailbox reads without session chatter; typical when BOTH "
+            "`compose_digest` and `read_and_analyze_email` are selected for digest composition. "
+            "Otherwise prefer full.\n"
+            "Known skills catalog:\n"
+            f"{in_skillsCatalogBlock}\n"
+            "Registered tool names:\n"
+            f"{in_registeredToolBulletList}\n"
+            f"{timeContextBlockText}"
+            f"User message:\n{in_userMessage}\n"
+        )
+        truncatedRoutingText, _routingTruncated = truncateText(
+            in_text=routingContractText,
+            in_maxChars=self._runtimeSettings.maxPromptChars,
+        )
+        ret = truncatedRoutingText
         return ret
 
     def buildYamlRepairPrompt(

@@ -93,3 +93,17 @@ def test_render_run_details_page_formats_timestamp_fields_in_json() -> None:
     )
     assert "15:00:00" in retHtml
     assert "15:30:00" in retHtml
+    assert "Обзор" in retHtml
+
+
+def test_render_run_details_page_raw_view_shows_json_not_overview_title() -> None:
+    zoneMoscow = ZoneInfo("Europe/Moscow")
+    retHtml = renderRunDetailsPage(
+        in_runId="run-y",
+        in_runItem={"runId": "run-y", "inputMessage": "ping"},
+        in_displayZone=zoneMoscow,
+        in_rawView=True,
+    )
+    assert "сырой JSON" in retHtml
+    assert "inputMessage" in retHtml
+    assert "ping" in retHtml

@@ -33,10 +33,10 @@
 ### Что умеет (главные фичи)
 - **Telegram‑бот**: allowlist по user id, команды `/start`, `/health`, `/reset`, `/context`.
 - **Voice‑to‑text**: `message.voice` и `message.audio` → `faster-whisper` → транскрипт → обычный агентский пайплайн.
-- **Agent runtime**: шаги, лимиты времени/инструментов, repair‑pass на формат, anti‑loop guards.
+- **Agent runtime**: шаги, лимиты времени/инструментов, repair‑pass на формат, anti‑loop guards; **до цикла** отдельный LLM‑шаг **LLM‑first routing** (`route_plan` в YAML): выбор активных skills, `allow_tool_calls`, `required_first_successful_tool_name`, `memory_mode`; при битом/пустом ответе включается **rule‑based fallback** (`routingSource=fallback` в run‑логе).
 - **OpenRouter**: primary/secondary/tertiary модель + retry/fallback с логированием выбранной модели.
 - **Tools**: `digest_telegram_news`, `user_topic_telegram_digest`, `read_email`, `web_search`, `read_memory_file`, `schedule_reminder`, `list_reminders`, `delete_reminder`, и др.
-- **Skills & memory**: Markdown skills, rule‑based выбор релевантных skills, память recent/summary/long‑term.
+- **Skills & memory**: Markdown skills; релевантные skills задаёт роутер (см. выше), память recent/summary/long‑term; в сохранённом run доступны поля `routingPlan`, `routingSource`, `routingPromptSnapshot`, `routingDiagnostics`.
 - **Web‑админка**: runs/logs/tools/skills/git, internal JSON API `/internal/*` под той же auth‑схемой.
 - **Scheduler (variant B)**: periodic internal runs + reminders, state в `data/scheduler/jobs_state.json`.
 
@@ -60,7 +60,7 @@
    Меняешь skill‑файл, повторяешь запрос, смотришь “что изменилось” в `/runs/<runId>/steps` (prompt snapshot + tool results).
 
 6) **Наблюдаемость и разбор ошибок без гадания**  
-   Если “что-то не сработало” — в `data/runs/<runId>.json` видно: какой prompt ушёл в LLM, что модель ответила, какие tool calls были, какие ошибки вернулись.
+   Если “что-то не сработало” — в `data/runs/<runId>.json` видно: какой prompt ушёл в LLM, что модель ответила, какие tool calls были, какие ошибки вернулись, плюс **маршрутизация**: `routingPlan`, `routingSource` (`llm` или `fallback`), снимок промпта роутера и `routingFallbackReason` при падении до fallback.
 
 7) **Scheduler для регулярных внутренних запусков**  
    Настраиваешь `schedules.yaml` — сервис сам запускает internal runs по расписанию (и пишет state в `data/scheduler/jobs_state.json`).
@@ -162,7 +162,7 @@ Troubleshooting:
 - локально копировать его в `app/config/tools.yaml` (он добавлен в `.gitignore`)
 
 Что там настраивается:
-- **`digest_telegram_news`**: `telegramNewsDigest.digestChannelUsernames`, `telegramNewsDigest.portfolioTickers`, `telegramNewsDigest.digestSemanticKeywords`; в вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
+- **`digest_telegram_news`**: необязательные дефолты `telegramNewsDigest.*` только для общего дайджеста (skill `telegram_news_digest`), когда в args не переданы каналы/фильтры; дайджесты **по теме** (`user_topic_telegram_digest`) эти списки не используют. В вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
 - **`user_topic_telegram_digest`**: пользовательские тематические дайджесты; хранит каналы и ключевые слова в долгосрочной памяти (`digest_topic_config_json` в `long_term.md`), state непрочитанных — `data/state/telegram_digest_read_state.json` (рядом с `dataRootPath`); args `topic`, `channels`, `keywords`, `fetchUnread`, `deleteTopic`; сценарий и формат — skill `user_topic_telegram_digest`
 - **`save_digest_preference`**: пишет строку предпочтений в долгосрочную память (`digest_pref_json` в `long_term.md`); вызывать после уточнения у пользователя
 - **`save_email_preference`**: пишет строку email-предпочтений (`email_pref_json` в `long_term.md`) с полями `preferredSenders` (email/домены) и `preferredKeywords`; используется skill-ом `email_preference_feedback`
@@ -197,7 +197,7 @@ Email-дайджест строится агентом по skill-инструк
 
 ### Изоляция памяти для email-дайджеста
 
-Когда выбраны skills `compose_digest + read_and_analyze_email` (например, scheduler-job `email_digest_hourly`), `RunAgentUseCase` подаёт в prompt **только** блок Long-Term Memory (без Session Summary и Recent Messages), чтобы каждый периодический запуск дайджеста заново читал почту, не отвечая "уже было выше".
+Если в **routing plan** задано `memory_mode: long_term_only` (обычно при сочетании `compose_digest + read_and_analyze_email`, например scheduler-job `email_digest_hourly`), `RunAgentUseCase` подаёт в prompt **только** блок Long-Term Memory (без Session Summary и Recent Messages), чтобы каждый периодический запуск дайджеста заново читал почту, не отвечая "уже было выше". При LLM‑fallback это же поведение включается, если rule‑based выбор skills совпал с этим сочетанием.
 
 ## Scheduler и reminders
 

@@ -37,8 +37,10 @@ from app.models.services.llmService import LlmService
 from app.observability.stores.jsonRunRepository import JsonRunRepository
 from app.reminders.reminderConfigStore import ReminderConfigStore
 from app.runtime.agentLoop import AgentLoop
+from app.runtime.llmRoutingPlanResolver import LlmRoutingPlanResolver
 from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
+from app.runtime.routePlanParser import RoutePlanParser
 from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
 from app.scheduler.schedulerRunner import SchedulerRunner
 from app.integrations.speech.fasterWhisperTranscriber import FasterWhisperTranscriber
@@ -132,9 +134,17 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_toolMetadataRenderer=toolMetadataRenderer,
         in_toolRegistry=toolRegistry,
     )
+    routingPlanResolver = LlmRoutingPlanResolver(
+        in_llmClient=llmClient,
+        in_promptBuilder=promptBuilder,
+        in_routePlanParser=RoutePlanParser(),
+        in_skillService=skillService,
+        in_toolRegistry=toolRegistry,
+        in_modelSettings=settings.models,
+    )
     runAgentUseCase = RunAgentUseCase(
         in_agentLoop=agentLoop,
-        in_skillService=skillService,
+        in_routingPlanResolver=routingPlanResolver,
         in_memoryService=memoryService,
         in_runRepository=runRepository,
         in_settings=settings,

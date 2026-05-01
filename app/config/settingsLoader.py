@@ -176,9 +176,16 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         if schedulesPath.exists() is False:
             raise SettingsLoadError(f"Scheduler is enabled but schedules file is missing: {schedulesPath}")
         loadedSchedulesData = _readYamlFile(in_path=schedulesPath)
+        normalizedSchedulesData: dict[str, Any]
+        if isinstance(loadedSchedulesData, dict):
+            normalizedSchedulesData = dict(loadedSchedulesData)
+        else:
+            normalizedSchedulesData = {}
+        if normalizedSchedulesData.get("reminders") is None:
+            normalizedSchedulesData["reminders"] = []
         try:
             parsedScheduler = SchedulerSettings.model_validate(
-                {"enabled": True, **loadedSchedulesData} if isinstance(loadedSchedulesData, dict) else {"enabled": True}
+                {"enabled": True, **normalizedSchedulesData}
             )
         except ValidationError as in_exc:
             raise SettingsLoadError(f"Invalid scheduler settings: {in_exc}") from in_exc

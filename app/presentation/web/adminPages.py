@@ -51,6 +51,7 @@ def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> st
         ".badge-warn{border-color:#7a5a1e;background:#2a1e0e;color:#ffd38a;}"
         ".badge-bad{border-color:#6a2b2b;background:#2a1010;color:#ffb4b4;}"
         "details{margin:8px 0;}"
+        ".scroll-pre{max-height:min(70vh,560px);overflow:auto;}"
         "input[type='password']{padding:8px 10px;border:1px solid #2c3a63;border-radius:10px;background:#0e1529;color:#e8ecf6;min-width:260px;}"
         "ul{margin:8px 0 0 18px;padding:0;}"
         "li{margin:6px 0;}"
@@ -335,22 +336,283 @@ def renderRunsPage(in_runItems: list[Any], in_displayZone: ZoneInfo) -> str:
     return ret
 
 
+_RUN_DETAILS_PRE_MAX = 24000
+
+
+def _truncateForAdminPre(in_text: str, in_maxChars: int) -> tuple[str, bool]:
+    ret: tuple[str, bool]
+    textValue = str(in_text or "")
+    if len(textValue) <= in_maxChars:
+        ret = (textValue, False)
+        return ret
+    ret = (textValue[:in_maxChars] + "\n\n… [truncated]", True)
+    return ret
+
+
+def _jsonPreEscaped(in_value: Any, in_maxChars: int) -> str:
+    ret: str
+    try:
+        rawText = json.dumps(in_value, ensure_ascii=False, indent=2)
+    except TypeError:
+        rawText = str(in_value)
+    bodyText, didTruncate = _truncateForAdminPre(in_text=rawText, in_maxChars=in_maxChars)
+    truncNote = "<p class='warning'>Показано усечённо.</p>" if didTruncate is True else ""
+    ret = f"{truncNote}<pre class='scroll-pre'>{html.escape(bodyText)}</pre>"
+    return ret
+
+
+def _renderStructuredRunDetailsContent(in_runId: str, in_runDict: dict[str, Any]) -> str:
+    ret: str
+    timingDict = in_runDict.get("timing")
+    if isinstance(timingDict, dict) is False:
+        timingDict = {}
+    execMs = timingDict.get("executionDurationMs", "")
+    stepCount = timingDict.get("stepCount", "")
+    toolCallCount = timingDict.get("toolCallCount", "")
+    traceId = str(in_runDict.get("traceId", "") or "")
+    sessionId = str(in_runDict.get("sessionId", "") or "")
+    sourceType = str(in_runDict.get("sourceType", "") or "")
+    runStatus = str(in_runDict.get("runStatus", "") or "")
+    completionReason = str(in_runDict.get("completionReason", "") or "")
+    selectedModel = str(in_runDict.get("selectedModel", "") or "")
+    createdAt = str(in_runDict.get("createdAt", "") or "")
+    finishedAt = str(in_runDict.get("finishedAt", "") or "")
+    inputMessage = str(in_runDict.get("inputMessage", "") or "")
+    finalAnswer = str(in_runDict.get("finalAnswer", "") or "")
+    selectedSkills = in_runDict.get("selectedSkills", [])
+    skillsText = ""
+    if isinstance(selectedSkills, list) and len(selectedSkills) > 0:
+        skillsListItems = []
+        for skillId in selectedSkills:
+            skillsListItems.append(f"<li>{html.escape(str(skillId))}</li>")
+        skillsText = "<ul>" + "".join(skillsListItems) + "</ul>"
+    else:
+        skillsText = "<p class='muted'>—</p>"
+    routingSource = str(in_runDict.get("routingSource", "") or "")
+    routingParseErrorCode = str(in_runDict.get("routingParseErrorCode", "") or "")
+    routingParseErrorMessage = str(in_runDict.get("routingParseErrorMessage", "") or "")
+    routingFallbackReason = str(in_runDict.get("routingFallbackReason", "") or "")
+    routingPlan = in_runDict.get("routingPlan")
+    routingDiagnostics = in_runDict.get("routingDiagnostics")
+    routingRawModelResponse = str(in_runDict.get("routingRawModelResponse", "") or "")
+    routingPromptSnapshot = str(in_runDict.get("routingPromptSnapshot", "") or "")
+    toolCallsList = in_runDict.get("toolCalls", [])
+    if isinstance(toolCallsList, list) is False:
+        toolCallsList = []
+    toolRows: list[str] = []
+    indexValue = 0
+    for callItem in toolCallsList:
+        indexValue += 1
+        if isinstance(callItem, dict) is False:
+            toolRows.append(
+                "<tr>"
+                f"<td>{html.escape(str(indexValue))}</td>"
+                "<td colspan='2'><span class='muted'>invalid toolCall shape</span></td>"
+                "</tr>"
+            )
+            continue
+        toolName = str(callItem.get("toolName", "") or "")
+        argsValue = callItem.get("args")
+        try:
+            argsJsonFull = json.dumps(argsValue, ensure_ascii=False)
+        except TypeError:
+            argsJsonFull = str(argsValue)
+        argsPretty = argsJsonFull[:500] + ("…" if len(argsJsonFull) > 500 else "")
+        toolRows.append(
+            "<tr>"
+            f"<td>{html.escape(str(indexValue))}</td>"
+            f"<td>{html.escape(toolName)}</td>"
+            f"<td><code>{html.escape(argsPretty)}</code></td>"
+            "</tr>"
+        )
+    toolTableBody = "".join(toolRows) if toolRows else "<tr><td colspan='3' class='muted'>Нет вызовов</td></tr>"
+    toolResultsList = in_runDict.get("toolResults", [])
+    if isinstance(toolResultsList, list) is False:
+        toolResultsList = []
+    resultRows: list[str] = []
+    indexResult = 0
+    for resultItem in toolResultsList:
+        indexResult += 1
+        if isinstance(resultItem, dict) is False:
+            resultRows.append(
+                "<tr>"
+                f"<td>{html.escape(str(indexResult))}</td>"
+                "<td colspan='3'><span class='muted'>invalid result</span></td>"
+                "</tr>"
+            )
+            continue
+        toolNameR = str(resultItem.get("tool_name", "") or "")
+        okFlag = bool(resultItem.get("ok", False))
+        okLabel = "ok" if okFlag is True else "fail"
+        badgeClass = "badge-ok" if okFlag is True else "badge-bad"
+        dataRaw = resultItem.get("data")
+        dataHint = ""
+        if dataRaw is None:
+            dataHint = "—"
+        else:
+            dataStr = str(dataRaw)
+            dataHint = f"{len(dataStr)} символов"
+        resultRows.append(
+            "<tr>"
+            f"<td>{html.escape(str(indexResult))}</td>"
+            f"<td>{html.escape(toolNameR)}</td>"
+            f"<td><span class='badge {badgeClass}'>{html.escape(okLabel)}</span></td>"
+            f"<td>{html.escape(dataHint)}</td>"
+            "</tr>"
+        )
+    resultsTableBody = (
+        "".join(resultRows) if resultRows else "<tr><td colspan='4' class='muted'>Нет результатов</td></tr>"
+    )
+    observationsList = in_runDict.get("observations", [])
+    obsCount = len(observationsList) if isinstance(observationsList, list) else 0
+    rawResponses = in_runDict.get("rawModelResponses", [])
+    rawRespCount = len(rawResponses) if isinstance(rawResponses, list) else 0
+    memoryCandidates = in_runDict.get("memoryCandidates", [])
+    memBlock = ""
+    if isinstance(memoryCandidates, list) and len(memoryCandidates) > 0:
+        memItems = "".join(f"<li>{html.escape(str(x))}</li>" for x in memoryCandidates)
+        memBlock = f"<ul>{memItems}</ul>"
+    else:
+        memBlock = "<p class='muted'>—</p>"
+    finalAnswerBody, finalTrunc = _truncateForAdminPre(
+        in_text=finalAnswer, in_maxChars=_RUN_DETAILS_PRE_MAX
+    )
+    finalNote = "<p class='warning'>Показано усечённо.</p>" if finalTrunc is True else ""
+    runEscaped = html.escape(in_runId)
+    ret = (
+        f"<h1 class='title'>Run {runEscaped}</h1>"
+        "<p class='row'>"
+        f"<a href='/runs/{runEscaped}/steps'>Шаги agent loop</a>"
+        "<span class='muted'> · </span>"
+        f"<a href='/runs/{runEscaped}?raw=1'>Сырой JSON</a>"
+        "</p>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Обзор</h3>"
+        f"<div class='kv'><div class='k'>traceId</div><div class='v'>{html.escape(traceId)}</div></div>"
+        f"<div class='kv'><div class='k'>sessionId</div><div class='v'>{html.escape(sessionId)}</div></div>"
+        f"<div class='kv'><div class='k'>sourceType</div><div class='v'>{html.escape(sourceType)}</div></div>"
+        f"<div class='kv'><div class='k'>runStatus</div><div class='v'>{html.escape(runStatus)}</div></div>"
+        f"<div class='kv'><div class='k'>completionReason</div><div class='v'>{html.escape(completionReason)}</div></div>"
+        f"<div class='kv'><div class='k'>selectedModel</div><div class='v'>{html.escape(selectedModel)}</div></div>"
+        f"<div class='kv'><div class='k'>createdAt</div><div class='v'>{html.escape(createdAt)}</div></div>"
+        f"<div class='kv'><div class='k'>finishedAt</div><div class='v'>{html.escape(finishedAt)}</div></div>"
+        f"<div class='kv'><div class='k'>executionDurationMs</div><div class='v'>{html.escape(str(execMs))}</div></div>"
+        f"<div class='kv'><div class='k'>stepCount</div><div class='v'>{html.escape(str(stepCount))}</div></div>"
+        f"<div class='kv'><div class='k'>toolCallCount (loop)</div><div class='v'>{html.escape(str(toolCallCount))}</div></div>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Ввод пользователя</h3>"
+        f"<pre class='scroll-pre'>{html.escape(inputMessage)}</pre>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Skills</h3>"
+        f"{skillsText}"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Маршрутизация</h3>"
+        f"<div class='kv'><div class='k'>routingSource</div><div class='v'>{html.escape(routingSource)}</div></div>"
+        f"<div class='kv'><div class='k'>routingParseErrorCode</div><div class='v'>{html.escape(routingParseErrorCode)}</div></div>"
+        f"<div class='kv'><div class='k'>routingParseErrorMessage</div><div class='v'>{html.escape(routingParseErrorMessage)}</div></div>"
+        f"<div class='kv'><div class='k'>routingFallbackReason</div><div class='v'>{html.escape(routingFallbackReason)}</div></div>"
+        "<details><summary>routingPlan</summary>"
+        f"{_jsonPreEscaped(in_value=routingPlan, in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "<details><summary>routingDiagnostics</summary>"
+        f"{_jsonPreEscaped(in_value=routingDiagnostics, in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "<details><summary>routingRawModelResponse</summary>"
+        f"<pre class='scroll-pre'>{html.escape(_truncateForAdminPre(in_text=routingRawModelResponse, in_maxChars=_RUN_DETAILS_PRE_MAX)[0])}</pre>"
+        "</details>"
+        "<details><summary>routingPromptSnapshot</summary>"
+        f"<pre class='scroll-pre'>{html.escape(_truncateForAdminPre(in_text=routingPromptSnapshot, in_maxChars=_RUN_DETAILS_PRE_MAX)[0])}</pre>"
+        "</details>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Финальный ответ</h3>"
+        f"{finalNote}"
+        f"<pre class='scroll-pre'>{html.escape(finalAnswerBody)}</pre>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Вызовы инструментов</h3>"
+        "<table>"
+        "<thead><tr><th>#</th><th>tool</th><th>args</th></tr></thead>"
+        f"<tbody>{toolTableBody}</tbody>"
+        "</table>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Результаты инструментов</h3>"
+        "<table>"
+        "<thead><tr><th>#</th><th>tool</th><th>ok</th><th>data</th></tr></thead>"
+        f"<tbody>{resultsTableBody}</tbody>"
+        "</table>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Наблюдения и ответы модели</h3>"
+        f"<div class='kv'><div class='k'>observations (шаги)</div><div class='v'>{html.escape(str(obsCount))} записей — полный текст в «Шаги agent loop»</div></div>"
+        f"<div class='kv'><div class='k'>rawModelResponses</div><div class='v'>{html.escape(str(rawRespCount))} шт.</div></div>"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Кандидаты в память</h3>"
+        f"{memBlock}"
+        "</div>"
+        "<div class='card' style='margin-top:12px;'>"
+        "<h3 style='margin:0 0 10px 0;'>Крупные артефакты</h3>"
+        "<details><summary>effectiveConfigSnapshot</summary>"
+        f"{_jsonPreEscaped(in_value=in_runDict.get('effectiveConfigSnapshot'), in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "<details><summary>promptSnapshot (полный промпт последнего шага / агрегат)</summary>"
+        f"<pre class='scroll-pre'>{html.escape(_truncateForAdminPre(in_text=str(in_runDict.get('promptSnapshot', '') or ''), in_maxChars=_RUN_DETAILS_PRE_MAX)[0])}</pre>"
+        "</details>"
+        "<details><summary>parsedResponses (JSON)</summary>"
+        f"{_jsonPreEscaped(in_value=in_runDict.get('parsedResponses'), in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "<details><summary>rawModelResponses (список)</summary>"
+        f"{_jsonPreEscaped(in_value=in_runDict.get('rawModelResponses'), in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "<details><summary>fallbackEvents</summary>"
+        f"{_jsonPreEscaped(in_value=in_runDict.get('fallbackEvents'), in_maxChars=_RUN_DETAILS_PRE_MAX)}"
+        "</details>"
+        "</div>"
+    )
+    return ret
+
+
 def renderRunDetailsPage(
     in_runId: str,
     in_runItem: dict[str, Any],
     in_displayZone: ZoneInfo,
+    in_rawView: bool = False,
 ) -> str:
     ret: str
     displayRunItem = formatTimestampFieldsDeepCopy(in_value=in_runItem, in_zone=in_displayZone)
     if isinstance(displayRunItem, dict) is False:
         displayRunItem = in_runItem
-    prettyJson = json.dumps(displayRunItem, ensure_ascii=False, indent=2)
-    content = (
-        f"<h1 class='title'>Run {html.escape(in_runId)}</h1>"
-        f"<p><a href='/runs/{html.escape(in_runId)}/steps'>Открыть шаги agentic loop</a></p>"
-        f"<pre>{html.escape(prettyJson)}</pre>"
+    runDict: dict[str, Any]
+    if isinstance(displayRunItem, dict) is True:
+        runDict = displayRunItem
+    elif isinstance(in_runItem, dict) is True:
+        runDict = in_runItem
+    else:
+        runDict = {}
+    if in_rawView is True:
+        prettyJson = json.dumps(runDict, ensure_ascii=False, indent=2)
+        runEscaped = html.escape(in_runId)
+        content = (
+            f"<h1 class='title'>Run {runEscaped} — сырой JSON</h1>"
+            "<p class='row'>"
+            f"<a href='/runs/{runEscaped}'>Структурированный вид</a>"
+            "<span class='muted'> · </span>"
+            f"<a href='/runs/{runEscaped}/steps'>Шаги agent loop</a>"
+            "</p>"
+            f"<pre class='scroll-pre'>{html.escape(prettyJson)}</pre>"
+        )
+        ret = _renderLayout(in_title="Run Details (raw)", in_content=content, in_showNav=True)
+        return ret
+    structuredContent = _renderStructuredRunDetailsContent(
+        in_runId=in_runId,
+        in_runDict=runDict,
     )
-    ret = _renderLayout(in_title="Run Details", in_content=content, in_showNav=True)
+    ret = _renderLayout(in_title="Run Details", in_content=structuredContent, in_showNav=True)
     return ret
 
 
@@ -433,7 +695,7 @@ def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str
         )
     content = (
         f"<h1 class='title'>Run {html.escape(in_runId)} — Agentic Loop Steps</h1>"
-        f"<p><a href='/runs/{html.escape(in_runId)}'>Назад к полному run</a></p>"
+        f"<p><a href='/runs/{html.escape(in_runId)}'>Назад к обзору run</a></p>"
         + ("".join(blocks) if blocks else "<p>Для этого запуска шаги не найдены.</p>")
     )
     ret = _renderLayout(in_title="Run Steps", in_content=content, in_showNav=True)

@@ -7,6 +7,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi import Form
 from fastapi import HTTPException
+from fastapi import Query
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
@@ -455,7 +456,9 @@ def registerAdminWebRoutes(
         return ret
 
     @in_app.get("/runs/{runId}", response_class=HTMLResponse)
-    def getRunDetailsPage(runId: str, in_request: Request):
+    def getRunDetailsPage(
+        runId: str, in_request: Request, raw: int = Query(default=0)
+    ):
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         runItem = getRunDetailsUseCase.execute(in_runId=runId)
@@ -466,6 +469,7 @@ def registerAdminWebRoutes(
             in_runId=runId,
             in_runItem=runItem,
             in_displayZone=displayZone,
+            in_rawView=(raw != 0),
         )
         return ret
 

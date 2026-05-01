@@ -1,7 +1,194 @@
+"""
+Fallback skill selection when LLM routing fails (invalid/empty route_plan).
+
+Primary routing is implemented in `LlmRoutingPlanResolver`. This module only
+preserves coarse, structured heuristics so a failed router still gets sensible
+skills and tool gates — not lexical perfection across word forms.
+"""
+
+import re
+
 from app.skills.services.skillModels import SkillModel
 
 
+# --- Shared substrings (fallback only; kept short on purpose) ---
+
+_fallbackEmailMarkers = (
+    "e-mail",
+    "e‑mail",
+    "email",
+    "imap",
+    "inbox",
+    "письм",
+    "писем",
+    "письмо",
+    "почт",
+    "отправител",
+    "домен",
+)
+
+_fallbackDigestNewsMarkers = (
+    "дайджест",
+    "digest",
+    "новост",
+    "обзор",
+    "сводк",
+)
+
+_fallbackTelegramMarkers = ("telegram", "телеграм", "канал", "пост")
+
+_fallbackReminderMarkers = (
+    "напомни",
+    "напомнить",
+    "не забудь",
+    "не забудьте",
+    "reminder",
+)
+
+_fallbackWebMarkers = (
+    "поиск",
+    "найди",
+    "найти",
+    "в интернете",
+    "в сети",
+    "источник",
+    "источники",
+    "ссылк",
+    "проверь по",
+    "что пишут",
+    "google",
+    "duckduckgo",
+)
+
+_fallbackFeedbackMarkers = (
+    "понравил",
+    "запомни",
+    "сохрани",
+    "сохранить",
+    "сохрани в память",
+    "нравятся такие",
+    "хочу больше так",
+    "мне нравится",
+    "понравилась новость",
+)
+
+_digestComposerPhrases = ("составь дайджест", "сделай дайджест", "дайджест")
+
+# "дайджест новостей за час" → general telegram digest, not per-user topic digest
+_timeWindowNearDigestPattern = re.compile(
+    r"(?:дайджест|digest|новост).{0,40}?\bза\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# "дайджест новостей <topic>" capture (third token): e.g. техники
+_digestNewsTopicTokenPattern = re.compile(
+    r"(?:дайджест|digest)\s+новост\w*\s+([^\s,.;:!?]+)",
+)
+
+
 class SkillSelectorRules:
+    def _looksLikeTelegramChannelList(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        rawText = str(in_loweredMessage or "").strip()
+        if rawText == "":
+            ret = False
+            return ret
+        handlePattern = re.compile(r"(?:^|[\s,;])@([a-z0-9_]{4,})\b")
+        tmePattern = re.compile(r"(?:^|[\s,;])(?:https?://)?t\.me/([a-z0-9_]{4,})\b")
+        hasAtHandle = handlePattern.search(rawText) is not None
+        hasTmeHandle = tmePattern.search(rawText) is not None
+        hasEmailLikeDomain = (
+            re.search(r"@[a-z0-9._-]+\.[a-z]{2,}", rawText) is not None
+        )
+        ret = (hasAtHandle or hasTmeHandle) and hasEmailLikeDomain is False
+        return ret
+
+    def _looksLikeKeywordListFollowup(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        rawText = str(in_loweredMessage or "").strip()
+        if rawText == "":
+            ret = False
+            return ret
+        hasSeparator = any(separator in rawText for separator in [",", ";", "\n"])
+        if hasSeparator is False:
+            ret = False
+            return ret
+        if (
+            "@" in rawText
+            or "t.me/" in rawText
+            or "http://" in rawText
+            or "https://" in rawText
+        ):
+            ret = False
+            return ret
+        normalizedText = rawText.replace("\n", ",").replace(";", ",")
+        rawItems = [item.strip() for item in normalizedText.split(",")]
+        items = [item for item in rawItems if item != ""]
+        if len(items) < 2 or len(items) > 12:
+            ret = False
+            return ret
+        stopWords = {
+            "да",
+            "нет",
+            "ок",
+            "окей",
+            "спасибо",
+            "привет",
+            "здравствуйте",
+        }
+        validCount = 0
+        for item in items:
+            if len(item) > 48:
+                continue
+            if item in stopWords:
+                continue
+            if re.search(r"[a-zа-я0-9]", item) is None:
+                continue
+            validCount += 1
+        ret = validCount >= 2
+        return ret
+
+    def _hasUserTopicDigestIntent(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        loweredValue = in_loweredMessage
+        hasDigestIntent = any(
+            marker in loweredValue for marker in _fallbackDigestNewsMarkers
+        )
+        if hasDigestIntent is False:
+            ret = False
+            return ret
+        if "по теме" in loweredValue:
+            ret = True
+            return ret
+        if _timeWindowNearDigestPattern.search(loweredValue) is not None:
+            ret = False
+            return ret
+        matchDigestTopic = _digestNewsTopicTokenPattern.search(loweredValue)
+        if matchDigestTopic is None:
+            ret = False
+            return ret
+        topicTokenCandidate = matchDigestTopic.group(1).strip().lower()
+        temporalTopicTokens = {
+            "за",
+            "на",
+            "из",
+            "последние",
+            "последний",
+            "последнюю",
+            "последних",
+            "час",
+            "часа",
+            "часов",
+            "день",
+            "дня",
+            "дней",
+        }
+        if topicTokenCandidate in temporalTopicTokens:
+            ret = False
+            return ret
+        ret = True
+        return ret
+
     def _isShortConfirmationMessage(self, in_loweredMessage: str) -> bool:
         ret: bool
         textValue = str(in_loweredMessage or "").strip()
@@ -18,72 +205,58 @@ class SkillSelectorRules:
         return ret
 
     def _hasReminderIntent(self, in_loweredMessage: str) -> bool:
-        reminderSubstringKeywords = [
-            "напомни",
-            "напомнить",
-            "не забудь",
-            "не забудьте",
-            "reminder",
-        ]
+        ret: bool
         strippedLowered = str(in_loweredMessage or "").strip()
         ret = strippedLowered.startswith("помни") or any(
-            item in in_loweredMessage for item in reminderSubstringKeywords
+            item in in_loweredMessage for item in _fallbackReminderMarkers
         )
+        return ret
+
+    def _hasEmailMarkers(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        ret = any(marker in in_loweredMessage for marker in _fallbackEmailMarkers)
         return ret
 
     def isToolLikelyRequired(self, in_userMessage: str) -> bool:
         ret: bool
         loweredMessage = in_userMessage.lower()
-        emailPreferenceKeywords = [
+        preferenceSaveMarkers = (
             "отправител",
             "домен",
             "важные отправители",
             "важный отправитель",
-            "e-mail",
-            "e‑mail",
-            "email",
-            "почт",
             "запомни",
             "сохрани",
             "сохранить",
-        ]
-        newsKeywords = [
-            "news",
-            "digest",
-            "новост",
-            "дайджест",
-            "telegram",
-            "телеграм",
-            "рынок",
-            "рынку",
-            "сводка",
-            "обзор",
-        ]
-        webKeywords = [
-            "поиск",
-            "найди",
-            "найти",
-            "в интернете",
-            "в сети",
-            "источник",
-            "источники",
-            "ссылк",
-            "проверь по",
-            "что пишут",
-            "google",
-            "duckduckgo",
-        ]
+        )
         looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
-        wantsEmailPreferenceSave = any(item in loweredMessage for item in emailPreferenceKeywords)
-        hasReminderIntent = self._hasReminderIntent(in_loweredMessage=loweredMessage)
-        hasShortConfirmationIntent = self._isShortConfirmationMessage(
-            in_loweredMessage=loweredMessage
+        wantsEmailPreferenceSave = any(
+            item in loweredMessage for item in preferenceSaveMarkers
+        )
+        digestOrNewsHint = (
+            any(m in loweredMessage for m in _fallbackDigestNewsMarkers)
+            or any(m in loweredMessage for m in _fallbackTelegramMarkers)
+            or "рынок" in loweredMessage
         )
         ret = (
-            any(item in loweredMessage for item in newsKeywords + webKeywords)
-            or hasReminderIntent
-            or hasShortConfirmationIntent
-            or (wantsEmailPreferenceSave and looksLikeDomainList)
+            digestOrNewsHint
+            or any(item in loweredMessage for item in _fallbackWebMarkers)
+            or self._hasReminderIntent(in_loweredMessage=loweredMessage)
+            or self._looksLikeTelegramChannelList(in_loweredMessage=loweredMessage)
+            or self._looksLikeKeywordListFollowup(in_loweredMessage=loweredMessage)
+            or self._isShortConfirmationMessage(in_loweredMessage=loweredMessage)
+            or (
+                wantsEmailPreferenceSave is True and looksLikeDomainList is True
+            )
+            or (
+                wantsEmailPreferenceSave is True and self._hasEmailMarkers(loweredMessage) is True
+            )
+            or (
+                digestOrNewsHint is False
+                and self._hasEmailMarkers(loweredMessage) is True
+                and wantsEmailPreferenceSave is False
+                and loweredMessage.strip() != ""
+            )
         )
         return ret
 
@@ -91,77 +264,64 @@ class SkillSelectorRules:
         ret: list[str]
         loweredMessage = in_userMessage.lower()
         selectedIds: list[str] = ["default_assistant"]
-        feedbackMarkers = [
-            "понравил",
-            "запомни",
-            "сохрани",
-            "сохранить",
-            "сохрани в память",
-            "нравятся такие",
-            "хочу больше так",
-            "мне нравится",
-            "понравилась новость",
-        ]
-        digestContextWords = [
-            "новост",
-            "дайджест",
-            "канал",
-            "пост",
-            "telegram",
-            "телеграм",
-            "стать",
-        ]
-        emailContextWords = [
-            "почт",
-            "e-mail",
-            "e‑mail",
-            "email",
-            "письм",
-            "imap",
-            "inbox",
-            "отправител",
-            "домен",
-        ]
-        if any(marker in loweredMessage for marker in feedbackMarkers):
-            if any(word in loweredMessage for word in emailContextWords):
+        looksLikeTelegramChannelListFlag = self._looksLikeTelegramChannelList(
+            in_loweredMessage=loweredMessage
+        )
+        looksLikeKeywordListFollowupFlag = self._looksLikeKeywordListFollowup(
+            in_loweredMessage=loweredMessage
+        )
+        digestContextHint = (
+            any(w in loweredMessage for w in _fallbackDigestNewsMarkers)
+            or any(w in loweredMessage for w in _fallbackTelegramMarkers)
+            or "стать" in loweredMessage
+        )
+        hasEmailContext = self._hasEmailMarkers(loweredMessage)
+        if any(marker in loweredMessage for marker in _fallbackFeedbackMarkers):
+            if hasEmailContext is True:
                 if "email_preference_feedback" not in selectedIds:
                     selectedIds.insert(1, "email_preference_feedback")
-            elif any(word in loweredMessage for word in digestContextWords) or "предпочт" in loweredMessage:
+            elif digestContextHint is True or "предпочт" in loweredMessage:
                 if "telegram_digest_feedback" not in selectedIds:
                     selectedIds.insert(1, "telegram_digest_feedback")
         else:
-            # Follow-up after clarification: user may provide domain/email list without repeating "save/remember" marker.
             looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
-            if looksLikeDomainList and any(word in loweredMessage for word in emailContextWords):
+            if looksLikeDomainList is True and hasEmailContext is True:
                 if "email_preference_feedback" not in selectedIds:
                     selectedIds.insert(1, "email_preference_feedback")
-        hasFeedbackIntent = (
+        hasFeedbackIntentFlag = (
             "telegram_digest_feedback" in selectedIds
             or "email_preference_feedback" in selectedIds
         )
-        hasUserTopicDigestIntent = (
-            "по теме" in loweredMessage
-            and any(
-                marker in loweredMessage
-                for marker in [
-                    "дайджест",
-                    "digest",
-                    "новост",
-                    "телеграм",
-                    "telegram",
-                    "сводк",
-                    "обзор",
-                ]
-            )
+        hasUserTopicDigestIntentFlag = self._hasUserTopicDigestIntent(
+            in_loweredMessage=loweredMessage
         )
-        if hasFeedbackIntent is False and hasUserTopicDigestIntent is True:
-            if "user_topic_telegram_digest" not in selectedIds:
-                selectedIds.insert(1, "user_topic_telegram_digest")
-        if any(item in loweredMessage for item in ["поиск", "найди", "найти", "в интернете", "источник", "ссылк"]):
+        if (
+            hasFeedbackIntentFlag is False
+            and hasUserTopicDigestIntentFlag is True
+            and "user_topic_telegram_digest" not in selectedIds
+        ):
+            selectedIds.insert(1, "user_topic_telegram_digest")
+        elif (
+            hasFeedbackIntentFlag is False
+            and looksLikeTelegramChannelListFlag is True
+            and "user_topic_telegram_digest" not in selectedIds
+        ):
+            selectedIds.insert(1, "user_topic_telegram_digest")
+        elif (
+            hasFeedbackIntentFlag is False
+            and looksLikeKeywordListFollowupFlag is True
+            and "user_topic_telegram_digest" not in selectedIds
+        ):
+            selectedIds.insert(1, "user_topic_telegram_digest")
+        webSelectionMarkers = ("поиск", "найди", "найти", "в интернете")
+        webSelectionMarkersExtra = ("источник", "ссылк")
+        if any(item in loweredMessage for item in webSelectionMarkers):
             selectedIds.append("web_research")
-        if any(item in loweredMessage for item in ["почт", "email", "письм", "imap", "inbox"]):
+        elif any(item in loweredMessage for item in webSelectionMarkersExtra):
+            selectedIds.append("web_research")
+        if hasEmailContext is True:
             selectedIds.append("read_and_analyze_email")
-        if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
+        if any(item in loweredMessage for item in _digestComposerPhrases):
             if "user_topic_telegram_digest" not in selectedIds:
                 selectedIds.append("compose_digest")
         if self._hasReminderIntent(in_loweredMessage=loweredMessage):
@@ -169,22 +329,16 @@ class SkillSelectorRules:
         if self._isShortConfirmationMessage(in_loweredMessage=loweredMessage):
             if "schedule_reminder" not in selectedIds:
                 selectedIds.append("schedule_reminder")
+        generalTelegramDigestMarkersEnglish = ("news", "digest", "telegram")
+        generalTelegramDigestMarkersRu = ("рынок", "обзор", "сводка")
         if (
-            hasFeedbackIntent is False
+            hasFeedbackIntentFlag is False
             and "user_topic_telegram_digest" not in selectedIds
-            and any(
-                item in loweredMessage
-                for item in [
-                    "news",
-                    "digest",
-                    "новост",
-                    "дайджест",
-                    "рынок",
-                    "обзор",
-                    "сводка",
-                    "телеграм",
-                    "telegram",
-                ]
+            and hasEmailContext is False
+            and (
+                any(m in loweredMessage for m in _fallbackDigestNewsMarkers)
+                or any(m in loweredMessage for m in generalTelegramDigestMarkersEnglish)
+                or any(m in loweredMessage for m in generalTelegramDigestMarkersRu)
             )
         ):
             selectedIds.append("telegram_news_digest")

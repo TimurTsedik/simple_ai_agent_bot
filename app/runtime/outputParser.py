@@ -1,10 +1,11 @@
 import json
-import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError
+
+from app.runtime.llmStructuredTextNormalizer import normalizeStructuredLlmText
 
 
 class ToolCallOutputModel(BaseModel):
@@ -58,7 +59,7 @@ class ParseResultModel:
 class OutputParser:
     def parse(self, in_rawText: str) -> ParseResultModel:
         ret: ParseResultModel
-        normalizedText = self._normalizeRawText(in_rawText=in_rawText)
+        normalizedText = normalizeStructuredLlmText(in_rawText=in_rawText)
         decodedValue: Any = None
         yamlError: yaml.YAMLError | None = None
         jsonError: json.JSONDecodeError | None = None
@@ -119,20 +120,6 @@ class OutputParser:
                     errorCode="INVALID_SCHEMA",
                     errorMessage="Unknown model output type.",
                 )
-        return ret
-
-    def _normalizeRawText(self, in_rawText: str) -> str:
-        ret: str
-        trimmed = in_rawText.strip()
-        fencePattern = re.compile(
-            r"^\s*```(?:yaml|yml|json)?\s*\r?\n(.*?)\r?\n```\s*$",
-            re.DOTALL | re.IGNORECASE,
-        )
-        match = fencePattern.match(trimmed)
-        if match is not None:
-            ret = match.group(1).strip()
-        else:
-            ret = trimmed
         return ret
 
     def _parseToolCall(self, in_payload: dict[str, Any]) -> ParseResultModel:

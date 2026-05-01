@@ -75,6 +75,60 @@ def _detectLangHint(in_text: str) -> str:
     return ret
 
 
+def _imapNestedPayloadContainsSeenFlag(in_payload: Any) -> bool:
+    """Detect \\Seen in an IMAP FETCH (FLAGS) response (imaplib nested tuples/lists/bytes)."""
+
+    ret: bool
+    if isinstance(in_payload, bytes):
+        ret = b"\\Seen" in in_payload
+        return ret
+    if isinstance(in_payload, str):
+        ret = "\\Seen" in in_payload
+        return ret
+    if isinstance(in_payload, tuple):
+        ret = any(_imapNestedPayloadContainsSeenFlag(in_item) for in_item in in_payload)
+        return ret
+    if isinstance(in_payload, list):
+        ret = any(_imapNestedPayloadContainsSeenFlag(in_item) for in_item in in_payload)
+        return ret
+    ret = False
+    return ret
+
+
+def _extractMessageBytesFromFetchResponse(in_fetchData: Any) -> bytes:
+    """Pull RFC822 bytes from BODY.PEEK[] / RFC822 FETCH payload (structure varies by server)."""
+
+    ret: bytes
+    if isinstance(in_fetchData, list) and len(in_fetchData) > 0:
+        firstEntry = in_fetchData[0]
+        if isinstance(firstEntry, tuple) and len(firstEntry) >= 2:
+            secondEntry = firstEntry[1]
+            if isinstance(secondEntry, (bytes, bytearray)) and len(secondEntry) > 0:
+                ret = bytes(secondEntry)
+                return ret
+    candidates: list[bytes] = []
+
+    def collect(in_obj: Any) -> None:
+        if isinstance(in_obj, bytes):
+            if len(in_obj) > 0:
+                candidates.append(in_obj)
+            return
+        if isinstance(in_obj, tuple):
+            for entry in in_obj:
+                collect(entry)
+            return
+        if isinstance(in_obj, list):
+            for entry in in_obj:
+                collect(entry)
+
+    collect(in_fetchData)
+    if len(candidates) > 0:
+        ret = max(candidates, key=len)
+        return ret
+    ret = b""
+    return ret
+
+
 def _cleanPlainText(in_text: str) -> str:
     ret: str
     textValue = in_text or ""
@@ -221,11 +275,17 @@ class ReadEmailTool:
 
             items: list[dict[str, Any]] = []
             markedAsReadCount = 0
+            filteredOutAlreadySeenCount = 0
             for oneUid in candidateUids:
                 if len(items) >= maxItems:
                     break
-                _st, fetchData = imapClient.uid("FETCH", oneUid, "(RFC822)")
-                raw = fetchData[0][1] if isinstance(fetchData, list) and len(fetchData) > 0 else b""
+                if unreadOnly is True:
+                    _flagStatus, flagData = imapClient.uid("FETCH", oneUid, "(FLAGS)")
+                    if _imapNestedPayloadContainsSeenFlag(flagData):
+                        filteredOutAlreadySeenCount += 1
+                        continue
+                _st, fetchData = imapClient.uid("FETCH", oneUid, "(BODY.PEEK[])")
+                raw = _extractMessageBytesFromFetchResponse(fetchData)
                 if not isinstance(raw, (bytes, bytearray)) or len(raw) == 0:
                     continue
                 msg = BytesParser(policy=default).parsebytes(raw)
@@ -265,6 +325,7 @@ class ReadEmailTool:
                 "unreadOnly": unreadOnly,
                 "markAsRead": markAsRead,
                 "markedAsReadCount": markedAsReadCount,
+                "filteredOutAlreadySeen": filteredOutAlreadySeenCount,
                 "sinceUnixTsUsed": sinceTs,
                 "count": len(items),
                 "items": items,

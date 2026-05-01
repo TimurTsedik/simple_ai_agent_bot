@@ -382,6 +382,46 @@ class AgentLoop:
                                 and isBroaderTimeWindow is True
                             ):
                                 allowRepeat = True
+                        if toolName == "user_topic_telegram_digest" and previousOkResult is not None:
+                            prevFetchUnreadFlag = bool(previousOkArgs.get("fetchUnread", False))
+                            newFetchUnreadFlag = bool(toolArgs.get("fetchUnread", False))
+                            if prevFetchUnreadFlag is False and newFetchUnreadFlag is True:
+                                allowRepeat = True
+                            elif prevFetchUnreadFlag is False and newFetchUnreadFlag is False:
+                                prevTopicKey = str(previousOkArgs.get("topic", "") or "").strip().lower()
+                                newTopicKey = str(toolArgs.get("topic", "") or "").strip().lower()
+                                prevChannelsTuple = tuple(
+                                    sorted(
+                                        str(chItem).strip().lower()
+                                        for chItem in (previousOkArgs.get("channels") or [])
+                                        if str(chItem).strip() != ""
+                                    )
+                                )
+                                newChannelsTuple = tuple(
+                                    sorted(
+                                        str(chItem).strip().lower()
+                                        for chItem in (toolArgs.get("channels") or [])
+                                        if str(chItem).strip() != ""
+                                    )
+                                )
+                                prevKeywordsTuple = tuple(
+                                    sorted(
+                                        str(kwItem).strip().lower()
+                                        for kwItem in (previousOkArgs.get("keywords") or [])
+                                        if str(kwItem).strip() != ""
+                                    )
+                                )
+                                newKeywordsTuple = tuple(
+                                    sorted(
+                                        str(kwItem).strip().lower()
+                                        for kwItem in (toolArgs.get("keywords") or [])
+                                        if str(kwItem).strip() != ""
+                                    )
+                                )
+                                if prevTopicKey != newTopicKey:
+                                    allowRepeat = True
+                                elif prevChannelsTuple != newChannelsTuple or prevKeywordsTuple != newKeywordsTuple:
+                                    allowRepeat = True
                         if allowRepeat is True:
                             blockedToolCallIterations = 0
                         else:
@@ -703,6 +743,67 @@ class AgentLoop:
                         payload["data_preview"]["filteredOutByKeywords"] = diagnosticsValue.get(
                             "filteredOutByKeywords"
                         )
+                    if in_toolResult.tool_name == "digest_telegram_news":
+                        diagnosticsDictDigest: dict[str, Any]
+                        diagnosticsDictDigest = (
+                            diagnosticsValue if isinstance(diagnosticsValue, dict) else {}
+                        )
+                        digestCountPayload = parsedValue.get("count", 0)
+                        digestCountNormalized = 0
+                        try:
+                            digestCountNormalized = int(digestCountPayload)
+                        except (TypeError, ValueError):
+                            digestCountNormalized = 0
+                        resolvedChanListParsed = parsedValue.get("resolvedChannels", [])
+                        resolvedChannelsGuess = diagnosticsDictDigest.get("resolvedChannelsCount")
+                        if isinstance(resolvedChannelsGuess, (int, float)):
+                            resolvedChannelsCountNormalized = int(resolvedChannelsGuess)
+                        elif isinstance(resolvedChanListParsed, list):
+                            resolvedChannelsCountNormalized = len(resolvedChanListParsed)
+                        else:
+                            resolvedChannelsCountNormalized = 0
+                        requestedChanRawDigest = diagnosticsDictDigest.get(
+                            "requestedChannelsCount",
+                            0,
+                        )
+                        if isinstance(requestedChanRawDigest, (int, float)):
+                            requestedChannelsCountNormalized = int(requestedChanRawDigest)
+                        else:
+                            requestedChannelsCountNormalized = 0
+                        filtTimeDigest = int(
+                            diagnosticsDictDigest.get("filteredOutByTime", 0) or 0
+                        )
+                        filtKwDigest = int(
+                            diagnosticsDictDigest.get("filteredOutByKeywords", 0) or 0
+                        )
+                        totalParsedPostsRaw = diagnosticsDictDigest.get("totalParsedPosts", 0)
+                        try:
+                            totalParsedPostsDigest = int(totalParsedPostsRaw or 0)
+                        except (TypeError, ValueError):
+                            totalParsedPostsDigest = 0
+                        if digestCountNormalized == 0:
+                            noChannelPipelineDigest = (
+                                resolvedChannelsCountNormalized == 0
+                                and filtTimeDigest == 0
+                                and filtKwDigest == 0
+                                and totalParsedPostsDigest == 0
+                                and requestedChannelsCountNormalized == 0
+                            )
+                            if noChannelPipelineDigest is True:
+                                payload["data_preview"]["digest_followup_hint"] = {
+                                    "suggest_configure_named_topic_digest": True,
+                                    "resolved_channels_count": resolvedChannelsCountNormalized,
+                                    "requested_channels_count": requestedChannelsCountNormalized,
+                                    "hint": (
+                                        "В запросе нет каналов, действующего списка каналов по умолчанию "
+                                        "тоже нет — постов не откуда взять. Чтобы тематический дайджест "
+                                        "(экономика, техника…) продолжить, вызови user_topic_telegram_digest "
+                                        "с fetchUnread=false и topic из формулировки пользователя, затем "
+                                        "действуй по status (needs_channels/needs_keywords): задай короткий "
+                                        "уточняющий вопрос; не заканчивай только фразой «новостей нет» без "
+                                        "предложения настроить тему."
+                                    ),
+                                }
                 if (
                     isinstance(parsedValue, dict)
                     and in_toolResult.tool_name == "web_search"
@@ -772,7 +873,32 @@ class AgentLoop:
                     payload["email_preview"] = {
                         "count": parsedValue.get("count"),
                         "sinceUnixTsUsed": parsedValue.get("sinceUnixTsUsed"),
+                        "filteredOutAlreadySeen": parsedValue.get("filteredOutAlreadySeen"),
                         "items_preview": emailPreviewItems,
+                    }
+                if (
+                    isinstance(parsedValue, dict)
+                    and in_toolResult.tool_name == "user_topic_telegram_digest"
+                ):
+                    savedConfigValue = parsedValue.get("savedConfig", {})
+                    savedChannelsCount: int | None = None
+                    savedKeywordsCount: int | None = None
+                    if isinstance(savedConfigValue, dict):
+                        channelsValue = savedConfigValue.get("channels", [])
+                        keywordsValue = savedConfigValue.get("keywords", [])
+                        if isinstance(channelsValue, list):
+                            savedChannelsCount = len(channelsValue)
+                        if isinstance(keywordsValue, list):
+                            savedKeywordsCount = len(keywordsValue)
+                    payload["user_topic_preview"] = {
+                        "status": parsedValue.get("status"),
+                        "topicKey": parsedValue.get("topicKey"),
+                        "topicLabel": parsedValue.get("topicLabel"),
+                        "hint": parsedValue.get("hint"),
+                        "message": parsedValue.get("message"),
+                        "count": parsedValue.get("count"),
+                        "savedChannelsCount": savedChannelsCount,
+                        "savedKeywordsCount": savedKeywordsCount,
                     }
             except json.JSONDecodeError:
                 payload["data_note"] = "non_json_tool_payload"
@@ -800,6 +926,54 @@ class AgentLoop:
                     preview["sinceUnixTsUsed"] = parsedValue.get("sinceUnixTsUsed")
                     if in_toolResult.tool_name == "read_email":
                         preview["markedAsReadCount"] = parsedValue.get("markedAsReadCount")
+                        preview["filteredOutAlreadySeen"] = parsedValue.get(
+                            "filteredOutAlreadySeen"
+                        )
+                    if in_toolResult.tool_name == "digest_telegram_news":
+                        diagnosticsPreview = parsedValue.get("diagnostics", {})
+                        diagnosticsPreviewDict = (
+                            diagnosticsPreview
+                            if isinstance(diagnosticsPreview, dict)
+                            else {}
+                        )
+                        digestCountPv = parsedValue.get("count", 0)
+                        try:
+                            digestCountNormPreview = int(digestCountPv)
+                        except (TypeError, ValueError):
+                            digestCountNormPreview = 0
+                        reqChPrev = diagnosticsPreviewDict.get("requestedChannelsCount")
+                        rcPrev = diagnosticsPreviewDict.get("resolvedChannelsCount")
+                        reqNorm = int(reqChPrev or 0) if isinstance(reqChPrev, (int, float)) else 0
+                        resolvedNormPv = (
+                            int(rcPrev or 0) if isinstance(rcPrev, (int, float)) else None
+                        )
+                        if resolvedNormPv is None and isinstance(
+                            parsedValue.get("resolvedChannels"),
+                            list,
+                        ):
+                            resolvedNormPv = len(parsedValue["resolvedChannels"])
+                        if resolvedNormPv is None:
+                            resolvedNormPv = 0
+                        tpPrevRaw = diagnosticsPreviewDict.get("totalParsedPosts")
+                        try:
+                            totalParsedPv = int(tpPrevRaw or 0)
+                        except (TypeError, ValueError):
+                            totalParsedPv = 0
+                        if digestCountNormPreview == 0:
+                            preview["digest_followup_suggested"] = (
+                                resolvedNormPv == 0
+                                and reqNorm == 0
+                                and totalParsedPv == 0
+                                and int(diagnosticsPreviewDict.get("filteredOutByTime") or 0) == 0
+                                and int(diagnosticsPreviewDict.get("filteredOutByKeywords") or 0)
+                                == 0
+                            )
+                    if in_toolResult.tool_name == "user_topic_telegram_digest":
+                        preview["status"] = parsedValue.get("status")
+                        preview["topicKey"] = parsedValue.get("topicKey")
+                        preview["topicLabel"] = parsedValue.get("topicLabel")
+                        preview["hint"] = parsedValue.get("hint")
+                        preview["message"] = parsedValue.get("message")
             except Exception:
                 preview["data_note"] = "non_json_tool_payload"
         ret = preview

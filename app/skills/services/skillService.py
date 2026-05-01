@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from app.skills.services.skillModels import SkillModel
 from app.skills.services.skillSelectorRules import SkillSelectorRules
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 
@@ -20,6 +21,42 @@ class SkillService:
         self._skillStore = in_skillStore
         self._skillSelectorRules = in_skillSelectorRules
         self._skillSelectionMaxCount = in_skillSelectionMaxCount
+
+    def loadAllSkills(self) -> list[SkillModel]:
+        ret: list[SkillModel]
+        ret = self._skillStore.loadAllSkills()
+        return ret
+
+    def buildSkillsSelectionForSortedSkillIds(
+        self,
+        in_selectedSkillIds: list[str],
+    ) -> SkillSelectionResultModel:
+        ret: SkillSelectionResultModel
+        allSkills = self._skillStore.loadAllSkills()
+        selectedItems = self._skillSelectorRules.pickSkillItems(
+            in_skills=allSkills,
+            in_selectedSkillIds=in_selectedSkillIds,
+            in_maxCount=self._skillSelectionMaxCount,
+        )
+        renderedSkillBlocks = [
+            f"## Skill: {item.title}\n{item.content}" for item in selectedItems
+        ]
+        ret = SkillSelectionResultModel(
+            selectedSkillIds=[item.skillId for item in selectedItems],
+            skillsBlock="\n\n".join(renderedSkillBlocks),
+        )
+        return ret
+
+    def buildSkillsRoutingCatalogSummary(self) -> str:
+        ret: str
+        lines: list[str] = []
+        for skillItem in self._skillStore.loadAllSkills():
+            lineText = (
+                f"- id: `{skillItem.skillId}` — {skillItem.title}"
+            ).strip()
+            lines.append(lineText)
+        ret = "\n".join(lines)
+        return ret
 
     def buildSkillsSelection(self, in_userMessage: str) -> SkillSelectionResultModel:
         ret: SkillSelectionResultModel

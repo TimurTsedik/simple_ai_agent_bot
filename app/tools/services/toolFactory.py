@@ -104,6 +104,8 @@ def buildToolRegistry(
             description=(
                 "Пользовательские дайджесты Telegram по именованной теме: хранит каналы и ключевые слова "
                 "в долгосрочной памяти, ведёт state непрочитанных постов, до 20 постов на канал. "
+                "Каналы в args — только @username или t.me/...; без @ латинские токены считаются "
+                "ключевыми словами, не каналами. "
                 "fetchUnread=false — проверка/пошаговая настройка (merge channels/keywords); "
                 "fetchUnread=true — загрузка новых постов; deleteTopic=true — удалить настройки темы."
             ),
@@ -146,7 +148,9 @@ def buildToolRegistry(
         ToolDefinitionModel(
             name="read_email",
             description=(
-                "Читает письма из почтового ящика по IMAP (например, последние непрочитанные)."
+                "Читает письма из почтового ящика по IMAP. По умолчанию только непрочитанные: "
+                "IMAP SEARCH UNSEEN, затем отсечение по флагу \\Seen в FETCH (FLAGS), тело через BODY.PEEK[] "
+                "(без автопометки прочитанным до markAsRead). Не выключай unreadOnly для дайджеста «непрочитанных»."
             ),
             argsModel=ReadEmailArgsModel,
             timeoutSeconds=45,

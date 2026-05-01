@@ -60,9 +60,11 @@ class HandleIncomingTelegramMessageUseCase:
         sessionId = f"telegram:{in_messageDto.chatId}"
         if loweredText == "/start":
             outgoingText = (
-                "Бот активен. Доступные команды: /start, /health, /reset, /context. "
+                "Бот активен. Доступные команды: /start, /help, /health, /reset, /context. "
                 "Можно отправлять обычные сообщения для запуска агента."
             )
+        elif loweredText == "/help":
+            outgoingText = self._buildHelpMessage()
         elif loweredText == "/health":
             outgoingText = "ok"
         elif loweredText == "/reset":
@@ -85,5 +87,38 @@ class HandleIncomingTelegramMessageUseCase:
         ret = HandleIncomingTelegramMessageResult(
             isAuthorized=True,
             outgoingText=outgoingText,
+        )
+        return ret
+
+    def _buildHelpMessage(self) -> str:
+        ret: str
+        ret = (
+            "Шаблоны запросов для всех сценариев агента:\n\n"
+            "Команды:\n"
+            "- /start — показать список команд\n"
+            "- /help — показать шаблоны запросов\n"
+            "- /health — проверка, что бот жив\n"
+            "- /reset — очистить память текущей сессии\n"
+            "- /context — показать размер текущего memory block\n\n"
+            "Telegram дайджест (общий):\n"
+            "- создай дайджест экономических новостей\n"
+            "- сделай дайджест новостей AI за час\n"
+            "- дай обзор рынка из @markettwits и @headlines_for_traders\n\n"
+            "Telegram дайджест по теме (с сохранением настроек):\n"
+            "- создай дайджест новостей по теме ИИ\n"
+            "- создай дайджест новостей техники\n"
+            "- удали тему дайджеста ИИ\n\n"
+            "Обратная связь по дайджесту (сохранение предпочтений):\n"
+            "- запомни: мне нравятся новости из @how2ai и @larchanka\n"
+            "- сохрани, что мне интересны темы ai и crypto, ключи gpt и llm\n\n"
+            "Email сценарии:\n"
+            "- прочитай непрочитанные письма и сделай дайджест\n"
+            "- запомни, что письма от @noip.com важные\n\n"
+            "Веб-поиск:\n"
+            "- найди в интернете свежие источники по теме инфляции в США\n"
+            "- проверь по источникам, что нового по Nvidia и datacenter\n\n"
+            "Напоминания:\n"
+            "- напомни завтра в 10:00 созвон с командой\n"
+            "- напомни каждый понедельник в 09:30 отправить отчёт\n"
         )
         return ret

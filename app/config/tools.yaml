@@ -1,34 +1,9 @@
+# Опциональные дефолты только для `digest_telegram_news` (общий дайджест без «по теме»).
+# Дайджесты по теме — см. skill `user_topic_telegram_digest` и память digest_topic_config_json.
 telegramNewsDigest:
-  digestChannelUsernames:
-    - "markettwits"
-    - "headlines_for_traders"
-    - "cbrstocks"
-  portfolioTickers:
-    - "POSI"
-    - "X5"
-    - "T-технологии"
-    - "BELU"
-    - "YANDEX"
-    - "Русгидро"
-    - "ТГК-14"
-    - "ГТЛК"
-    - "Полипласт"
-    - "ГМК Норникель"
-    - "ВИС"
-    - "ОФЗ"
-  digestSemanticKeywords:
-    - "россия"
-    - "рф"
-    - "цб"
-    - "банк россии"
-    - "ключевая ставка РФ"
-    - "процентная ставка РФ"
-    - "инфляция РФ"
-    - "денежно-кредитная политика РФ"
-    - "монетарная политика РФ"
-    - "офз"
-    - "минфин РФ"
-    - "валютный рынок РФ"
+  digestChannelUsernames: []
+  portfolioTickers: []
+  digestSemanticKeywords: []
 
 emailReader:
   accountName: "gmail"

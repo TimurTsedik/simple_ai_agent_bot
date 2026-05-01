@@ -1,24 +1,26 @@
+from typing import Literal
+
 from app.common.ids import generateId
 from app.common.timeProvider import getUtcNowIso
 from app.config.settingsModels import SettingsModel
 from app.domain.entities.agentRun import AgentRunModel
+from app.domain.protocols.routingPlanResolverProtocol import RoutingPlanResolverProtocol
 from app.memory.services.memoryService import MemoryService
 from app.observability.stores.jsonRunRepository import JsonRunRepository
 from app.runtime.agentLoop import AgentLoop
-from app.skills.services.skillService import SkillService
 
 
 class RunAgentUseCase:
     def __init__(
         self,
         in_agentLoop: AgentLoop,
-        in_skillService: SkillService,
+        in_routingPlanResolver: RoutingPlanResolverProtocol,
         in_memoryService: MemoryService,
         in_runRepository: JsonRunRepository,
         in_settings: SettingsModel,
     ) -> None:
         self._agentLoop = in_agentLoop
-        self._skillService = in_skillService
+        self._routingPlanResolver = in_routingPlanResolver
         self._memoryService = in_memoryService
         self._runRepository = in_runRepository
         self._settings = in_settings
@@ -28,23 +30,23 @@ class RunAgentUseCase:
         traceId = generateId()
         runId = generateId()
         createdAt = getUtcNowIso()
-        selectionResult = self._skillService.buildSkillsSelection(
-            in_userMessage=in_inputMessage
+        routingResolution = self._routingPlanResolver.resolve(
+            in_userMessage=in_inputMessage,
         )
-        skillsBlock = selectionResult.skillsBlock
-        memoryBlock = self._resolveMemoryBlock(
+        skillsBlockText = routingResolution.skillsBlock
+        memoryModeValue: Literal["full", "long_term_only"]
+        memoryModeValue = routingResolution.memoryMode
+        memoryBlock = self._resolveMemoryBlockFromRoutingMode(
             in_sessionId=in_sessionId,
-            in_selectedSkillIds=selectionResult.selectedSkillIds,
+            in_memoryMode=memoryModeValue,
         )
         loopResult = self._agentLoop.run(
             in_userMessage=in_inputMessage,
-            in_skillsBlock=skillsBlock,
+            in_skillsBlock=skillsBlockText,
             in_memoryBlock=memoryBlock,
-            in_allowToolCalls=self._skillService.isToolLikelyRequired(
-                in_userMessage=in_inputMessage
-            ),
-            in_requiredFirstSuccessfulToolName=self._resolveRequiredFirstSuccessfulToolName(
-                in_selectedSkillIds=selectionResult.selectedSkillIds
+            in_allowToolCalls=routingResolution.allowToolCalls,
+            in_requiredFirstSuccessfulToolName=(
+                routingResolution.requiredFirstSuccessfulToolName
             ),
         )
         toolCalls = [
@@ -82,7 +84,15 @@ class RunAgentUseCase:
             else "stopped",
             "completionReason": loopResult.completionReason,
             "selectedModel": loopResult.selectedModel,
-            "selectedSkills": selectionResult.selectedSkillIds,
+            "selectedSkills": routingResolution.selectedSkillIds,
+            "routingPlan": routingResolution.routingPlanDump,
+            "routingSource": routingResolution.routingSource,
+            "routingPromptSnapshot": routingResolution.routingPromptSnapshot,
+            "routingRawModelResponse": routingResolution.routingRawModelResponse,
+            "routingParseErrorCode": routingResolution.routingParseErrorCode,
+            "routingParseErrorMessage": routingResolution.routingParseErrorMessage,
+            "routingFallbackReason": routingResolution.routingFallbackReason,
+            "routingDiagnostics": list(routingResolution.routingDiagnostics),
             "effectiveConfigSnapshot": self._buildEffectiveConfigSnapshot(
                 in_includeToolConfig=len(toolCalls) > 0
             ),
@@ -123,47 +133,16 @@ class RunAgentUseCase:
         )
         return ret
 
-    def _resolveMemoryBlock(
+    def _resolveMemoryBlockFromRoutingMode(
         self,
         in_sessionId: str,
-        in_selectedSkillIds: list[str],
+        in_memoryMode: Literal["full", "long_term_only"],
     ) -> str:
         ret: str
-        selectedSet = set(in_selectedSkillIds)
-        if (
-            "compose_digest" in selectedSet
-            and "read_and_analyze_email" in selectedSet
-        ):
+        if in_memoryMode == "long_term_only":
             ret = self._memoryService.buildLongTermOnlyMemoryBlock()
         else:
             ret = self._memoryService.buildMemoryBlock(in_sessionId=in_sessionId)
-        return ret
-
-    def _resolveRequiredFirstSuccessfulToolName(
-        self,
-        in_selectedSkillIds: list[str],
-    ) -> str:
-        ret: str
-        selectedSet = set(in_selectedSkillIds)
-        if (
-            "telegram_digest_feedback" in selectedSet
-            or "email_preference_feedback" in selectedSet
-        ):
-            ret = ""
-            return ret
-        if (
-            "compose_digest" in selectedSet
-            and "read_and_analyze_email" in selectedSet
-        ):
-            ret = "read_email"
-        elif "read_and_analyze_email" in selectedSet:
-            ret = "read_email"
-        elif "user_topic_telegram_digest" in selectedSet:
-            ret = "user_topic_telegram_digest"
-        elif "telegram_news_digest" in selectedSet:
-            ret = "digest_telegram_news"
-        else:
-            ret = ""
         return ret
 
     def _buildEffectiveConfigSnapshot(self, in_includeToolConfig: bool) -> dict:

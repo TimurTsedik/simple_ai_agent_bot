@@ -78,7 +78,10 @@ class WebSearchArgsModel(BaseModel):
 class ReadEmailArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mailbox: str = Field(default="INBOX", min_length=1)
-    unreadOnly: bool = True
+    unreadOnly: bool = Field(
+        default=True,
+        description="True: только IMAP UNSEEN и письма без \\Seen в FETCH (FLAGS). False: все письма в окне sinceHours.",
+    )
     markAsRead: bool = True
     sinceHours: int = Field(default=24, ge=0, le=168)
     maxItems: int = Field(default=10, ge=1, le=50)

@@ -510,3 +510,72 @@ def testLoadSettingsUsesTickSecondsFromConfigWhenSchedulerEnabled() -> None:
 
     assert settings.scheduler.tickSeconds == 30
     assert len(settings.scheduler.jobs) == 1
+
+
+def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
+    previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
+    previousOpenRouterKey = os.environ.get("OPENROUTER_API_KEY")
+    previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
+    previousAdminTokens = os.environ.get("ADMIN_RAW_TOKENS")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        schedulesPath = Path(tempDir) / "schedules.yaml"
+        _writeConfigFile(in_path=configPath)
+        configPath.write_text(
+            configPath.read_text(encoding="utf-8")
+            + "\n"
+            + "\n".join(
+                [
+                    "scheduler:",
+                    "  enabled: true",
+                    f'  schedulesConfigPath: "{str(schedulesPath)}"',
+                    "  tickSeconds: 5",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        schedulesPath.write_text(
+            "\n".join(
+                [
+                    "jobs: []",
+                    "reminders:",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+        )
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+
+        settings = loadSettings(
+            in_configPath=str(configPath),
+            in_envPath=str(envPath),
+        )
+
+    if previousTelegramToken is None:
+        os.environ.pop("TELEGRAM_BOT_TOKEN", None)
+    else:
+        os.environ["TELEGRAM_BOT_TOKEN"] = previousTelegramToken
+    if previousOpenRouterKey is None:
+        os.environ.pop("OPENROUTER_API_KEY", None)
+    else:
+        os.environ["OPENROUTER_API_KEY"] = previousOpenRouterKey
+    if previousCookieSecret is None:
+        os.environ.pop("SESSION_COOKIE_SECRET", None)
+    else:
+        os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+    if previousAdminTokens is None:
+        os.environ.pop("ADMIN_RAW_TOKENS", None)
+    else:
+        os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
+
+    assert settings.scheduler.enabled is True
+    assert settings.scheduler.reminders == []

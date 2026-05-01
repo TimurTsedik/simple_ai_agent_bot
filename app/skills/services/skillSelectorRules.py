@@ -17,6 +17,20 @@ class SkillSelectorRules:
         ret = textValue in confirmationWords
         return ret
 
+    def _hasReminderIntent(self, in_loweredMessage: str) -> bool:
+        reminderSubstringKeywords = [
+            "напомни",
+            "напомнить",
+            "не забудь",
+            "не забудьте",
+            "reminder",
+        ]
+        strippedLowered = str(in_loweredMessage or "").strip()
+        ret = strippedLowered.startswith("помни") or any(
+            item in in_loweredMessage for item in reminderSubstringKeywords
+        )
+        return ret
+
     def isToolLikelyRequired(self, in_userMessage: str) -> bool:
         ret: bool
         loweredMessage = in_userMessage.lower()
@@ -59,15 +73,9 @@ class SkillSelectorRules:
             "google",
             "duckduckgo",
         ]
-        reminderKeywords = [
-            "напомни",
-            "напомнить",
-            "напоминан",
-            "reminder",
-        ]
         looksLikeDomainList = "@" in loweredMessage and "." in loweredMessage
         wantsEmailPreferenceSave = any(item in loweredMessage for item in emailPreferenceKeywords)
-        hasReminderIntent = any(item in loweredMessage for item in reminderKeywords)
+        hasReminderIntent = self._hasReminderIntent(in_loweredMessage=loweredMessage)
         hasShortConfirmationIntent = self._isShortConfirmationMessage(
             in_loweredMessage=loweredMessage
         )
@@ -137,15 +145,7 @@ class SkillSelectorRules:
             selectedIds.append("read_and_analyze_email")
         if any(item in loweredMessage for item in ["составь дайджест", "сделай дайджест", "дайджест"]):
             selectedIds.append("compose_digest")
-        if any(
-            item in loweredMessage
-            for item in [
-                "напомни",
-                "напомнить",
-                "напоминан",
-                "reminder",
-            ]
-        ):
+        if self._hasReminderIntent(in_loweredMessage=loweredMessage):
             selectedIds.append("schedule_reminder")
         if self._isShortConfirmationMessage(in_loweredMessage=loweredMessage):
             if "schedule_reminder" not in selectedIds:

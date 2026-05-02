@@ -81,6 +81,18 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      # При workflow_dispatch GitHub выполняет YAML из ветки "Use workflow from", а checkout — по inputs.ref.
+      # Если в UI выбрана старая ветка, шаги Upload могут не содержать scp config (см. deploy_prod.sh — извлечение из образа).
+      - name: Debug refs (workflow source vs checkout)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GITHUB_REF=${GITHUB_REF} (branch/tag whose workflow file is running)"
+          echo "GITHUB_SHA=${GITHUB_SHA} (commit of that branch at dispatch time)"
+          echo "inputs.ref=${{ inputs.ref }} (checkout ref for repo files)"
+          echo "Checked out commit: $(git rev-parse HEAD)"
+          echo "If deploy failed with missing config before: set 'Use workflow from' to main (or merge workflow there). deploy_prod.sh can also extract config from APP_IMAGE."
+
       - name: Install SSH key
         shell: bash
         env:
@@ -177,6 +189,8 @@ jobs:
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           APP_IMAGE: ${{ needs.build-and-push.outputs.image }}
+          CONFIG_SOURCE_REPO: ${{ github.repository }}
+          CONFIG_SOURCE_REF: ${{ inputs.ref || 'main' }}
         run: |
           set -euo pipefail
           port="${VPS_PORT:-22}"
@@ -186,5 +200,5 @@ jobs:
             appDir="/opt/simple_ai_agent_bot"
           fi
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" \
-            "cd '${appDir}' && APP_IMAGE='${APP_IMAGE}' GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' ./scripts/deploy_prod.sh"
+            "cd '${appDir}' && CONFIG_SOURCE_REPO='${CONFIG_SOURCE_REPO}' CONFIG_SOURCE_REF='${CONFIG_SOURCE_REF}' APP_IMAGE='${APP_IMAGE}' GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' ./scripts/deploy_prod.sh"
 

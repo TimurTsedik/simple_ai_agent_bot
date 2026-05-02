@@ -12,7 +12,6 @@ env/
 .env
 .env.*
 !.env.example
-app/config/config.yaml
 data/memory/sessions/*/tools.yaml
 data/memory/sessions/*/schedules.yaml
 data/users/registry.yaml

@@ -75,10 +75,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2) Подготовить конфиг и `.env`:
+2) Подготовить `.env` (глобальный **`app/config/config.yaml`** уже в репозитории; для своей копии с нуля: `cp app/config/config.example.yaml app/config/config.yaml`).
 
 ```bash
-cp app/config/config.example.yaml app/config/config.yaml
 cp .env.example .env
 ```
 
@@ -136,7 +135,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Скрипты для VPS (без GHCR-токена на ноутбуке)
 
-**Один раз перед первым деплоем** положи на сервер то, чего нет в git (иначе `deploy_prod.sh` и GitHub Actions упадут):
+**`app/config/config.yaml` трекается в git** (без секретов) и при каждом деплое копируется на сервер вместе с compose — отдельно возиться с конфигом на VPS не нужно.
+
+**Секреты только в `.env`** — один раз на сервер (или секрет **`VPS_DOTENV`** в GitHub Environment `production`):
 
 ```bash
 chmod +x ./scripts/vps_bootstrap_host_files.sh
@@ -146,18 +147,15 @@ chmod +x ./scripts/vps_bootstrap_host_files.sh
   --key ~/.ssh/<your_key> \
   --app-dir /opt/simple_ai_agent_bot \
   --env-file ./.env
-# опционально: --config-file ./app/config/config.yaml  (если не указать — возьмётся локальный config.yaml или config.example.yaml)
 ```
 
-Потом залей из репо **compose + deploy script**, **не перетирая** уже залитый `config.yaml`:
+Обновить на сервере **compose + deploy + config из репо**:
 
 ```bash
-./scripts/vps_sync_from_repo.sh --host ... --user deploy --key ... --app-dir /opt/simple_ai_agent_bot --skip-config
+./scripts/vps_sync_from_repo.sh --host ... --user deploy --key ... --app-dir /opt/simple_ai_agent_bot
 ```
 
-Без `--skip-config` скрипт перезапишет `config/config.yaml` содержимым **`config.example.yaml`**.
-
-Альтернатива без ноутбука: в GitHub Environment **`production`** можно добавить секреты **`VPS_DOTENV`** (весь текст `.env`) и **`VPS_CONFIG_YAML`** (весь `config.yaml`) — workflow сам создаст файлы на VPS.
+`--skip-config` нужен только если осознанно не хочешь перезатирать `config.yaml` на сервере копией из git.
 
 ---
 
@@ -177,7 +175,7 @@ chmod +x ./scripts/vps_sync_from_repo.sh
   --app-dir /opt/simple_ai_agent_bot
 ```
 
-Скрипт удаляет на сервере устаревшие **`config/tools.yaml`** и **`config/schedules.yaml`** (если остались), перезаливает **`docker-compose.prod.yml`** и **`scripts/deploy_prod.sh`**; **`config/config.yaml`** — только если **не** передан **`--skip-config`**.
+Скрипт удаляет устаревшие **`config/tools.yaml`** / **`config/schedules.yaml`**, перезаливает **`docker-compose.prod.yml`**, **`scripts/deploy_prod.sh`**, **`app/config/config.yaml` → `config/config.yaml`** (если нет **`--skip-config`**).
 
 Дальше **Actions → Deploy to VPS (manual)**.
 
@@ -453,7 +451,7 @@ ADMIN_TELEGRAM_USER_ID=12345678
 # EMAIL_APP_PASSWORD=...   # опционально; пароль IMAP обычно в tenant data/.../tools.yaml (emailReader.password)
 ```
 
-Файл **`config/config.yaml`** на VPS — по образцу `app/config/config.example.yaml`. В контейнере **`WORKDIR=/app`**, том **`./data` → `/app/data`**, поэтому типичные значения **`app.dataRootPath: ./data`** и **`memory.memoryRootPath: ./data/memory`** совпадают с локальной разработкой.
+Файл **`config/config.yaml`** на VPS — тот же, что **`app/config/config.yaml`** в git (workflow копирует при деплое). В контейнере **`WORKDIR=/app`**, том **`./data` → `/app/data`**.
 
 ### 4) Проверка локально на VPS (ручной запуск один раз)
 
@@ -481,8 +479,7 @@ Workflow ожидает следующие секреты (Settings → Environm
 - **`VPS_USER`**: например `deploy`
 - **`VPS_SSH_KEY`**: приватный ключ (ed25519/rsa) для SSH-доступа на VPS
 - **`VPS_APP_DIR`**: директория приложения на VPS, например `/opt/simple_ai_agent_bot` (если не задано, workflow использует этот путь по умолчанию)
-- **`VPS_DOTENV`** (опционально): полный многострочный текст файла **`.env`** для записи на VPS, если не хочешь класть его вручную (`vps_bootstrap_host_files.sh`).
-- **`VPS_CONFIG_YAML`** (опционально): полный текст **`config/config.yaml`** для записи на VPS; иначе на сервере уже должен лежать файл (после bootstrap).
+- **`VPS_DOTENV`** (опционально): полный текст **`.env`** на VPS, если не заливаешь файл вручную.
 - **`GHCR_USERNAME`**: для `docker login` на VPS; для **публичного** образа можно не задавать вместе с токеном
 - **`GHCR_TOKEN`**: для приватного образа GHCR на VPS; для публичного — не обязателен
 

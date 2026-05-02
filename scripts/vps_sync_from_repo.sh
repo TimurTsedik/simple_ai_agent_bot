@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Обновить на VPS только то, что в git: compose, deploy_prod.sh, свежий config.example → config/config.yaml.
+# Обновить на VPS то, что в git: compose, deploy_prod.sh, app/config/config.yaml → config/config.yaml.
 # Удалить на сервере устаревшие файлы config/tools.yaml и config/schedules.yaml (раньше использовались bind-mount’ами).
 # Каталог data/ и .env не трогает.
 #
@@ -71,8 +71,8 @@ echo "==> Uploading docker-compose.prod.yml, deploy_prod.sh"
 if [[ "${skipConfig}" == "1" ]]; then
   echo "==> Skipping config/config.yaml (--skip-config)"
 else
-  echo "==> Uploading config/config.yaml (from config.example.yaml)"
-  "${scpBase[@]}" "${repoRoot}/app/config/config.example.yaml" "${user}@${host}:${appDir}/config/config.yaml"
+  echo "==> Uploading config/config.yaml (from app/config/config.yaml in repo)"
+  "${scpBase[@]}" "${repoRoot}/app/config/config.yaml" "${user}@${host}:${appDir}/config/config.yaml"
 fi
 
 "${sshBase[@]}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"

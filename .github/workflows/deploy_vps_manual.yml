@@ -1,6 +1,5 @@
-# Требуется на VPS в ${VPS_APP_DIR:-/opt/simple_ai_agent_bot}:
-#   .env и config/config.yaml (один раз вручную: scripts/vps_bootstrap_host_files.sh),
-#   либо секреты Environment production: VPS_DOTENV и опционально VPS_CONFIG_YAML.
+# На VPS нужен только .env с секретами (см. VPS_DOTENV или vps_bootstrap_host_files.sh).
+# config/config.yaml кладётся из репозитория (app/config/config.yaml) при каждом деплое — без секретов.
 name: Deploy to VPS (manual)
 
 on:
@@ -125,6 +124,7 @@ jobs:
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/scripts' '${appDir}/data' '${appDir}/config'"
           scp -P "${port}" docker-compose.prod.yml "${VPS_USER}@${VPS_HOST}:${appDir}/docker-compose.prod.yml"
           scp -P "${port}" scripts/deploy_prod.sh "${VPS_USER}@${VPS_HOST}:${appDir}/scripts/deploy_prod.sh"
+          scp -P "${port}" app/config/config.yaml "${VPS_USER}@${VPS_HOST}:${appDir}/config/config.yaml"
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
 
       - name: Ensure .env on VPS
@@ -148,31 +148,6 @@ jobs:
             else
               echo "ERROR: ${appDir}/.env is missing on the server and secret VPS_DOTENV is not set." >&2
               echo "Fix: add Environment secret VPS_DOTENV (full multiline .env) in production, or create .env once on the VPS (scp)." >&2
-              exit 1
-            fi
-          fi
-
-      - name: Ensure config.yaml on VPS
-        shell: bash
-        env:
-          VPS_CONFIG_YAML: ${{ secrets.VPS_CONFIG_YAML }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
-        run: |
-          set -euo pipefail
-          port="${VPS_PORT:-22}"
-          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
-          if [[ -n "${VPS_CONFIG_YAML:-}" ]]; then
-            printf '%s\n' "${VPS_CONFIG_YAML}" | ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/config' && cat > '${appDir}/config/config.yaml'"
-            echo "Wrote ${appDir}/config/config.yaml from GitHub secret VPS_CONFIG_YAML."
-          else
-            if ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "test -f '${appDir}/config/config.yaml'"; then
-              echo "Using existing ${appDir}/config/config.yaml on VPS."
-            else
-              echo "ERROR: ${appDir}/config/config.yaml is missing on the server and secret VPS_CONFIG_YAML is not set." >&2
-              echo "Fix: run scripts/vps_bootstrap_host_files.sh once from your laptop, or add Environment secret VPS_CONFIG_YAML (full YAML)." >&2
               exit 1
             fi
           fi

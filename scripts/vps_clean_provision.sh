@@ -88,10 +88,10 @@ echo "==> Creating directory tree"
   '${appDir}/data/users' '${appDir}/data/skills' '${appDir}/data/scheduler' \
   '${appDir}/data/models' '${appDir}/backups'"
 
-echo "==> Uploading compose + deploy script + fresh config (from config.example.yaml)"
+echo "==> Uploading compose + deploy script + app/config/config.yaml"
 "${scpBase[@]}" "${repoRoot}/docker-compose.prod.yml" "${user}@${host}:${appDir}/docker-compose.prod.yml"
 "${scpBase[@]}" "${repoRoot}/scripts/deploy_prod.sh" "${user}@${host}:${appDir}/scripts/deploy_prod.sh"
-"${scpBase[@]}" "${repoRoot}/app/config/config.example.yaml" "${user}@${host}:${appDir}/config/config.yaml"
+"${scpBase[@]}" "${repoRoot}/app/config/config.yaml" "${user}@${host}:${appDir}/config/config.yaml"
 
 "${sshBase[@]}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
 

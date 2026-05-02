@@ -9,7 +9,8 @@
 #       ssh ... "cd /opt/simple_ai_agent_bot && APP_IMAGE=ghcr.io/owner/repo:sha-xxx ./scripts/deploy_prod.sh"
 #
 # Запуск из корня репозитория:
-#   ./scripts/vps_sync_from_repo.sh --host VPS --user deploy --key ~/.ssh/key [--port 22] [--app-dir /opt/simple_ai_agent_bot]
+#   ./scripts/vps_sync_from_repo.sh --host VPS --user deploy --key ~/.ssh/key [--port 22] [--app-dir DIR] [--skip-config]
+#   --skip-config — не заливать config/config.yaml (если уже положил вручную / vps_bootstrap_host_files.sh)
 
 set -euo pipefail
 
@@ -21,9 +22,10 @@ port="22"
 user=""
 keyFile=""
 appDir="/opt/simple_ai_agent_bot"
+skipConfig="0"
 
 usage() {
-  echo "Usage: $0 --host HOST --user USER --key PATH [--port 22] [--app-dir DIR]" >&2
+  echo "Usage: $0 --host HOST --user USER --key PATH [--port 22] [--app-dir DIR] [--skip-config]" >&2
   exit 2
 }
 
@@ -34,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --user) user="${2:-}"; shift 2 ;;
     --key) keyFile="${2:-}"; shift 2 ;;
     --app-dir) appDir="${2:-}"; shift 2 ;;
+    --skip-config) skipConfig="1"; shift 1 ;;
     -h|--help) usage ;;
     *) echo "Unknown arg: $1" >&2; usage ;;
   esac
@@ -62,10 +65,15 @@ echo "==> Ensuring directories exist: config/, scripts/"
 echo "==> Removing legacy paths (file or mistaken directory): config/tools.yaml, config/schedules.yaml"
 "${sshBase[@]}" "rm -rf '${appDir}/config/tools.yaml' '${appDir}/config/schedules.yaml' 2>/dev/null || true"
 
-echo "==> Uploading docker-compose.prod.yml, deploy_prod.sh, config/config.yaml (from config.example.yaml)"
+echo "==> Uploading docker-compose.prod.yml, deploy_prod.sh"
 "${scpBase[@]}" "${repoRoot}/docker-compose.prod.yml" "${user}@${host}:${appDir}/docker-compose.prod.yml"
 "${scpBase[@]}" "${repoRoot}/scripts/deploy_prod.sh" "${user}@${host}:${appDir}/scripts/deploy_prod.sh"
-"${scpBase[@]}" "${repoRoot}/app/config/config.example.yaml" "${user}@${host}:${appDir}/config/config.yaml"
+if [[ "${skipConfig}" == "1" ]]; then
+  echo "==> Skipping config/config.yaml (--skip-config)"
+else
+  echo "==> Uploading config/config.yaml (from config.example.yaml)"
+  "${scpBase[@]}" "${repoRoot}/app/config/config.example.yaml" "${user}@${host}:${appDir}/config/config.yaml"
+fi
 
 "${sshBase[@]}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
 

@@ -136,6 +136,31 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Скрипты для VPS (без GHCR-токена на ноутбуке)
 
+**Один раз перед первым деплоем** положи на сервер то, чего нет в git (иначе `deploy_prod.sh` и GitHub Actions упадут):
+
+```bash
+chmod +x ./scripts/vps_bootstrap_host_files.sh
+./scripts/vps_bootstrap_host_files.sh \
+  --host <VPS_HOST> \
+  --user deploy \
+  --key ~/.ssh/<your_key> \
+  --app-dir /opt/simple_ai_agent_bot \
+  --env-file ./.env
+# опционально: --config-file ./app/config/config.yaml  (если не указать — возьмётся локальный config.yaml или config.example.yaml)
+```
+
+Потом залей из репо **compose + deploy script**, **не перетирая** уже залитый `config.yaml`:
+
+```bash
+./scripts/vps_sync_from_repo.sh --host ... --user deploy --key ... --app-dir /opt/simple_ai_agent_bot --skip-config
+```
+
+Без `--skip-config` скрипт перезапишет `config/config.yaml` содержимым **`config.example.yaml`**.
+
+Альтернатива без ноутбука: в GitHub Environment **`production`** можно добавить секреты **`VPS_DOTENV`** (весь текст `.env`) и **`VPS_CONFIG_YAML`** (весь `config.yaml`) — workflow сам создаст файлы на VPS.
+
+---
+
 **Токен GitHub Container Registry на своей машине не нужен**, если:
 - деплой образа делаешь через **GitHub Actions** (`Deploy to VPS (manual)` — секреты уже в GitHub), или
 - образ **публичный** — на VPS достаточно `APP_IMAGE=... ./scripts/deploy_prod.sh` (скрипт делает `docker login` только если заданы **оба** `GHCR_USERNAME` и `GHCR_TOKEN`).
@@ -152,9 +177,9 @@ chmod +x ./scripts/vps_sync_from_repo.sh
   --app-dir /opt/simple_ai_agent_bot
 ```
 
-Скрипт удаляет на сервере устаревшие **`config/tools.yaml`** и **`config/schedules.yaml`** (если остались от старой схемы), перезаливает **`docker-compose.prod.yml`**, **`scripts/deploy_prod.sh`**, **`config/config.yaml`** из **`app/config/config.example.yaml`**.
+Скрипт удаляет на сервере устаревшие **`config/tools.yaml`** и **`config/schedules.yaml`** (если остались), перезаливает **`docker-compose.prod.yml`** и **`scripts/deploy_prod.sh`**; **`config/config.yaml`** — только если **не** передан **`--skip-config`**.
 
-Дальше запусти **Actions → Deploy to VPS (manual)** — образ подтянется на сервер без твоего локального токена.
+Дальше **Actions → Deploy to VPS (manual)**.
 
 **2) Полный снос каталога приложения на VPS** (удаляется весь `--app-dir`, включая `data/` — осторожно):
 
@@ -456,8 +481,10 @@ Workflow ожидает следующие секреты (Settings → Environm
 - **`VPS_USER`**: например `deploy`
 - **`VPS_SSH_KEY`**: приватный ключ (ed25519/rsa) для SSH-доступа на VPS
 - **`VPS_APP_DIR`**: директория приложения на VPS, например `/opt/simple_ai_agent_bot` (если не задано, workflow использует этот путь по умолчанию)
-- **`GHCR_USERNAME`**: username для `docker login ghcr.io` (часто owner/аккаунт)
-- **`GHCR_TOKEN`**: токен для чтения образов из GHCR на VPS (минимум `read:packages`; если репозиторий/пакет приватный — обязателен)
+- **`VPS_DOTENV`** (опционально): полный многострочный текст файла **`.env`** для записи на VPS, если не хочешь класть его вручную (`vps_bootstrap_host_files.sh`).
+- **`VPS_CONFIG_YAML`** (опционально): полный текст **`config/config.yaml`** для записи на VPS; иначе на сервере уже должен лежать файл (после bootstrap).
+- **`GHCR_USERNAME`**: для `docker login` на VPS; для **публичного** образа можно не задавать вместе с токеном
+- **`GHCR_TOKEN`**: для приватного образа GHCR на VPS; для публичного — не обязателен
 
 #### Как запустить деплой
 

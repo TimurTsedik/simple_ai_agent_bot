@@ -120,12 +120,23 @@ jobs:
         run: |
           set -euo pipefail
           port="${VPS_PORT:-22}"
-          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
+          if [[ -n "${VPS_APP_DIR:-}" ]]; then
+            appDir="$(printf '%s' "${VPS_APP_DIR}" | tr -d '\r\n')"
+          else
+            appDir="/opt/simple_ai_agent_bot"
+          fi
+          if [[ ! -f app/config/config.yaml ]]; then
+            echo "ERROR: app/config/config.yaml is missing in this checkout (wrong ref or branch?)." >&2
+            git rev-parse HEAD
+            ls -la app/config/ || true
+            exit 1
+          fi
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}/scripts' '${appDir}/data' '${appDir}/config'"
           scp -P "${port}" docker-compose.prod.yml "${VPS_USER}@${VPS_HOST}:${appDir}/docker-compose.prod.yml"
           scp -P "${port}" scripts/deploy_prod.sh "${VPS_USER}@${VPS_HOST}:${appDir}/scripts/deploy_prod.sh"
           scp -P "${port}" app/config/config.yaml "${VPS_USER}@${VPS_HOST}:${appDir}/config/config.yaml"
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "chmod +x '${appDir}/scripts/deploy_prod.sh'"
+          ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "test -f '${appDir}/config/config.yaml' && ls -la '${appDir}/config/config.yaml'"
 
       - name: Ensure .env on VPS
         shell: bash
@@ -138,7 +149,11 @@ jobs:
         run: |
           set -euo pipefail
           port="${VPS_PORT:-22}"
-          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
+          if [[ -n "${VPS_APP_DIR:-}" ]]; then
+            appDir="$(printf '%s' "${VPS_APP_DIR}" | tr -d '\r\n')"
+          else
+            appDir="/opt/simple_ai_agent_bot"
+          fi
           if [[ -n "${VPS_DOTENV:-}" ]]; then
             printf '%s\n' "${VPS_DOTENV}" | ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" "mkdir -p '${appDir}' && cat > '${appDir}/.env' && chmod 600 '${appDir}/.env'"
             echo "Wrote ${appDir}/.env from GitHub secret VPS_DOTENV."
@@ -165,7 +180,11 @@ jobs:
         run: |
           set -euo pipefail
           port="${VPS_PORT:-22}"
-          appDir="${VPS_APP_DIR:-/opt/simple_ai_agent_bot}"
+          if [[ -n "${VPS_APP_DIR:-}" ]]; then
+            appDir="$(printf '%s' "${VPS_APP_DIR}" | tr -d '\r\n')"
+          else
+            appDir="/opt/simple_ai_agent_bot"
+          fi
           ssh -p "${port}" "${VPS_USER}@${VPS_HOST}" \
             "cd '${appDir}' && APP_IMAGE='${APP_IMAGE}' GHCR_USERNAME='${GHCR_USERNAME}' GHCR_TOKEN='${GHCR_TOKEN}' ./scripts/deploy_prod.sh"
 

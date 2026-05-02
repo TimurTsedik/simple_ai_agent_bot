@@ -19,6 +19,12 @@ fi
 # Fallbacks: (1) public raw from GitHub when CONFIG_SOURCE_* set (2) file baked into APP_IMAGE at /app/app/config/config.yaml.
 if [[ ! -f "config/config.yaml" ]]; then
   mkdir -p config
+  if [[ -d "config" ]] && [[ ! -w "config" ]]; then
+    echo "ERROR: directory ./config is not writable (often owned by root). On the VPS as root:" >&2
+    echo "  cd /opt/simple_ai_agent_bot   # or your app dir" >&2
+    echo "  sudo bash scripts/vps_fix_app_dir_ownership.sh \"\$(pwd -P)\"" >&2
+    exit 2
+  fi
   configSourceRepo="${CONFIG_SOURCE_REPO:-}"
   configSourceRef="${CONFIG_SOURCE_REF:-}"
   if [[ -n "${configSourceRepo}" && -n "${configSourceRef}" ]]; then

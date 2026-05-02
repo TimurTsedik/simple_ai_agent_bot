@@ -96,6 +96,27 @@ def _parseAdminTokens(in_rawValue: str) -> list[str]:
     return ret
 
 
+def _stripLegacyTenantPathKeysFromConfigRoot(in_configData: dict[str, Any]) -> dict[str, Any]:
+    """Удаляет устаревшие ключи tools.toolsConfigPath / scheduler.schedulesConfigPath из YAML (миграция prod)."""
+    ret: dict[str, Any]
+    ret = dict(in_configData)
+    toolsRaw = ret.get("tools")
+    if isinstance(toolsRaw, dict) is True:
+        ret["tools"] = {
+            key: value
+            for key, value in toolsRaw.items()
+            if key not in ("toolsConfigPath",)
+        }
+    schedulerRaw = ret.get("scheduler")
+    if isinstance(schedulerRaw, dict) is True:
+        ret["scheduler"] = {
+            key: value
+            for key, value in schedulerRaw.items()
+            if key not in ("schedulesConfigPath",)
+        }
+    return ret
+
+
 def _defaultTenantToolsYamlPath(
     in_memoryRootPath: str,
     in_adminTelegramUserId: int,
@@ -156,6 +177,7 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
     configPath = Path(in_configPath)
     envPath = Path(in_envPath)
     configData = _readYamlFile(in_path=configPath)
+    configData = _stripLegacyTenantPathKeysFromConfigRoot(in_configData=configData)
     dotEnvValues = _readDotEnvFile(in_path=envPath)
     mergedData = _applyEnvOverrides(
         in_configData=configData,

@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import pytest
 import yaml
 
 from app.config.settingsLoader import SettingsLoadError, loadSettings
@@ -754,7 +753,7 @@ def testLoadSettingsCreatesTenantSchedulesYamlFromExampleWhenSchedulerDisabled()
     assert settings is not None
 
 
-def testLoadSettingsRejectsLegacySchedulerSchedulesConfigPath() -> None:
+def testLoadSettingsIgnoresLegacySchedulerSchedulesConfigPath() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
@@ -780,11 +779,10 @@ def testLoadSettingsRejectsLegacySchedulerSchedulesConfigPath() -> None:
             in_apiKey="or-key-dotenv",
             in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
-        with pytest.raises(SettingsLoadError):
-            loadSettings(
-                in_configPath=str(configPath),
-                in_envPath=str(envPath),
-            )
+        settings = loadSettings(
+            in_configPath=str(configPath),
+            in_envPath=str(envPath),
+        )
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -799,8 +797,11 @@ def testLoadSettingsRejectsLegacySchedulerSchedulesConfigPath() -> None:
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
 
+    assert settings.scheduler.enabled is False
+    assert settings.scheduler.tickSeconds == 1
 
-def testLoadSettingsRejectsLegacyToolsToolsConfigPath() -> None:
+
+def testLoadSettingsIgnoresLegacyToolsToolsConfigPath() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
@@ -824,11 +825,10 @@ def testLoadSettingsRejectsLegacyToolsToolsConfigPath() -> None:
             in_apiKey="or-key-dotenv",
             in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
-        with pytest.raises(SettingsLoadError):
-            loadSettings(
-                in_configPath=str(configPath),
-                in_envPath=str(envPath),
-            )
+        settings = loadSettings(
+            in_configPath=str(configPath),
+            in_envPath=str(envPath),
+        )
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -842,3 +842,5 @@ def testLoadSettingsRejectsLegacyToolsToolsConfigPath() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
+
+    assert settings.telegram.digestChannelUsernames == ["channel_one"]

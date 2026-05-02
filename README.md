@@ -132,7 +132,43 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
   - **`${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml`**
   - тот же каталог **`schedules.yaml`**
 - Проверка: в логе рана или в `effectiveConfigSnapshot` должны быть **`adminTenantToolsYamlPath`** / **`adminTenantSchedulesYamlPath`** с путями внутри `data/memory/sessions/...`, а не в `app/config/`.
-- Если конфиг всё ещё содержит legacy-ключи, **`loadSettings` упадёт** (запрещены лишние поля в секциях `tools` и `scheduler`).
+- При загрузке **`loadSettings` автоматически отбрасывает** устаревшие ключи **`tools.toolsConfigPath`** и **`scheduler.schedulesConfigPath`**, если они ещё есть в YAML (старый прод-конфиг не ломает старт). Их всё равно лучше удалить из файла вручную.
+
+### Скрипты для VPS (без GHCR-токена на ноутбуке)
+
+**Токен GitHub Container Registry на своей машине не нужен**, если:
+- деплой образа делаешь через **GitHub Actions** (`Deploy to VPS (manual)` — секреты уже в GitHub), или
+- образ **публичный** — на VPS достаточно `APP_IMAGE=... ./scripts/deploy_prod.sh` (скрипт делает `docker login` только если заданы **оба** `GHCR_USERNAME` и `GHCR_TOKEN`).
+
+**1) Только убрать мусор и залить актуальные файлы из репо** (не трогает `data/`, `.env`):
+
+```bash
+chmod +x ./scripts/vps_sync_from_repo.sh
+./scripts/vps_sync_from_repo.sh \
+  --host <VPS_HOST> \
+  --user deploy \
+  --key ~/.ssh/<your_key> \
+  --port 22 \
+  --app-dir /opt/simple_ai_agent_bot
+```
+
+Скрипт удаляет на сервере устаревшие **`config/tools.yaml`** и **`config/schedules.yaml`** (если остались от старой схемы), перезаливает **`docker-compose.prod.yml`**, **`scripts/deploy_prod.sh`**, **`config/config.yaml`** из **`app/config/config.example.yaml`**.
+
+Дальше запусти **Actions → Deploy to VPS (manual)** — образ подтянется на сервер без твоего локального токена.
+
+**2) Полный снос каталога приложения на VPS** (удаляется весь `--app-dir`, включая `data/` — осторожно):
+
+```bash
+chmod +x ./scripts/vps_clean_provision.sh
+./scripts/vps_clean_provision.sh \
+  --host <VPS_HOST> \
+  --user deploy \
+  --key ~/.ssh/<your_key> \
+  --app-dir /opt/simple_ai_agent_bot \
+  --env-file ./.env
+```
+
+Опционально: `--app-image ghcr.io/<owner>/<repo>:sha-<tag>` чтобы сразу вызвать `deploy_prod.sh` на VPS (для публичного образа **не** передавай `--ghcr-user` / `--ghcr-token`).
 
 ## Веб-админка
 
@@ -344,22 +380,26 @@ PYTHONPATH=. pytest
   docker-compose.prod.yml
   .env
   config/
-    config.yaml
-    schedules.yaml         # только если scheduler.enabled=true
-  config/tools.yaml        # опционально: монтируется в tenant-файл под data/memory/... (см. docker-compose.prod.yml)
-  data/                    # персистентные данные
+    config.yaml            # глобальный runtime-конфиг (монтируется в образ)
+  data/                    # вся персистентность (tenant tools/schedules внутри memory)
     runs/
     logs/
     memory/
-    scheduler/             # если включён scheduler
+      sessions/
+        telegramUser_<id>/
+          tools.yaml
+          schedules.yaml
+          long_term.md
+          ...
+    users/
+    scheduler/
+    skills/                # если skills.skillsDirPath указывает сюда
 ```
 
 Важно:
-- `config/config.yaml` обязателен: приложение стартует из `app/config/config.yaml`, а в контейнере он монтируется из `./config`.
-- `data/` обязательно монтировать, иначе потеряешь runs/logs/memory при пересоздании контейнера.
-- Не монтируй `./config` целиком поверх `/app/app/config`: это перекроет python-модули (`settingsModels.py` и т.д.). Монтируются только YAML-файлы.
-- `config/schedules.yaml` должен монтироваться без `:ro`, иначе `schedule_reminder` не сможет сохранять/обновлять напоминания.
-- Права на `data/`: контейнер должен иметь право писать в `./data` (логи/память/runs). В `docker-compose.prod.yml` используется `user: "1001:1001"` (UID/GID пользователя `deploy` на VPS). Если UID/GID на сервере другой — обнови значение.
+- **`config/config.yaml`** обязателен на хосте: в контейнер монтируется только этот файл (не весь каталог `app/config` из образа — иначе перекроешь Python-модули).
+- **`data/`** обязателен: сюда же пишутся `runs`, логи, память, **`sessions/.../tools.yaml` и `schedules.yaml`**, state планировщика. Отдельных bind-mount’ов для `tools.yaml`/`schedules.yaml` из `./config` **нет** (tenant-only схема).
+- Права на `data/`: контейнер должен писать в `./data`. В `docker-compose.prod.yml` задано `user: "1001:1001"` — приведи UID/GID каталога `data/` и пользователя на VPS в соответствие или поменяй значение в compose.
 
 ### Скачать текущие `run`-файлы, логи и конфиги с VPS
 
@@ -372,7 +412,8 @@ scripts/fetch_server_snapshot.sh \
   --key ~/.ssh/simple_ai_agent_bot_vps_deploy \
   --port 22 \
   --remote-app-dir /opt/simple_ai_agent_bot \
-  --local-project-root .```
+  --local-project-root .
+```
 
 ### 3) Секреты и конфиги на VPS
 
@@ -383,10 +424,11 @@ TELEGRAM_BOT_TOKEN=...
 OPENROUTER_API_KEY=...
 SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
 ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
-EMAIL_APP_PASSWORD=...
+ADMIN_TELEGRAM_USER_ID=12345678
+# EMAIL_APP_PASSWORD=...   # опционально; пароль IMAP обычно в tenant data/.../tools.yaml (emailReader.password)
 ```
 
-Файл `config/config.yaml` — по образцу `app/config/config.example.yaml` (обрати внимание на `app.displayTimeZone` и `scheduler.*`).
+Файл **`config/config.yaml`** на VPS — по образцу `app/config/config.example.yaml`. В контейнере **`WORKDIR=/app`**, том **`./data` → `/app/data`**, поэтому типичные значения **`app.dataRootPath: ./data`** и **`memory.memoryRootPath: ./data/memory`** совпадают с локальной разработкой.
 
 ### 4) Проверка локально на VPS (ручной запуск один раз)
 
@@ -419,9 +461,10 @@ Workflow ожидает следующие секреты (Settings → Environm
 
 #### Как запустить деплой
 
-1) Открой Actions → workflow `Deploy to VPS (manual)`.\n
-2) Нажми **Run workflow** и оставь `ref=main` (или укажи нужный tag/commit).\n
-3) Дожидайся зелёного `Deploy` job — он заканчивается health-check’ом `/health` на VPS.\n
+1) Открой Actions → workflow `Deploy to VPS (manual)`.
+2) Нажми **Run workflow** и оставь `ref=main` (или укажи нужный tag/commit).
+3) Дожидайся зелёного `Deploy` job — он заканчивается health-check’ом `/health` на VPS.
+
 ### Rollback
 
 Откат — это повторный запуск workflow с более старым `sha` (образ тегируется по коммиту).
@@ -432,7 +475,8 @@ Workflow ожидает следующие секреты (Settings → Environm
 
 ### Скрипт бэкапа
 
-В репозитории есть скрипт [`scripts/backup_data.sh`](scripts/backup_data.sh). На VPS его можно запускать вручную или по cron.\n
+В репозитории есть скрипт [`scripts/backup_data.sh`](scripts/backup_data.sh). На VPS его можно запускать вручную или по cron.
+
 
 Параметры через env (все опциональны):
 - `BASE_DIR` (default: `/opt/simple_ai_agent_bot`)

@@ -12,7 +12,7 @@ class ListRemindersTool:
     in_dataRootPath: str
     in_adminMemoryPrincipalId: str
 
-    def _loadRemindersState(self) -> dict[str, Any]:
+    def _loadTasksState(self) -> dict[str, Any]:
         ret: dict[str, Any]
         statePath = Path(self.in_dataRootPath) / "scheduler" / "jobs_state.json"
         loaded: Any = {}
@@ -23,10 +23,10 @@ class ListRemindersTool:
                 loaded = {}
         if isinstance(loaded, dict) is False:
             loaded = {}
-        remindersState = loaded.get("remindersState", {})
-        if isinstance(remindersState, dict) is False:
-            remindersState = {}
-        ret = remindersState
+        tasks_state = loaded.get("tasksState", {})
+        if isinstance(tasks_state, dict) is False:
+            tasks_state = {}
+        ret = tasks_state
         return ret
 
     def execute(
@@ -41,10 +41,15 @@ class ListRemindersTool:
             in_ownerMemoryPrincipalId=str(in_memoryPrincipalId or "").strip(),
             in_adminMemoryPrincipalId=str(self.in_adminMemoryPrincipalId or "").strip(),
         )
-        remindersState = self._loadRemindersState()
+        recurring_tasks = self.in_reminderConfigStore.listInternalRunTasksForOwner(
+            in_ownerMemoryPrincipalId=str(in_memoryPrincipalId or "").strip(),
+        )
+        tasks_state = self._loadTasksState()
+        owner_seg = str(in_memoryPrincipalId or "").strip().replace(":", "_")
         mergedItems: list[dict[str, Any]] = []
         for reminderItem in reminderItems:
-            reminderState = remindersState.get(reminderItem.reminderId, {})
+            composite_key = f"{owner_seg}::{reminderItem.reminderId}"
+            reminderState = tasks_state.get(composite_key, {})
             if isinstance(reminderState, dict) is False:
                 reminderState = {}
             mergedItems.append(
@@ -53,10 +58,25 @@ class ListRemindersTool:
                     "runtimeState": reminderState,
                 }
             )
+        recurringMerged: list[dict[str, Any]] = []
+        for task_payload in recurring_tasks:
+            task_id_value = str(task_payload.get("taskId", "") or "").strip()
+            composite_key = f"{owner_seg}::{task_id_value}"
+            run_state = tasks_state.get(composite_key, {})
+            if isinstance(run_state, dict) is False:
+                run_state = {}
+            recurringMerged.append(
+                {
+                    "task": task_payload,
+                    "runtimeState": run_state,
+                }
+            )
         ret = {
             "ok": True,
             "count": len(mergedItems),
             "items": mergedItems,
+            "recurringAgentRunCount": len(recurringMerged),
+            "recurringAgentRuns": recurringMerged,
         }
         return ret
 

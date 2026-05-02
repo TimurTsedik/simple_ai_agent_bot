@@ -121,6 +121,7 @@
 | 2026-04-29 | Обновлён favicon-пайплайн в web-админке: `/favicon.ico` теперь отдаёт реальный `favicon.ico` с `image/x-icon` (вместо PNG), добавлены anti-cache заголовки (`no-store/no-cache`), а в HTML ссылка переключена на версионируемый URL `/favicon.ico?v=1` для надёжного cache-bust в браузерах. |
 | 2026-04-30 | Добавлены reminders в unified scheduler: tools `schedule_reminder/list_reminders/delete_reminder`, skill `schedule_reminder` (schema-first JSON), runtime guard на `VALIDATION_ERROR`, авто-удаление отработавших reminders из `schedules.yaml`, observability в web. |
 | 2026-04-30 | Добавлена поддержка Telegram voice/audio → text через `faster-whisper` (CPU). Добавлены события `voice_transcription_started/succeeded/failed`, лимиты по длительности/размеру, docker dependency `ffmpeg`, кэш моделей направлен в `/app/data/models`. |
+| 2026-05-02 | **Tenant-only конфиги:** из runtime-контракта убраны override-пути `tools.toolsConfigPath` и `scheduler.schedulesConfigPath`. Единственный источник `tools.yaml` / `schedules.yaml` — каталог `sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/` под `memory.memoryRootPath`; при загрузке выставляются `adminTenantToolsYamlPath` / `adminTenantSchedulesYamlPath`. Попытка указать legacy-ключи в YAML → ошибка валидации (`extra=forbid` на секциях). Записи 2026-04-27 про глобальный `app/config/tools.yaml` и `schedulesConfigPath` ниже — **исторические**, актуальная схема в `README.md` (раздел «Миграция…»). |
 
 ---
 

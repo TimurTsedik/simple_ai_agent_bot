@@ -1,5 +1,6 @@
 import json
 
+from app.common.schedulerSessionId import isScheduledInternalRunSessionId
 from app.common.timeProvider import getUtcNowIso
 from app.common.truncation import truncateText
 from app.domain.policies.memoryPolicy import MemoryPolicy
@@ -221,6 +222,12 @@ class MemoryService:
 
     def resetSession(self, in_sessionId: str) -> None:
         self._memoryStore.clearSessionMemory(in_sessionId=in_sessionId)
+
+    def discardScheduledInternalSessionContext(self, in_sessionId: str) -> None:
+        """После run планировщика убирает ephemeral-папку сессии, чтобы не копить контекст между джобами."""
+
+        if isScheduledInternalRunSessionId(in_sessionId=in_sessionId) is True:
+            self._memoryStore.removeSessionWorkspaceDirectory(in_sessionId=in_sessionId)
 
     def _updateRecentMessages(
         self,

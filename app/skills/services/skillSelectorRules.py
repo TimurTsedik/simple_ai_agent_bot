@@ -109,6 +109,9 @@ class SkillSelectorRules:
         if rawText == "":
             ret = False
             return ret
+        if self._hasExplicitUserNoteIntent(in_loweredMessage=rawText.lower()) is True:
+            ret = False
+            return ret
         hasSeparator = any(separator in rawText for separator in [",", ";", "\n"])
         if hasSeparator is False:
             ret = False
@@ -212,6 +215,42 @@ class SkillSelectorRules:
         )
         return ret
 
+    def _hasRecurringScheduledJobIntent(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        m = str(in_loweredMessage or "")
+        recurring_flag = any(
+            marker in m
+            for marker in (
+                "каждый час",
+                "каждые ",
+                "ежечас",
+                "раз в час",
+                "раз в день",
+                "ежедневн",
+                "регулярн",
+                "по расписанию",
+                "автоматически при",
+                "интервал",
+                "запланируй",
+            )
+        )
+        digest_or_mail_flag = any(
+            marker in m for marker in _fallbackDigestNewsMarkers
+        ) or any(marker in m for marker in _fallbackEmailMarkers)
+        ret = recurring_flag is True and digest_or_mail_flag is True
+        return ret
+
+    def _hasExplicitUserNoteIntent(self, in_loweredMessage: str) -> bool:
+        ret: bool
+        m = str(in_loweredMessage or "")
+        has_verb = (
+            "запомни" in m
+            or "запиши" in m
+            or "сохрани в память" in m
+        )
+        ret = has_verb is True
+        return ret
+
     def _hasEmailMarkers(self, in_loweredMessage: str) -> bool:
         ret: bool
         ret = any(marker in in_loweredMessage for marker in _fallbackEmailMarkers)
@@ -242,6 +281,8 @@ class SkillSelectorRules:
             digestOrNewsHint
             or any(item in loweredMessage for item in _fallbackWebMarkers)
             or self._hasReminderIntent(in_loweredMessage=loweredMessage)
+            or self._hasRecurringScheduledJobIntent(in_loweredMessage=loweredMessage)
+            or self._hasExplicitUserNoteIntent(in_loweredMessage=loweredMessage)
             or self._looksLikeTelegramChannelList(in_loweredMessage=loweredMessage)
             or self._looksLikeKeywordListFollowup(in_loweredMessage=loweredMessage)
             or self._isShortConfirmationMessage(in_loweredMessage=loweredMessage)
@@ -292,6 +333,12 @@ class SkillSelectorRules:
             "telegram_digest_feedback" in selectedIds
             or "email_preference_feedback" in selectedIds
         )
+        if (
+            hasFeedbackIntentFlag is False
+            and self._hasExplicitUserNoteIntent(in_loweredMessage=loweredMessage) is True
+            and "remember_user_note" not in selectedIds
+        ):
+            selectedIds.insert(1, "remember_user_note")
         hasUserTopicDigestIntentFlag = self._hasUserTopicDigestIntent(
             in_loweredMessage=loweredMessage
         )
@@ -324,6 +371,9 @@ class SkillSelectorRules:
         if any(item in loweredMessage for item in _digestComposerPhrases):
             if "user_topic_telegram_digest" not in selectedIds:
                 selectedIds.append("compose_digest")
+        if self._hasRecurringScheduledJobIntent(in_loweredMessage=loweredMessage):
+            if "schedule_recurring_agent_run" not in selectedIds:
+                selectedIds.insert(1, "schedule_recurring_agent_run")
         if self._hasReminderIntent(in_loweredMessage=loweredMessage):
             selectedIds.append("schedule_reminder")
         if self._isShortConfirmationMessage(in_loweredMessage=loweredMessage):

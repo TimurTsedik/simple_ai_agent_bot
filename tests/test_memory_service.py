@@ -7,6 +7,35 @@ from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 
 
+def testDiscardScheduledInternalSessionContextRemovesSessionDirectory() -> None:
+    with TemporaryDirectory() as tempDir:
+        memorySettings = MemorySettings(
+            memoryRootPath=str(Path(tempDir) / "memory"),
+            longTermFileName="long_term.md",
+            sessionSummaryFileName="summary.md",
+            recentMessagesFileName="recent.md",
+        )
+        store = MarkdownMemoryStore(in_memorySettings=memorySettings)
+        service = MemoryService(
+            in_memoryStore=store,
+            in_memoryPolicy=MemoryPolicy(),
+            in_recentMessagesLimit=4,
+            in_sessionSummaryMaxChars=2000,
+        )
+        scheduler_session_id = "telegramUser:1:scheduler:email"
+        service.updateAfterRun(
+            in_sessionId=scheduler_session_id,
+            in_userMessage="ping",
+            in_finalAnswer="pong",
+            in_memoryCandidates=[],
+            in_memoryPrincipalId="telegramUser:1",
+        )
+        session_dir = (Path(tempDir) / "memory" / "sessions" / "telegramUser_1_scheduler_email")
+        assert session_dir.exists() is True
+        service.discardScheduledInternalSessionContext(in_sessionId=scheduler_session_id)
+        assert session_dir.exists() is False
+
+
 def testMemoryServiceUpdatesRecentSummaryAndLongTerm() -> None:
     with TemporaryDirectory() as tempDir:
         memorySettings = MemorySettings(

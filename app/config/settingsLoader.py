@@ -7,7 +7,10 @@ import yaml
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
-from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
+from app.common.adminTenantConfigPaths import (
+    resolveAdminTenantSchedulesYamlPath,
+    resolveAdminTenantToolsYamlPath,
+)
 from app.config.defaults import DEFAULT_ENV_PATH
 from app.config.defaultTenantSessionYaml import (
     DEFAULT_TENANT_SCHEDULES_YAML_TEXT,
@@ -15,10 +18,10 @@ from app.config.defaultTenantSessionYaml import (
 )
 from app.config.settingsModels import (
     EmailReaderToolSettings,
-    SchedulerSettings,
     SettingsModel,
     TelegramNewsDigestToolSettings,
 )
+from app.config.tenantSchedulesModels import TenantSchedulesFile, normalizeLegacySchedulesDict
 
 
 class SettingsLoadError(RuntimeError):
@@ -93,59 +96,14 @@ def _parseAdminTokens(in_rawValue: str) -> list[str]:
     return ret
 
 
-def _sanitizeMemoryPrincipalSegment(in_memoryPrincipalId: str) -> str:
-    ret: str
-    ret = str(in_memoryPrincipalId or "").strip().replace(":", "_")
-    return ret
-
-
-def _tenantAdminSessionDirectory(
-    in_memoryRootPath: str,
-    in_adminTelegramUserId: int,
-) -> Path:
-    principalId = formatTelegramUserMemoryPrincipal(
-        in_telegramUserId=in_adminTelegramUserId
-    )
-    sanitizedPrincipal = _sanitizeMemoryPrincipalSegment(
-        in_memoryPrincipalId=principalId
-    )
-    memoryRoot = Path(in_memoryRootPath)
-    if memoryRoot.is_absolute() is False:
-        memoryRoot = memoryRoot.resolve()
-    ret = memoryRoot / "sessions" / sanitizedPrincipal
-    return ret
-
-
 def _defaultTenantToolsYamlPath(
     in_memoryRootPath: str,
     in_adminTelegramUserId: int,
 ) -> Path:
-    ret = (
-        _tenantAdminSessionDirectory(
-            in_memoryRootPath=in_memoryRootPath,
-            in_adminTelegramUserId=in_adminTelegramUserId,
-        )
-        / "tools.yaml"
+    ret = resolveAdminTenantToolsYamlPath(
+        in_memoryRootPath=in_memoryRootPath,
+        in_adminTelegramUserId=in_adminTelegramUserId,
     )
-    return ret
-
-
-def _resolveEffectiveToolsYamlPath(
-    in_rawToolsConfigPath: str,
-    in_memoryRootPath: str,
-    in_adminTelegramUserId: int,
-) -> Path:
-    if str(in_rawToolsConfigPath or "").strip() == "":
-        ret = _defaultTenantToolsYamlPath(
-            in_memoryRootPath=in_memoryRootPath,
-            in_adminTelegramUserId=in_adminTelegramUserId,
-        ).resolve()
-        return ret
-    rawStr = str(in_rawToolsConfigPath).strip()
-    requested = Path(rawStr)
-    if requested.is_absolute() is False:
-        requested = requested.resolve()
-    ret = requested.resolve()
     return ret
 
 
@@ -160,32 +118,10 @@ def _defaultTenantSchedulesYamlPath(
     in_memoryRootPath: str,
     in_adminTelegramUserId: int,
 ) -> Path:
-    ret = (
-        _tenantAdminSessionDirectory(
-            in_memoryRootPath=in_memoryRootPath,
-            in_adminTelegramUserId=in_adminTelegramUserId,
-        )
-        / "schedules.yaml"
+    ret = resolveAdminTenantSchedulesYamlPath(
+        in_memoryRootPath=in_memoryRootPath,
+        in_adminTelegramUserId=in_adminTelegramUserId,
     )
-    return ret
-
-
-def _resolveEffectiveSchedulesYamlPath(
-    in_rawSchedulesConfigPath: str,
-    in_memoryRootPath: str,
-    in_adminTelegramUserId: int,
-) -> Path:
-    if str(in_rawSchedulesConfigPath or "").strip() == "":
-        ret = _defaultTenantSchedulesYamlPath(
-            in_memoryRootPath=in_memoryRootPath,
-            in_adminTelegramUserId=in_adminTelegramUserId,
-        ).resolve()
-        return ret
-    rawStr = str(in_rawSchedulesConfigPath).strip()
-    requested = Path(rawStr)
-    if requested.is_absolute() is False:
-        requested = requested.resolve()
-    ret = requested.resolve()
     return ret
 
 
@@ -239,18 +175,15 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         )
     _validateAdminTokens(in_tokens=baseSettings.adminRawTokens)
 
-    # tools.yaml: пустой toolsConfigPath → tenant администратора; иначе явный путь.
-    rawToolsSource = baseSettings.tools.toolsConfigPath
-    toolsConfigPath = _resolveEffectiveToolsYamlPath(
-        in_rawToolsConfigPath=rawToolsSource,
+    tenantToolsYamlPath = _defaultTenantToolsYamlPath(
         in_memoryRootPath=baseSettings.memory.memoryRootPath,
         in_adminTelegramUserId=baseSettings.adminTelegramUserId,
-    )
-    _ensureToolsYamlOnDisk(in_targetToolsPath=toolsConfigPath)
+    ).resolve()
+    _ensureToolsYamlOnDisk(in_targetToolsPath=tenantToolsYamlPath)
 
     toolsData: dict[str, Any] | None = None
-    if toolsConfigPath.exists():
-        loadedToolsData = _readYamlFile(in_path=toolsConfigPath)
+    if tenantToolsYamlPath.exists():
+        loadedToolsData = _readYamlFile(in_path=tenantToolsYamlPath)
         toolsData = loadedToolsData if isinstance(loadedToolsData, dict) else None
 
     configFallbackDigest = TelegramNewsDigestToolSettings(
@@ -279,24 +212,20 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         except ValidationError:
             effectiveEmail = EmailReaderToolSettings()
 
-    toolsConfigPathStr = str(toolsConfigPath)
     ret = baseSettings.model_copy(
         update={
             "tools": baseSettings.tools.model_copy(
                 update={
-                    "toolsConfigPath": toolsConfigPathStr,
                     "telegramNewsDigest": effectiveDigest,
                     "emailReader": effectiveEmail,
                 }
             )
         }
     )
-    rawSchedSource = ret.scheduler.schedulesConfigPath
-    schedulesResolved = _resolveEffectiveSchedulesYamlPath(
-        in_rawSchedulesConfigPath=rawSchedSource,
+    schedulesResolved = _defaultTenantSchedulesYamlPath(
         in_memoryRootPath=ret.memory.memoryRootPath,
         in_adminTelegramUserId=ret.adminTelegramUserId,
-    )
+    ).resolve()
     _ensureSchedulesYamlOnDisk(in_targetSchedulesPath=schedulesResolved)
     schedulesConfigStr = str(schedulesResolved)
     if ret.scheduler.enabled is True:
@@ -310,22 +239,15 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             normalizedSchedulesData = dict(loadedSchedulesData)
         else:
             normalizedSchedulesData = {}
-        if normalizedSchedulesData.get("reminders") is None:
-            normalizedSchedulesData["reminders"] = []
+        merged_schedules = normalizeLegacySchedulesDict(in_data=normalizedSchedulesData)
         try:
-            parsedScheduler = SchedulerSettings.model_validate(
-                {"enabled": True, **normalizedSchedulesData}
-            )
+            TenantSchedulesFile.model_validate(merged_schedules)
         except ValidationError as in_exc:
-            raise SettingsLoadError(f"Invalid scheduler settings: {in_exc}") from in_exc
-        effectiveScheduler = parsedScheduler.model_copy(
-            update={
-                "enabled": ret.scheduler.enabled,
-                "schedulesConfigPath": schedulesConfigStr,
-                "tickSeconds": ret.scheduler.tickSeconds,
-            }
-        )
-    else:
-        effectiveScheduler = ret.scheduler.model_copy(update={"schedulesConfigPath": schedulesConfigStr})
-    ret = ret.model_copy(update={"scheduler": effectiveScheduler})
+            raise SettingsLoadError(f"Invalid tenant schedules YAML: {in_exc}") from in_exc
+    ret = ret.model_copy(
+        update={
+            "adminTenantToolsYamlPath": str(tenantToolsYamlPath),
+            "adminTenantSchedulesYamlPath": schedulesConfigStr,
+        }
+    )
     return ret

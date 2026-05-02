@@ -46,6 +46,19 @@ def testProvisionCreatesSessionFiles() -> None:
         assert (session_dir / "schedules.yaml").exists()
 
 
+def testProvisionRepairsToolsYamlWhenPathWasDirectory() -> None:
+    with TemporaryDirectory() as tmp:
+        memory_root = Path(tmp) / "memory"
+        session_dir = memory_root / "sessions" / "telegramUser_1000"
+        session_dir.mkdir(parents=True)
+        bogus_tools = session_dir / "tools.yaml"
+        bogus_tools.mkdir()
+        settings = MemorySettings(memoryRootPath=str(memory_root))
+        provisionTelegramUserWorkspaceIfNeeded(in_telegramUserId=1000, in_memorySettings=settings)
+        assert bogus_tools.is_file()
+        assert bogus_tools.read_text(encoding="utf-8") == DEFAULT_TENANT_TOOLS_YAML_TEXT
+
+
 def testCreateUserUseCaseAddsToRegistryAndDisk() -> None:
     with TemporaryDirectory() as tmp:
         memory_root = Path(tmp) / "memory"
@@ -61,3 +74,5 @@ def testCreateUserUseCaseAddsToRegistryAndDisk() -> None:
         assert registry.listRegisteredTelegramUserIds() == {888}
         session_dir = memory_root / "sessions" / "telegramUser_888"
         assert session_dir.is_dir()
+        assert (session_dir / "tools.yaml").is_file()
+        assert (session_dir / "schedules.yaml").is_file()

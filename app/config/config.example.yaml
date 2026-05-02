@@ -16,11 +16,9 @@ telegram:
   voiceMaxSeconds: 60
   voiceMaxBytes: 5000000
 
-# Настройки инструментов: пустой toolsConfigPath → файл в каталоге памяти админа:
-# ${memory.memoryRootPath}/sessions/telegramUser_${ADMIN_TELEGRAM_USER_ID}/tools.yaml
-# Иначе — явный путь к YAML (относительно cwd процесса).
-tools:
-  toolsConfigPath: ""
+# Инструменты и расписания: только tenant-файлы в
+# ${memory.memoryRootPath}/sessions/telegramUser_${ADMIN_TELEGRAM_USER_ID}/tools.yaml и schedules.yaml
+# (имена файлов фиксированы; override путей в config не поддерживается).
 
 models:
   openRouterBaseUrl: "https://openrouter.ai/api/v1"
@@ -77,8 +75,6 @@ memory:
 
 scheduler:
   enabled: false
-  # Пусто = data/memory/sessions/telegramUser_<ADMIN>/schedules.yaml (рядом с tools.yaml).
-  schedulesConfigPath: ""
   tickSeconds: 1
 
 # Telegram user id владельца веб-админки (tenant по умолчанию для пустых tools/schedules путей).

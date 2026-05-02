@@ -61,6 +61,15 @@ class SaveEmailPreferenceArgsModel(BaseModel):
     userNote: str = Field(default="", max_length=800)
 
 
+class SaveUserMemoryNoteArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    noteText: str = Field(
+        min_length=1,
+        max_length=2000,
+        description="Краткая нейтральная формулировка факта для long_term (сформулируй на стороне модели).",
+    )
+
+
 class ReadMemoryFileArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     relativePath: str = Field(min_length=1)
@@ -148,3 +157,45 @@ class ListRemindersArgsModel(BaseModel):
 class DeleteReminderArgsModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reminderId: str = Field(min_length=1)
+
+
+class ScheduleRecurringAgentRunArgsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message: str = Field(
+        min_length=1,
+        max_length=4000,
+        description=(
+            "Текст задачи для агента при каждом запуске (как пользовательское сообщение), "
+            "например: «Сделай дайджест новостей по экономике РФ за последний час» или "
+            "«Прочитай непрочитанные письма и кратко перескажи важное»."
+        ),
+    )
+    intervalSeconds: int = Field(
+        default=3600,
+        ge=60,
+        le=604800,
+        description="Интервал между запусками (секунды). Минимум 60.",
+    )
+    allowedHourStart: int | None = Field(
+        default=None,
+        ge=0,
+        le=23,
+        description="Опционально: начало окна локальных часов (0–23). Вместе с allowedHourEnd ограничивает часы суток.",
+    )
+    allowedHourEnd: int | None = Field(
+        default=None,
+        ge=0,
+        le=23,
+        description="Опционально: конец окна локальных часов (0–23).",
+    )
+    taskId: str = Field(
+        default="",
+        max_length=80,
+        description="Опционально: id задачи для обновления. Пусто — создать новую.",
+    )
+    sessionSlug: str = Field(
+        default="",
+        max_length=48,
+        description="Опционально: короткий суффикс сессии scheduler; иначе берётся из taskId.",
+    )
+    enabled: bool = True

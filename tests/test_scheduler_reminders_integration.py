@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-from app.config.settingsModels import LoggingSettings, ReminderModel, SchedulerSettings
+from app.config.settingsModels import LoggingSettings, MemorySettings, SchedulerSettings
 from app.reminders.reminderConfigStore import ReminderConfigStore
 from app.scheduler.schedulerRunner import SchedulerRunner
 
@@ -11,7 +11,10 @@ from app.scheduler.schedulerRunner import SchedulerRunner
 def testSchedulerReminderFiresOncePerMinuteAndDecrementsRemainingRuns(tmp_path: Path) -> None:
     sentItems: list[tuple[str, str]] = []
     nowUnixTs = int(datetime(2026, 1, 1, 10, 15, tzinfo=timezone.utc).timestamp())
-    schedulesPath = tmp_path / "test-schedules.yaml"
+    memory_root = tmp_path / "memory"
+    session_dir = memory_root / "sessions" / "telegramUser_16739703"
+    session_dir.mkdir(parents=True)
+    schedulesPath = session_dir / "schedules.yaml"
     schedulesPath.write_text(
         yaml.safe_dump(
             {
@@ -38,21 +41,6 @@ def testSchedulerReminderFiresOncePerMinuteAndDecrementsRemainingRuns(tmp_path: 
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
-        schedulesConfigPath=str(schedulesPath),
-        jobs=[],
-        reminders=[
-            ReminderModel(
-                reminderId="reminder-1",
-                enabled=True,
-                message="Пора сделать паузу",
-                schedule={
-                    "kind": "daily",
-                    "timeLocal": "10:15",
-                    "timeZone": "UTC",
-                    "remainingRuns": 1,
-                },
-            )
-        ],
     )
     loggingSettings = LoggingSettings(
         logsDirPath=str(tmp_path / "logs"),
@@ -65,12 +53,18 @@ def testSchedulerReminderFiresOncePerMinuteAndDecrementsRemainingRuns(tmp_path: 
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_memoryRootPath=str(memory_root),
         in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: ("", ""),
-        in_onReminderTriggeredCallable=lambda reminderId, text: sentItems.append((reminderId, text)),
-        in_onReminderCompletedCallable=lambda reminderId: ReminderConfigStore(
-            in_schedulesConfigPath=str(schedulesPath)
-        ).deleteReminder(in_reminderId=reminderId),
+        in_onReminderTriggeredCallable=lambda reminderId, text, _owner: sentItems.append(
+            (reminderId, text)
+        ),
+        in_onReminderCompletedCallable=lambda reminderId, owner: ReminderConfigStore(
+            in_memorySettings=MemorySettings(memoryRootPath=str(memory_root)),
+        ).deleteReminderForTenant(
+            in_reminderId=reminderId,
+            in_ownerMemoryPrincipalId=owner,
+        ),
         in_nowUnixTsProvider=lambda: nowUnixTs,
         in_sleepCallable=lambda _: None,
         in_timeZoneName="UTC",
@@ -80,16 +74,19 @@ def testSchedulerReminderFiresOncePerMinuteAndDecrementsRemainingRuns(tmp_path: 
     runner._tickOnce()
 
     assert sentItems == [("reminder-1", "Пора сделать паузу")]
-    remindersState = runner._getRemindersState()
-    assert "reminder-1" not in remindersState
-    loadedSchedules = yaml.safe_load(schedulesPath.read_text(encoding="utf-8")) or {}
-    assert loadedSchedules.get("reminders", []) == []
+    loaded_schedules = yaml.safe_load(schedulesPath.read_text(encoding="utf-8")) or {}
+    st = loaded_schedules.get("scheduledTasks", [])
+    assert isinstance(st, list) is True
+    assert len(st) == 0
 
 
 def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
     sentItems: list[tuple[str, str]] = []
     nowUnixTs = int(datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc).timestamp())
-    schedulesPath = tmp_path / "schedules.yaml"
+    memory_root = tmp_path / "memory"
+    session_dir = memory_root / "sessions" / "telegramUser_16739703"
+    session_dir.mkdir(parents=True)
+    schedulesPath = session_dir / "schedules.yaml"
     schedulesPath.write_text(
         yaml.safe_dump({"jobs": [], "reminders": []}, sort_keys=False),
         encoding="utf-8",
@@ -97,9 +94,6 @@ def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
     schedulerSettings = SchedulerSettings(
         enabled=True,
         tickSeconds=1,
-        jobs=[],
-        reminders=[],
-        schedulesConfigPath=str(schedulesPath),
     )
     loggingSettings = LoggingSettings(
         logsDirPath=str(tmp_path / "logs"),
@@ -112,9 +106,12 @@ def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_memoryRootPath=str(memory_root),
         in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: ("", ""),
-        in_onReminderTriggeredCallable=lambda reminderId, text: sentItems.append((reminderId, text)),
+        in_onReminderTriggeredCallable=lambda reminderId, text, _owner: sentItems.append(
+            (reminderId, text)
+        ),
         in_nowUnixTsProvider=lambda: nowUnixTs,
         in_sleepCallable=lambda _: None,
         in_timeZoneName="UTC",
@@ -128,11 +125,12 @@ def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
                     {
                         "reminderId": "reload-rem",
                         "enabled": True,
-                        "message": "Обновлённый reminder",
+                        "message": "reload",
                         "schedule": {
                             "kind": "daily",
                             "timeLocal": "12:00",
                             "timeZone": "UTC",
+                            "remainingRuns": 1,
                         },
                     }
                 ],
@@ -145,5 +143,5 @@ def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
 
     runner._tickOnce()
 
-    assert sentItems == [("reload-rem", "Обновлённый reminder")]
-
+    assert len(sentItems) == 1
+    assert sentItems[0][0] == "reload-rem"

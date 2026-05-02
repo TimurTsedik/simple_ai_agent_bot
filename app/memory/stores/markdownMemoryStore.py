@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from app.config.settingsModels import MemorySettings
@@ -64,6 +65,14 @@ class MarkdownMemoryStore:
             recentPath.unlink()
         if summaryPath.exists():
             summaryPath.unlink()
+
+    def removeSessionWorkspaceDirectory(self, in_sessionId: str) -> None:
+        """Удаляет каталог сессии целиком (без создания пути заранее)."""
+
+        sanitizedSessionId = str(in_sessionId or "").replace(":", "_")
+        sessionDirPath = self._rootPath / "sessions" / sanitizedSessionId
+        if sessionDirPath.exists() is True and sessionDirPath.is_dir() is True:
+            shutil.rmtree(sessionDirPath)
 
     def _buildSessionFilePath(self, in_sessionId: str, in_fileName: str) -> Path:
         sessionDirPath = self._buildSessionDirPath(in_sessionId=in_sessionId)

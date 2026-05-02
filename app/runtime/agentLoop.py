@@ -431,8 +431,12 @@ class AgentLoop:
                                 "kind": "tool_call_blocked",
                                 "tool_name": toolName,
                                 "reason": "tool_already_succeeded_in_this_run",
-                                "message": "Инструмент уже был успешно вызван в этом run. "
-                                "Сформируй final-ответ по последним данным, без повторного вызова.",
+                                "message": (
+                                    "Инструмент уже был успешно вызван в этом run; повтор с теми же "
+                                    "аргументами запрещён. Сформируй type: final или вызови другой инструмент "
+                                    "(например schedule_recurring_agent_run, если пользователь просил "
+                                    "повторяющееся расписание). Не зацикливай тот же tool_call."
+                                ),
                             }
                             if previousOkResult is not None:
                                 blockedPayload["previous_observation_preview"] = (
@@ -620,20 +624,29 @@ class AgentLoop:
                         "meta": toolResult.meta,
                     }
                     stepTrace["observation"] = observationText
-                    timeoutCount = toolTimeoutCounts.get(toolName, 0)
-                    if timeoutCount >= maxTimeoutsPerTool:
-                        completionReason = "tool_timeout_limit"
-                        finalAnswer = (
-                            "Не удалось завершить запрос: инструмент "
-                            f"`{toolName}` несколько раз превысил лимит времени. "
-                            "Попробуйте повторить запрос позже."
-                        )
-                        stepTrace["status"] = "tool_timeout_limit"
+                    terminalConfigErrorFinal = self._buildTerminalToolConfigErrorFinalAnswer(
+                        in_toolResult=toolResult
+                    )
+                    if terminalConfigErrorFinal != "":
+                        completionReason = "tool_configuration_error"
+                        finalAnswer = terminalConfigErrorFinal
+                        stepTrace["status"] = "tool_configuration_error"
                         isFinished = True
                     else:
-                        completionReason = "running"
-                        finalAnswer = ""
-                        isFinished = False
+                        timeoutCount = toolTimeoutCounts.get(toolName, 0)
+                        if timeoutCount >= maxTimeoutsPerTool:
+                            completionReason = "tool_timeout_limit"
+                            finalAnswer = (
+                                "Не удалось завершить запрос: инструмент "
+                                f"`{toolName}` несколько раз превысил лимит времени. "
+                                "Попробуйте повторить запрос позже."
+                            )
+                            stepTrace["status"] = "tool_timeout_limit"
+                            isFinished = True
+                        else:
+                            completionReason = "running"
+                            finalAnswer = ""
+                            isFinished = False
                 stepTraces.append(stepTrace)
                 stepCount += 1
 
@@ -670,6 +683,29 @@ class AgentLoop:
         )
         io_fallbackEvents.extend(list(llmResult.fallbackEvents))
         ret = llmResult
+        return ret
+
+    def _buildTerminalToolConfigErrorFinalAnswer(
+        self,
+        in_toolResult: ToolResultEnvelopeModel,
+    ) -> str:
+        ret: str
+        ret = ""
+        if in_toolResult.ok is False and isinstance(in_toolResult.error, dict):
+            errorCode = str(in_toolResult.error.get("code", "")).strip()
+            errorMessage = str(in_toolResult.error.get("message", "")).strip().lower()
+            isReadEmailConfigError = (
+                in_toolResult.tool_name == "read_email"
+                and errorCode == "EXECUTION_ERROR"
+                and "emailreader settings" in errorMessage
+                and "email is empty" in errorMessage
+            )
+            if isReadEmailConfigError is True:
+                ret = (
+                    "Не удалось собрать дайджест почты: не настроен email аккаунта "
+                    "(`tools.emailReader.email` пустой). Заполните email в конфиге "
+                    "и повторите запрос."
+                )
         return ret
 
     def _countSignatureInWindow(self, in_window: list[str], in_signature: str) -> int:

@@ -8,6 +8,7 @@ from app.common.adminRunsScopeHint import buildAdminRunsScopeHintPlainText
 from app.common.webDisplayTime import formatIso8601ForWeb
 from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
 from app.common.webDisplayTime import resolveDisplayZone
+from app.common.adminTenantConfigPaths import resolveAdminTenantToolsYamlPath
 from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.config.settingsModels import SettingsModel
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
@@ -124,11 +125,10 @@ class DashboardSnapshotService:
 
     def _resolveToolsConfigPath(self) -> Path:
         ret: Path
-        toolsPath = Path(self._settings.tools.toolsConfigPath)
-        if toolsPath.is_absolute() is False:
-            ret = toolsPath.resolve()
-        else:
-            ret = toolsPath
+        ret = resolveAdminTenantToolsYamlPath(
+            in_memoryRootPath=self._settings.memory.memoryRootPath,
+            in_adminTelegramUserId=int(self._settings.adminTelegramUserId),
+        )
         return ret
 
     def _formatBytes(self, in_sizeBytes: int) -> str:

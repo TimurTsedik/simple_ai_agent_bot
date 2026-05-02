@@ -33,7 +33,7 @@ def testJsonRunRepositoryWritesRunFileAndIndex() -> None:
     assert indexData["completionReason"] == "final_answer"
 
 
-def testJsonRunRepositoryListRunsFiltersByExactSessionId() -> None:
+def testJsonRunRepositoryListRunsFiltersByTenantPrincipalAndChildSessions() -> None:
     with TemporaryDirectory() as tempDir:
         repository = JsonRunRepository(in_dataRootPath=tempDir)
         repository.saveRun(
@@ -60,6 +60,18 @@ def testJsonRunRepositoryListRunsFiltersByExactSessionId() -> None:
                 "finishedAt": "2026-01-01T00:00:03+00:00",
             }
         )
+        repository.saveRun(
+            in_runRecord={
+                "traceId": "t_sched",
+                "runId": "r_sched",
+                "sessionId": "telegramUser:99:scheduler:news",
+                "runStatus": "completed",
+                "completionReason": "final_answer",
+                "selectedModel": "model",
+                "createdAt": "2026-01-01T00:00:04+00:00",
+                "finishedAt": "2026-01-01T00:00:05+00:00",
+            }
+        )
         filteredLegacyPrefix = repository.listRuns(
             in_limit=10,
             in_offset=0,
@@ -71,8 +83,8 @@ def testJsonRunRepositoryListRunsFiltersByExactSessionId() -> None:
             in_session_id="telegram:99",
         )
 
-    assert len(filteredLegacyPrefix) == 1
-    assert filteredLegacyPrefix[0]["runId"] == "r_ok"
+    assert len(filteredLegacyPrefix) == 2
+    assert {item["runId"] for item in filteredLegacyPrefix} == {"r_ok", "r_sched"}
     assert len(filteredExact) == 1
     assert filteredExact[0]["runId"] == "r_legacy"
 

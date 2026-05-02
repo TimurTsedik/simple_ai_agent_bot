@@ -206,6 +206,39 @@ def testReadEmailToolRequiresPassword():
         _ = tool.execute({}, in_memoryPrincipalId="telegramUser:1")
 
 
+def testReadEmailToolLoadsPerTenantCredentialsFromToolsYaml(tmp_path) -> None:
+    sessionDir = tmp_path / "sessions" / "telegramUser_42"
+    sessionDir.mkdir(parents=True, exist_ok=True)
+    (sessionDir / "tools.yaml").write_text(
+        "emailReader:\n"
+        "  accountName: gmail\n"
+        "  email: user42@example.com\n"
+        "  password: per_tenant_password\n"
+        "  imapHost: imap.gmail.com\n"
+        "  imapPort: 993\n"
+        "  imapSsl: true\n"
+        "  smtpHost: smtp.gmail.com\n"
+        "  smtpPort: 465\n"
+        "  smtpSsl: true\n",
+        encoding="utf-8",
+    )
+    now = datetime.now(timezone.utc)
+    msg = _makeRfc822Bytes("Alice <a@example.com>", "Hello", "Body one", now)
+    fake = FakeImapClient({b"10": msg})
+    tool = ReadEmailTool(
+        in_emailSettings=EmailReaderToolSettings(),
+        in_password="",
+        in_memoryRootPath=str(tmp_path),
+        in_imapClientFactory=lambda _s: fake,
+    )
+    result = tool.execute(
+        {"mailbox": "INBOX", "unreadOnly": True, "sinceHours": 24, "maxItems": 10},
+        in_memoryPrincipalId="telegramUser:42",
+    )
+    assert result["count"] == 1
+    assert result["account"]["email"] == "user42@example.com"
+
+
 def testReadEmailToolCanKeepUnreadWithoutSeenFlag() -> None:
     settings = EmailReaderToolSettings(email="me@example.com")
     now = datetime.now(timezone.utc)

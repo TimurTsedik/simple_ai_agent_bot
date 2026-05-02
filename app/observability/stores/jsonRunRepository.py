@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from typing import Any, Iterator
 
+from app.common.runSessionScope import sessionIdMatchesTenantPrincipal
+
 
 class JsonRunRepository:
     def __init__(self, in_dataRootPath: str) -> None:
@@ -72,7 +74,10 @@ class JsonRunRepository:
             if not isinstance(parsedValue, dict):
                 continue
             record_session = str(parsedValue.get("sessionId", "") or "")
-            if record_session != str(in_session_id):
+            if sessionIdMatchesTenantPrincipal(
+                in_recordSessionId=record_session,
+                in_tenantPrincipalId=str(in_session_id),
+            ) is False:
                 continue
             matchedRecords.append(parsedValue)
             needTotal = boundedOffset + boundedLimit

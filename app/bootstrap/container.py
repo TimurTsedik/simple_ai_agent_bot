@@ -18,6 +18,7 @@ from app.application.useCases.handleIncomingTelegramMessageUseCase import (
 from app.application.useCases.runAgentUseCase import RunAgentUseCase
 from app.common.contouringRequestsPolicy import ContouringRequestsPolicy
 from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
+from app.common.memoryPrincipal import parseTelegramUserIdFromMemoryPrincipal
 from app.common.structuredLogger import createAppLogger
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsLoader import loadSettings
@@ -165,14 +166,25 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_settings=settings,
     )
 
-    def runInternalForScheduler(in_sessionId: str, in_message: str) -> tuple[str, str]:
-        runResult = runAgentUseCase.execute(
-            in_sessionId=in_sessionId,
-            in_inputMessage=in_message,
-            in_memoryPrincipalId=adminMemoryPrincipalId,
-        )
-        finalAnswer = runResult.finalAnswer or "Пустой ответ агента."
-        ret = (runResult.runId, finalAnswer)
+    def runInternalForScheduler(
+        in_sessionId: str,
+        in_message: str,
+        in_memoryPrincipalId: str,
+    ) -> tuple[str, str]:
+        memory_principal = str(in_memoryPrincipalId or "").strip()
+        if memory_principal == "":
+            memory_principal = adminMemoryPrincipalId
+        ret: tuple[str, str]
+        try:
+            runResult = runAgentUseCase.execute(
+                in_sessionId=in_sessionId,
+                in_inputMessage=in_message,
+                in_memoryPrincipalId=memory_principal,
+            )
+            finalAnswer = runResult.finalAnswer or "Пустой ответ агента."
+            ret = (runResult.runId, finalAnswer)
+        finally:
+            memoryService.discardScheduledInternalSessionContext(in_sessionId=in_sessionId)
         return ret
 
     def notifySchedulerResultToTelegram(
@@ -180,6 +192,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_sessionId: str,
         in_runId: str,
         in_finalAnswer: str,
+        in_ownerMemoryPrincipalId: str,
     ) -> None:
         formattedText = formatSchedulerTelegramMessage(
             in_jobId=in_jobId,
@@ -194,7 +207,16 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_preferSeparator="\n---\n",
         )
         apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
-        for chatId in sorted(telegramUserRegistryStore.listRegisteredTelegramUserIds()):
+        registered_ids = telegramUserRegistryStore.listRegisteredTelegramUserIds()
+        owner_user_id = parseTelegramUserIdFromMemoryPrincipal(
+            in_memoryPrincipalId=str(in_ownerMemoryPrincipalId or ""),
+        )
+        target_chat_ids: list[int]
+        if owner_user_id is not None and owner_user_id in registered_ids:
+            target_chat_ids = [int(owner_user_id)]
+        else:
+            target_chat_ids = [int(settings.adminTelegramUserId)]
+        for chatId in sorted(target_chat_ids):
             for index, chunk in enumerate(textChunks, start=1):
                 chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
                 try:
@@ -235,6 +257,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
     def notifyReminderToTelegram(
         in_reminderId: str,
         in_message: str,
+        in_ownerMemoryPrincipalId: str,
     ) -> None:
         formattedText = formatReminderTelegramMessage(
             in_reminderId=in_reminderId,
@@ -247,7 +270,16 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_preferSeparator="\n---\n",
         )
         apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
-        for chatId in sorted(telegramUserRegistryStore.listRegisteredTelegramUserIds()):
+        registered_ids = telegramUserRegistryStore.listRegisteredTelegramUserIds()
+        owner_user_id = parseTelegramUserIdFromMemoryPrincipal(
+            in_memoryPrincipalId=str(in_ownerMemoryPrincipalId or ""),
+        )
+        target_chat_ids: list[int]
+        if owner_user_id is not None and owner_user_id in registered_ids:
+            target_chat_ids = [int(owner_user_id)]
+        else:
+            target_chat_ids = [int(settings.adminTelegramUserId)]
+        for chatId in sorted(target_chat_ids):
             for index, chunk in enumerate(textChunks, start=1):
                 chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
                 contouringHttpPolicy.post(
@@ -269,12 +301,18 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
                 )
 
     reminderConfigStore = ReminderConfigStore(
-        in_schedulesConfigPath=settings.scheduler.schedulesConfigPath
+        in_memorySettings=settings.memory,
     )
 
-    def removeCompletedReminderFromConfig(in_reminderId: str) -> bool:
+    def removeCompletedReminderFromConfig(
+        in_reminderId: str,
+        in_ownerMemoryPrincipalId: str,
+    ) -> bool:
         ret: bool
-        ret = reminderConfigStore.deleteReminder(in_reminderId=in_reminderId)
+        ret = reminderConfigStore.deleteReminderForTenant(
+            in_reminderId=in_reminderId,
+            in_ownerMemoryPrincipalId=in_ownerMemoryPrincipalId,
+        )
         return ret
 
     schedulerRunner: SchedulerRunner | None
@@ -284,14 +322,15 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_eventType="scheduler_config_enabled",
             in_payload={
                 "tickSeconds": int(settings.scheduler.tickSeconds),
-                "jobCount": len(settings.scheduler.jobs),
-                "schedulesConfigPath": settings.scheduler.schedulesConfigPath,
+                "adminTenantSchedulesYamlPath": settings.adminTenantSchedulesYamlPath,
+                "memoryRootPath": settings.memory.memoryRootPath,
             },
         )
         schedulerRunner = SchedulerRunner(
             in_schedulerSettings=settings.scheduler,
             in_loggingSettings=settings.logging,
             in_dataRootPath=settings.app.dataRootPath,
+            in_memoryRootPath=settings.memory.memoryRootPath,
             in_adminTelegramUserId=int(settings.adminTelegramUserId),
             in_runInternalCallable=runInternalForScheduler,
             in_onRunCompletedCallable=notifySchedulerResultToTelegram,

@@ -14,18 +14,9 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
     in_monkeypatch.setenv("ADMIN_RAW_TOKENS", "token-one-12345678")
 
     configPath = in_tmpPath / "config.yaml"
-    toolsPath = in_tmpPath / "tools.yaml"
     skillsDir = in_tmpPath / "skills"
     skillsDir.mkdir(parents=True, exist_ok=True)
     (skillsDir / "default_assistant.md").write_text("# Default\n\na", encoding="utf-8")
-
-    toolsPath.write_text(
-        "telegramNewsDigest:\n"
-        "  digestChannelUsernames: [\"a\"]\n"
-        "  portfolioTickers: []\n"
-        "  digestSemanticKeywords: []\n",
-        encoding="utf-8",
-    )
 
     dataRoot = in_tmpPath / "data"
     memoryRoot = dataRoot / "memory"
@@ -39,6 +30,13 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
     adminSessionDir.mkdir(parents=True, exist_ok=True)
     (adminSessionDir / "long_term.md").write_text(
         "line-one\n<script>x</script>\n",
+        encoding="utf-8",
+    )
+    (adminSessionDir / "tools.yaml").write_text(
+        "telegramNewsDigest:\n"
+        "  digestChannelUsernames: [\"a\"]\n"
+        "  portfolioTickers: []\n"
+        "  digestSemanticKeywords: []\n",
         encoding="utf-8",
     )
 
@@ -82,13 +80,10 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         "  backupCount: 5\n"
         "skills:\n"
         f"  skillsDirPath: \"{skillsDir.as_posix()}\"\n"
-        "tools:\n"
-        f"  toolsConfigPath: \"{toolsPath.as_posix()}\"\n"
         "memory:\n"
         f"  memoryRootPath: \"{memoryRoot.as_posix()}\"\n"
         "scheduler:\n"
         "  enabled: false\n"
-        "  schedulesConfigPath: \"\"\n"
         "  tickSeconds: 1\n",
         encoding="utf-8",
     )

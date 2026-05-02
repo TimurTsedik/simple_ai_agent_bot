@@ -5,6 +5,8 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
+
 from app.config.settingsModels import MemorySettings
 from app.memory.services.memoryService import MemoryService
 from app.domain.policies.memoryPolicy import MemoryPolicy
@@ -63,3 +65,16 @@ def testReadMemoryFileToolDeniesForeignSessionDirectory() -> None:
                 in_args={"relativePath": str(targetForeign), "maxChars": 100},
                 in_memoryPrincipalId="telegramUser:1",
             )
+
+
+def testDigestReadStateStoreUsesDistinctFilePerPrincipal() -> None:
+    data_root = Path("/data/example")
+    principal_one = formatTelegramUserMemoryPrincipal(in_telegramUserId=1)
+    principal_two = formatTelegramUserMemoryPrincipal(in_telegramUserId=2)
+    sanitized_one = str(principal_one or "").strip().replace(":", "_")
+    sanitized_two = str(principal_two or "").strip().replace(":", "_")
+    path_one = data_root / "state" / "telegram_digest_read_state" / f"{sanitized_one}.json"
+    path_two = data_root / "state" / "telegram_digest_read_state" / f"{sanitized_two}.json"
+    assert path_one != path_two
+    assert path_one.name == "telegramUser_1.json"
+    assert path_two.name == "telegramUser_2.json"

@@ -175,6 +175,9 @@ class RunAgentUseCase:
         toolsSnapshot = snapshot.get("tools")
         if isinstance(toolsSnapshot, dict):
             toolsSnapshot.pop("telegramNewsDigest", None)
+            emailReaderSnapshot = toolsSnapshot.get("emailReader")
+            if isinstance(emailReaderSnapshot, dict) and "password" in emailReaderSnapshot:
+                emailReaderSnapshot["password"] = "***"
         telegramSnapshot = snapshot.get("telegram")
         if isinstance(telegramSnapshot, dict):
             telegramSnapshot.pop("digestChannelUsernames", None)

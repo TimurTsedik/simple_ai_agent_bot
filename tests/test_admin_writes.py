@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.common.adminTenantConfigPaths import resolveAdminTenantToolsYamlPath
+
 
 def _buildClient(in_monkeypatch, in_tmpPath: Path, in_adminWritesEnabled: bool) -> TestClient:
     in_monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg-token-test")
@@ -11,7 +13,10 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path, in_adminWritesEnabled: bool) 
     in_monkeypatch.setenv("ADMIN_RAW_TOKENS", "token-one-12345678")
 
     configPath = in_tmpPath / "config.yaml"
-    toolsPath = in_tmpPath / "tools.yaml"
+    memoryRoot = in_tmpPath / "memory"
+    sessionDir = memoryRoot / "sessions" / "telegramUser_16739703"
+    sessionDir.mkdir(parents=True, exist_ok=True)
+    toolsPath = sessionDir / "tools.yaml"
     skillsDir = in_tmpPath / "skills"
     skillsDir.mkdir(parents=True, exist_ok=True)
     (skillsDir / "default_assistant.md").write_text("# Default\n\na", encoding="utf-8")
@@ -20,7 +25,16 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path, in_adminWritesEnabled: bool) 
         "telegramNewsDigest:\n"
         "  digestChannelUsernames: [\"a\"]\n"
         "  portfolioTickers: []\n"
-        "  digestSemanticKeywords: []\n",
+        "  digestSemanticKeywords: []\n"
+        "emailReader:\n"
+        "  accountName: \"gmail\"\n"
+        "  email: \"owner@example.com\"\n"
+        "  imapHost: \"imap.gmail.com\"\n"
+        "  imapPort: 993\n"
+        "  imapSsl: true\n"
+        "  smtpHost: \"smtp.gmail.com\"\n"
+        "  smtpPort: 465\n"
+        "  smtpSsl: true\n",
         encoding="utf-8",
     )
 
@@ -63,8 +77,8 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path, in_adminWritesEnabled: bool) 
         "  backupCount: 5\n"
         "skills:\n"
         f"  skillsDirPath: \"{skillsDir.as_posix()}\"\n"
-        "tools:\n"
-        f"  toolsConfigPath: \"{toolsPath.as_posix()}\"\n",
+        "memory:\n"
+        f"  memoryRootPath: \"{memoryRoot.as_posix()}\"\n",
         encoding="utf-8",
     )
 
@@ -126,3 +140,13 @@ def testAdminWritesEnabledAllowsSaving(monkeypatch, tmp_path) -> None:
     )
     assert respTools.status_code == 200
     assert "Сохранено" in respTools.text
+
+    toolsPath = resolveAdminTenantToolsYamlPath(
+        in_memoryRootPath=str(tmp_path / "memory"),
+        in_adminTelegramUserId=16739703,
+    )
+    savedText = toolsPath.read_text(encoding="utf-8")
+    assert "digestChannelUsernames:\n  - b" in savedText
+    assert "emailReader:" in savedText
+    assert "email:" in savedText
+    assert "imapHost: imap.gmail.com" in savedText

@@ -10,7 +10,10 @@ from app.runtime.routingPlanModels import (
     RoutingPlanYamlModel,
     routingPlanYamlToDump,
 )
-from app.runtime.routingPolicy import resolveRequiredFirstSuccessfulToolNameFromSkills
+from app.runtime.routingPolicy import (
+    hasExplicitRecurringScheduleIntent,
+    resolveRequiredFirstSuccessfulToolNameFromSkills,
+)
 from app.skills.services.skillService import SkillService
 from app.tools.registry.toolRegistry import ToolRegistry
 
@@ -105,6 +108,19 @@ class LlmRoutingPlanResolver:
             ),
             in_allowToolCalls=normalizedPlanSnapshot.allow_tool_calls,
         )
+        policyFirstToolValue = resolveRequiredFirstSuccessfulToolNameFromSkills(
+            in_selectedSkillIds=skillIdsAdjustedValue,
+            in_userMessage=in_userMessage,
+        )
+        forceScheduleRecurringFirstTool = (
+            "schedule_recurring_agent_run" in set(skillIdsAdjustedValue)
+            and hasExplicitRecurringScheduleIntent(in_userMessage=in_userMessage) is True
+        )
+        if (
+            policyFirstToolValue == "schedule_recurring_agent_run"
+            or forceScheduleRecurringFirstTool is True
+        ):
+            requiredToolGuardedValue = "schedule_recurring_agent_run"
         sanitizedPlanApplied = RoutingPlanYamlModel(
             type="route_plan",
             selected_skill_ids=skillIdsAdjustedValue,
@@ -193,6 +209,7 @@ class LlmRoutingPlanResolver:
         )
         requiredToolRawValue = resolveRequiredFirstSuccessfulToolNameFromSkills(
             in_selectedSkillIds=list(selectionEnvelopeAdjustedValue.selectedSkillIds),
+            in_userMessage=in_userMessage,
         )
         requiredToolGuardedValue = self._applyGuardsToLlmRequiredTool(
             in_selectedSkillIds=list(selectionEnvelopeAdjustedValue.selectedSkillIds),
@@ -319,6 +336,7 @@ class LlmRoutingPlanResolver:
         )
         enforcedRequiredToolFallback = resolveRequiredFirstSuccessfulToolNameFromSkills(
             in_selectedSkillIds=list(selectionFallbackValue.selectedSkillIds),
+            in_userMessage=in_userMessage,
         )
         allowToolsFallbackBool = (
             self._skillService.isToolLikelyRequired(

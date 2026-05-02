@@ -7,7 +7,10 @@ from email.header import decode_header
 from email.message import Message
 from email.parser import BytesParser
 from email.policy import default
+from pathlib import Path
 from typing import Any, Protocol
+
+import yaml
 
 from app.config.settingsModels import EmailReaderToolSettings
 
@@ -228,7 +231,50 @@ def _defaultImapClientFactory(in_settings: EmailReaderToolSettings) -> ImapClien
 class ReadEmailTool:
     in_emailSettings: EmailReaderToolSettings
     in_password: str
+    in_memoryRootPath: str = ""
     in_imapClientFactory: Any = _defaultImapClientFactory
+
+    def _resolveEmailSettingsForPrincipal(
+        self,
+        in_memoryPrincipalId: str,
+    ) -> tuple[EmailReaderToolSettings, str]:
+        ret: tuple[EmailReaderToolSettings, str]
+        fallbackSettings = self.in_emailSettings
+        fallbackPassword = str(
+            getattr(self.in_emailSettings, "password", "") or self.in_password or ""
+        ).strip()
+        memoryRootPathText = str(self.in_memoryRootPath or "").strip()
+        if memoryRootPathText == "":
+            ret = (fallbackSettings, fallbackPassword)
+            return ret
+        sessionToolsPath = (
+            Path(memoryRootPathText).resolve()
+            / "sessions"
+            / str(in_memoryPrincipalId or "").replace(":", "_")
+            / "tools.yaml"
+        )
+        if sessionToolsPath.exists() is False:
+            ret = (fallbackSettings, fallbackPassword)
+            return ret
+        try:
+            loaded = yaml.safe_load(sessionToolsPath.read_text(encoding="utf-8")) or {}
+        except Exception:
+            ret = (fallbackSettings, fallbackPassword)
+            return ret
+        if isinstance(loaded, dict) is False:
+            ret = (fallbackSettings, fallbackPassword)
+            return ret
+        try:
+            parsedSettings = EmailReaderToolSettings.model_validate(
+                loaded.get("emailReader", {}),
+            )
+        except Exception:
+            ret = (fallbackSettings, fallbackPassword)
+            return ret
+        resolvedPassword = str(parsedSettings.password or fallbackPassword).strip()
+        parsedSettings = parsedSettings.model_copy(update={"password": resolvedPassword})
+        ret = (parsedSettings, resolvedPassword)
+        return ret
 
     def execute(
         self,
@@ -237,6 +283,9 @@ class ReadEmailTool:
         in_memoryPrincipalId: str,
     ) -> dict[str, Any]:
         ret: dict[str, Any]
+        effectiveEmailSettings, effectivePassword = self._resolveEmailSettingsForPrincipal(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         mailbox = str(in_args.get("mailbox", "INBOX"))
         unreadOnly = bool(in_args.get("unreadOnly", True)) is True
         markAsRead = bool(in_args.get("markAsRead", True)) is True
@@ -257,18 +306,18 @@ class ReadEmailTool:
         if snippetChars > 2000:
             snippetChars = 2000
 
-        if not self.in_emailSettings.email:
+        if not effectiveEmailSettings.email:
             raise RuntimeError("EmailReader settings: email is empty")
-        if not self.in_password:
-            raise RuntimeError("EMAIL_APP_PASSWORD is not configured")
+        if not effectivePassword:
+            raise RuntimeError("EmailReader settings: password is empty")
 
         nowUtc = datetime.now(timezone.utc)
         sinceTs = int((nowUtc - timedelta(hours=sinceHours)).timestamp())
         shouldMarkAsRead = unreadOnly is True and markAsRead is True
 
-        imapClient = self.in_imapClientFactory(self.in_emailSettings)
+        imapClient = self.in_imapClientFactory(effectiveEmailSettings)
         try:
-            imapClient.login(self.in_emailSettings.email, self.in_password)
+            imapClient.login(effectiveEmailSettings.email, effectivePassword)
             imapClient.select(mailbox, readonly=not shouldMarkAsRead)
             criteria = "UNSEEN" if unreadOnly else "ALL"
             _status, data = imapClient.uid("SEARCH", None, criteria)
@@ -322,9 +371,9 @@ class ReadEmailTool:
 
             ret = {
                 "account": {
-                    "name": self.in_emailSettings.accountName,
-                    "email": self.in_emailSettings.email,
-                    "imapHost": self.in_emailSettings.imapHost,
+                    "name": effectiveEmailSettings.accountName,
+                    "email": effectiveEmailSettings.email,
+                    "imapHost": effectiveEmailSettings.imapHost,
                 },
                 "mailbox": mailbox,
                 "unreadOnly": unreadOnly,

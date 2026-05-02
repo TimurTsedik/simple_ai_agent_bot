@@ -96,7 +96,10 @@ class FakeTranscriber:
 
 
 def _makeSettings(in_tmpDir: Path) -> SettingsModel:
-    toolsYamlPath = in_tmpDir / "tools.yaml"
+    memoryRoot = in_tmpDir / "memory"
+    tenantDir = memoryRoot / "sessions" / "telegramUser_16739703"
+    tenantDir.mkdir(parents=True, exist_ok=True)
+    toolsYamlPath = tenantDir / "tools.yaml"
     toolsYamlPath.write_text(
         "telegramNewsDigest:\n  digestChannelUsernames: []\n",
         encoding="utf-8",
@@ -114,7 +117,9 @@ def _makeSettings(in_tmpDir: Path) -> SettingsModel:
             voiceMaxSeconds=60,
             voiceMaxBytes=5_000_000,
         ),
-        tools=ToolsSettings(toolsConfigPath=str(toolsYamlPath)),
+        tools=ToolsSettings(),
+        adminTenantToolsYamlPath=str(toolsYamlPath.resolve()),
+        adminTenantSchedulesYamlPath=str((tenantDir / "schedules.yaml").resolve()),
         models=ModelSettings(
             openRouterBaseUrl="x",
             primaryModel="x",

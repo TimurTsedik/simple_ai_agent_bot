@@ -122,8 +122,17 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### Что выполняется при старте процесса
 
-1. **`loadSettings`**: чтение YAML + env; пустые **`tools.toolsConfigPath`** / **`scheduler.schedulesConfigPath`** разрешаются в каталог tenant админа; при отсутствии файлов — запись минимальных шаблонов из **`defaultTenantSessionYaml.py`**. Непустые пути трактуются как явные файлы (относительно cwd процесса).
+1. **`loadSettings`**: чтение YAML + env; **`tools.yaml`** и **`schedules.yaml`** администратора всегда в каталоге **`${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/`** (имена файлов фиксированы). Override путей в `config.yaml` **не поддерживается** (поля `tools.toolsConfigPath` / `scheduler.schedulesConfigPath` удалены — конфиг с ними не загрузится). При отсутствии файлов — запись минимальных шаблонов из **`defaultTenantSessionYaml.py`**. После загрузки в runtime доступны абсолютные пути: **`adminTenantToolsYamlPath`**, **`adminTenantSchedulesYamlPath`** (в т.ч. в `effectiveConfigSnapshot` ранов).
 2. **`buildApplicationContainer`**: сбор зависимостей и use case без автоматических миграций дисковых данных.
+
+### Миграция с legacy (`tools.toolsConfigPath` / `scheduler.schedulesConfigPath`)
+
+- Удали из `app/config/config.yaml` строки **`tools.toolsConfigPath`** и **`scheduler.schedulesConfigPath`** (если остались).
+- Перенеси содержимое старых глобальных `app/config/tools.yaml` / `app/config/schedules.yaml` в tenant-каталог администратора:
+  - **`${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml`**
+  - тот же каталог **`schedules.yaml`**
+- Проверка: в логе рана или в `effectiveConfigSnapshot` должны быть **`adminTenantToolsYamlPath`** / **`adminTenantSchedulesYamlPath`** с путями внутри `data/memory/sessions/...`, а не в `app/config/`.
+- Если конфиг всё ещё содержит legacy-ключи, **`loadSettings` упадёт** (запрещены лишние поля в секциях `tools` и `scheduler`).
 
 ## Веб-админка
 
@@ -143,7 +152,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 - **Отображение времени в web-админке** настраивается через `app.displayTimeZone` в `app/config/config.yaml` (IANA zone, например `Europe/Moscow` или `Asia/Jerusalem`).
 - Если `app.displayTimeZone` пустой или некорректный, отображение автоматически fallback в `UTC`.
-- **Scheduler** (`schedule.allowedHourStart / allowedHourEnd` в `app/config/schedules.yaml`) работает в **локальном времени сервера**.
+- **Scheduler** (`schedule.allowedHourStart / allowedHourEnd` в tenant `schedules.yaml`) работает в **локальном времени сервера**.
 - Для стабильности логики в tools/runtime часть вычислений ведётся в `UTC` (например, `sinceUnixTs: 0` для news digest трактуется как начало текущих суток UTC).
 
 ## Voice-to-text (Telegram голосовые → текст)
@@ -175,26 +184,16 @@ Troubleshooting:
 (значение `ADMIN_TELEGRAM_USER_ID` — в `.env`, по умолчанию совпадает с владельцем админки.)
 
 Рекомендуемый подход:
-- при первом старте без файла приложение записывает в каталог сессии админа минимальный **`tools.yaml`** (тот же каркас, что при провижинге пользователя в `defaultTenantSessionYaml.py`), **или** одноразово копирует старый `app/config/tools.yaml`, если ты явно указываешь этот путь в `tools.toolsConfigPath` (см. ниже); дальше правь уже файл в `sessions/telegramUser_<id>/tools.yaml`.
+- при первом старте без файла приложение записывает в каталог сессии админа минимальный **`tools.yaml`** (тот же каркас, что при провижинге пользователя в `defaultTenantSessionYaml.py`); дальше правь уже файл в `sessions/telegramUser_<id>/tools.yaml`.
 
 Что там настраивается:
 - **`digest_telegram_news`**: необязательные дефолты `telegramNewsDigest.*` только для общего дайджеста (skill `telegram_news_digest`), когда в args не переданы каналы/фильтры; дайджесты **по теме** (`user_topic_telegram_digest`) эти списки не используют. В вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
 - **`user_topic_telegram_digest`**: пользовательские тематические дайджесты; хранит каналы и ключевые слова в долгосрочной памяти (`digest_topic_config_json` в `long_term.md`), state непрочитанных — `data/state/telegram_digest_read_state.json` (рядом с `dataRootPath`); args `topic`, `channels`, `keywords`, `fetchUnread`, `deleteTopic`; сценарий и формат — skill `user_topic_telegram_digest`
 - **`save_digest_preference`**: пишет строку предпочтений в долгосрочную память (`digest_pref_json` в `long_term.md`); вызывать после уточнения у пользователя
 - **`save_email_preference`**: пишет строку email-предпочтений (`email_pref_json` в `long_term.md`) с полями `preferredSenders` (email/домены) и `preferredKeywords`; используется skill-ом `email_preference_feedback`
-- **`read_email`**: `emailReader.*` (host/port/ssl/email и т.д.), пароль — только в env: `EMAIL_APP_PASSWORD`
+- **`read_email`**: `emailReader.*` (host/port/ssl/email/password и т.д.) в tenant `tools.yaml` конкретного пользователя
 
-Путь к файлу задаётся в `app/config/config.yaml`:
-
-```yaml
-tools:
-  # Пусто = путь по умолчанию: sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml под memory.memoryRootPath.
-  toolsConfigPath: ""
-
-  # Одноразовая миграция со старого расположения: при первом старте файл скопируется в tenant-зону админа.
-  # После успешной миграции можно снова оставить toolsConfigPath пустым.
-  # toolsConfigPath: "./app/config/tools.yaml"
-```
+Путь к файлу **не настраивается**: используется только tenant-путь выше (см. `adminTelegramUserId` / `ADMIN_TELEGRAM_USER_ID`).
 
 Изменения в `tools.yaml` применяются **без перезапуска**.
 
@@ -222,9 +221,10 @@ Email-дайджест строится агентом по skill-инструк
 
 ## Scheduler и reminders
 
-Два режима:\n
-- **Scheduler jobs**: регулярные внутренние run‑ы агента по интервалу и часовому окну.\n
-- **Reminders**: напоминания, которые записываются в `schedules.yaml`, имеют `remainingRuns` и автоматически удаляются после завершения (если включена соответствующая логика).\n
+Два режима:
+
+- **Scheduler jobs**: регулярные внутренние run‑ы агента по интервалу и часовому окну.
+- **Reminders**: напоминания, которые записываются в `schedules.yaml`, имеют `remainingRuns` и автоматически удаляются после завершения (если включена соответствующая логика).
 
 Ниже описан общий формат файла расписаний (`schedules.yaml`) и как включить планировщик.
 
@@ -236,9 +236,6 @@ Email-дайджест строится агентом по skill-инструк
 
 `${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/schedules.yaml`
 
-Один раз можно мигрировать старый `app/config/schedules.yaml`, указав в `config.yaml` значение  
-`scheduler.schedulesConfigPath: "./app/config/schedules.yaml"` (далее можно снова оставить пустую строку).
-
 Как включить:
 
 1) В `app/config/config.yaml`:
@@ -246,7 +243,6 @@ Email-дайджест строится агентом по skill-инструк
 ```yaml
 scheduler:
   enabled: true
-  schedulesConfigPath: ""
   tickSeconds: 30
 ```
 

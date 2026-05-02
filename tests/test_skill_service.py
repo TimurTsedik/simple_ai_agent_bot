@@ -158,6 +158,15 @@ def testSkillServiceSelectsUserTopicDigestForKeywordListFollowup() -> None:
     assert "user_topic_telegram_digest" in selection.selectedSkillIds
 
 
+def testExplicitMemoryNoteDoesNotTriggerKeywordListUserTopicHeuristic() -> None:
+    rules = SkillSelectorRules()
+    selectedIds = rules.selectRelevantSkillIds(
+        "привет, запиши, что меня зовут Тимур",
+    )
+    assert "remember_user_note" in selectedIds
+    assert "user_topic_telegram_digest" not in selectedIds
+
+
 def testSkillServiceToolLikelyRequiredForKeywordListFollowup() -> None:
     with TemporaryDirectory() as tempDir:
         skillsDirPath = Path(tempDir)
@@ -580,3 +589,54 @@ def testSkillServiceToolLikelyRequiredForShortConfirmation() -> None:
         isRequired = service.isToolLikelyRequired(in_userMessage="да")
 
     assert isRequired is True
+
+
+def testSkillServiceSelectsRememberUserNoteSkill() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "remember_user_note.md").write_text(
+            "# Remember\nnote",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+        selection = service.buildSkillsSelection(
+            in_userMessage="Запомни, что я работаю удалённо из Берлина"
+        )
+
+    assert "remember_user_note" in selection.selectedSkillIds
+
+
+def testSkillServicePrefersDigestFeedbackOverRememberUserNote() -> None:
+    with TemporaryDirectory() as tempDir:
+        skillsDirPath = Path(tempDir)
+        (skillsDirPath / "default_assistant.md").write_text(
+            "# Default\nbase",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "telegram_digest_feedback.md").write_text(
+            "# Digest feedback\ndf",
+            encoding="utf-8",
+        )
+        (skillsDirPath / "remember_user_note.md").write_text(
+            "# Remember\nnote",
+            encoding="utf-8",
+        )
+        service = SkillService(
+            in_skillStore=MarkdownSkillStore(in_skillsDirPath=str(skillsDirPath)),
+            in_skillSelectorRules=SkillSelectorRules(),
+            in_skillSelectionMaxCount=4,
+        )
+        selection = service.buildSkillsSelection(
+            in_userMessage="Запомни, мне понравилась новость про рынок из дайджеста"
+        )
+
+    assert "telegram_digest_feedback" in selection.selectedSkillIds
+    assert "remember_user_note" not in selection.selectedSkillIds

@@ -2,7 +2,11 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+import yaml
+
 from app.config.settingsLoader import SettingsLoadError, loadSettings
+from app.config.tenantSchedulesModels import TenantSchedulesFile, normalizeLegacySchedulesDict
 
 
 def _writeConfigFile(
@@ -10,7 +14,6 @@ def _writeConfigFile(
     *,
     in_memoryRootPath: Path | None = None,
     in_usersRegistryPath: Path | None = None,
-    in_toolsConfigPath: str | None = None,
 ) -> None:
     lines = [
         "app:",
@@ -63,14 +66,6 @@ def _writeConfigFile(
             [
                 "memory:",
                 f"  memoryRootPath: \"{memoryPosix}\"",
-            ]
-        )
-    if in_toolsConfigPath is not None:
-        toolsPosix = str(in_toolsConfigPath).replace("\\", "/")
-        lines.extend(
-            [
-                "tools:",
-                f'  toolsConfigPath: "{toolsPosix}"',
             ]
         )
     in_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -499,10 +494,13 @@ def testLoadSettingsUsesTickSecondsFromConfigWhenSchedulerEnabled() -> None:
     with TemporaryDirectory() as tempDir:
         configPath = Path(tempDir) / "config.yaml"
         envPath = Path(tempDir) / ".env"
-        schedulesPath = Path(tempDir) / "schedules.yaml"
+        memoryRoot = Path(tempDir) / "memory"
+        tenantSchedulesDir = memoryRoot / "sessions" / "telegramUser_16739703"
+        tenantSchedulesDir.mkdir(parents=True, exist_ok=True)
+        schedulesPath = tenantSchedulesDir / "schedules.yaml"
         _writeConfigFile(
             in_path=configPath,
-            in_memoryRootPath=Path(tempDir) / "memory",
+            in_memoryRootPath=memoryRoot,
             in_usersRegistryPath=Path(tempDir) / "users" / "registry.yaml",
         )
         configPath.write_text(
@@ -512,7 +510,6 @@ def testLoadSettingsUsesTickSecondsFromConfigWhenSchedulerEnabled() -> None:
                 [
                     "scheduler:",
                     "  enabled: true",
-                    f'  schedulesConfigPath: "{str(schedulesPath)}"',
                     "  tickSeconds: 30",
                 ]
             ),
@@ -545,6 +542,7 @@ def testLoadSettingsUsesTickSecondsFromConfigWhenSchedulerEnabled() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
         os.environ.pop("ADMIN_RAW_TOKENS", None)
 
+        schedulesYamlSnapshot = schedulesPath.read_text(encoding="utf-8")
         settings = loadSettings(
             in_configPath=str(configPath),
             in_envPath=str(envPath),
@@ -568,7 +566,11 @@ def testLoadSettingsUsesTickSecondsFromConfigWhenSchedulerEnabled() -> None:
         os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
 
     assert settings.scheduler.tickSeconds == 30
-    assert len(settings.scheduler.jobs) == 1
+    merged = normalizeLegacySchedulesDict(
+        in_data=yaml.safe_load(schedulesYamlSnapshot) or {}
+    )
+    doc = TenantSchedulesFile.model_validate(merged)
+    assert len(doc.scheduledTasks) == 1
 
 
 def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
@@ -579,10 +581,13 @@ def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
     with TemporaryDirectory() as tempDir:
         configPath = Path(tempDir) / "config.yaml"
         envPath = Path(tempDir) / ".env"
-        schedulesPath = Path(tempDir) / "schedules.yaml"
+        memoryRoot = Path(tempDir) / "memory"
+        tenantSchedulesDir = memoryRoot / "sessions" / "telegramUser_16739703"
+        tenantSchedulesDir.mkdir(parents=True, exist_ok=True)
+        schedulesPath = tenantSchedulesDir / "schedules.yaml"
         _writeConfigFile(
             in_path=configPath,
-            in_memoryRootPath=Path(tempDir) / "memory",
+            in_memoryRootPath=memoryRoot,
             in_usersRegistryPath=Path(tempDir) / "users" / "registry.yaml",
         )
         configPath.write_text(
@@ -592,7 +597,6 @@ def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
                 [
                     "scheduler:",
                     "  enabled: true",
-                    f'  schedulesConfigPath: "{str(schedulesPath)}"',
                     "  tickSeconds: 5",
                 ]
             ),
@@ -618,6 +622,7 @@ def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
         os.environ.pop("ADMIN_RAW_TOKENS", None)
 
+        schedulesYamlSnapshot = schedulesPath.read_text(encoding="utf-8")
         settings = loadSettings(
             in_configPath=str(configPath),
             in_envPath=str(envPath),
@@ -641,7 +646,11 @@ def testLoadSettingsTreatsNullRemindersAsEmptyList() -> None:
         os.environ["ADMIN_RAW_TOKENS"] = previousAdminTokens
 
     assert settings.scheduler.enabled is True
-    assert settings.scheduler.reminders == []
+    merged = normalizeLegacySchedulesDict(
+        in_data=yaml.safe_load(schedulesYamlSnapshot) or {}
+    )
+    doc = TenantSchedulesFile.model_validate(merged)
+    assert len(doc.scheduledTasks) == 0
 
 
 def testLoadSettingsCreatesTenantToolsYamlFromExampleWhenMissing() -> None:
@@ -676,7 +685,7 @@ def testLoadSettingsCreatesTenantToolsYamlFromExampleWhenMissing() -> None:
             / "tools.yaml"
         )
         assert expectedToolsPath.exists() is True
-        assert Path(settings.tools.toolsConfigPath) == expectedToolsPath.resolve()
+        assert Path(settings.adminTenantToolsYamlPath) == expectedToolsPath.resolve()
         assert settings.tools.telegramNewsDigest.digestChannelUsernames == []
 
     if previousTelegramToken is None:
@@ -727,7 +736,7 @@ def testLoadSettingsCreatesTenantSchedulesYamlFromExampleWhenSchedulerDisabled()
             / "schedules.yaml"
         )
         assert expectedSchedulesPath.exists() is True
-        assert Path(settings.scheduler.schedulesConfigPath) == expectedSchedulesPath.resolve()
+        assert Path(settings.adminTenantSchedulesYamlPath) == expectedSchedulesPath.resolve()
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -745,23 +754,17 @@ def testLoadSettingsCreatesTenantSchedulesYamlFromExampleWhenSchedulerDisabled()
     assert settings is not None
 
 
-def testLoadSettingsUsesExplicitSchedulesConfigPathOnDisk() -> None:
+def testLoadSettingsRejectsLegacySchedulerSchedulesConfigPath() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
-    settings = None
     with TemporaryDirectory() as tempDir:
-        projRoot = Path(tempDir) / "proj"
-        memoryRoot = projRoot / "mem"
-        (projRoot / "app" / "config").mkdir(parents=True)
-        legacyPath = projRoot / "app" / "config" / "schedules.yaml"
-        legacyPath.write_text("jobs: []\nreminders: []\n", encoding="utf-8")
-        configPath = projRoot / "config.yaml"
-        envPath = projRoot / ".env"
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
         _writeConfigFile(
             in_path=configPath,
-            in_memoryRootPath=memoryRoot,
-            in_usersRegistryPath=projRoot / "users" / "registry.yaml",
+            in_memoryRootPath=Path(tempDir) / "memory",
+            in_usersRegistryPath=Path(tempDir) / "users" / "registry.yaml",
         )
         configPath.write_text(
             configPath.read_text(encoding="utf-8")
@@ -777,19 +780,11 @@ def testLoadSettingsUsesExplicitSchedulesConfigPathOnDisk() -> None:
             in_apiKey="or-key-dotenv",
             in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
-        cwdBefore = Path.cwd()
-        try:
-            os.chdir(projRoot)
-            settings = loadSettings(
-                in_configPath=str(configPath.resolve()),
-                in_envPath=str(envPath.resolve()),
+        with pytest.raises(SettingsLoadError):
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
             )
-        finally:
-            os.chdir(cwdBefore)
-
-        assert legacyPath.exists() is True
-        assert Path(settings.scheduler.schedulesConfigPath) == legacyPath.resolve()
-        assert "jobs: []" in legacyPath.read_text(encoding="utf-8")
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -804,30 +799,24 @@ def testLoadSettingsUsesExplicitSchedulesConfigPathOnDisk() -> None:
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
 
-    assert settings is not None
 
-
-def testLoadSettingsUsesExplicitToolsConfigPathOnDisk() -> None:
+def testLoadSettingsRejectsLegacyToolsToolsConfigPath() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
-    settings = None
     with TemporaryDirectory() as tempDir:
-        projRoot = Path(tempDir) / "proj"
-        memoryRoot = projRoot / "mem"
-        (projRoot / "app" / "config").mkdir(parents=True)
-        legacyPath = projRoot / "app" / "config" / "tools.yaml"
-        legacyPath.write_text(
-            'telegramNewsDigest:\n  digestChannelUsernames: ["from_legacy"]\n',
-            encoding="utf-8",
-        )
-        configPath = projRoot / "config.yaml"
-        envPath = projRoot / ".env"
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
         _writeConfigFile(
             in_path=configPath,
-            in_memoryRootPath=memoryRoot,
-            in_usersRegistryPath=projRoot / "users" / "registry.yaml",
-            in_toolsConfigPath="./app/config/tools.yaml",
+            in_memoryRootPath=Path(tempDir) / "memory",
+            in_usersRegistryPath=Path(tempDir) / "users" / "registry.yaml",
+        )
+        configPath.write_text(
+            configPath.read_text(encoding="utf-8")
+            + "\ntools:\n"
+            + '  toolsConfigPath: "./app/config/tools.yaml"\n',
+            encoding="utf-8",
         )
         _writeEnvFile(
             in_path=envPath,
@@ -835,19 +824,11 @@ def testLoadSettingsUsesExplicitToolsConfigPathOnDisk() -> None:
             in_apiKey="or-key-dotenv",
             in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
         )
-        cwdBefore = Path.cwd()
-        try:
-            os.chdir(projRoot)
-            settings = loadSettings(
-                in_configPath=str(configPath.resolve()),
-                in_envPath=str(envPath.resolve()),
+        with pytest.raises(SettingsLoadError):
+            loadSettings(
+                in_configPath=str(configPath),
+                in_envPath=str(envPath),
             )
-        finally:
-            os.chdir(cwdBefore)
-
-        assert legacyPath.exists() is True
-        assert Path(settings.tools.toolsConfigPath) == legacyPath.resolve()
-        assert settings.tools.telegramNewsDigest.digestChannelUsernames == ["from_legacy"]
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -861,5 +842,3 @@ def testLoadSettingsUsesExplicitToolsConfigPathOnDisk() -> None:
         os.environ.pop("SESSION_COOKIE_SECRET", None)
     else:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
-
-    assert settings is not None

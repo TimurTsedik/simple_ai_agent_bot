@@ -931,6 +931,58 @@ def testAgentLoopStopsAfterRepeatedToolTimeouts() -> None:
     assert result.stepTraces[-1].get("status") == "tool_timeout_limit"
 
 
+def testAgentLoopStopsOnReadEmailConfigurationError() -> None:
+    runtimeSettings = _makeRuntimeSettings(in_maxSteps=8)
+    llmClient = SequenceLlmClient(
+        in_outputs=[
+            '{"type":"tool_call","reason":"x","action":"read_email","args":{"maxItems":10}}',
+            '{"type":"tool_call","reason":"x","action":"read_email","args":{"maxItems":10}}',
+        ]
+    )
+
+    def _brokenReadEmailTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = (in_memoryPrincipalId, _in_args)
+        raise RuntimeError("EmailReader settings: email is empty")
+
+    toolReg = ToolRegistry(
+        in_toolDefinitions=[
+            ToolDefinitionModel(
+                name="read_email",
+                description="email",
+                argsModel=ReadEmailArgsForTestModel,
+                timeoutSeconds=1,
+                executeCallable=_brokenReadEmailTool,
+            )
+        ]
+    )
+    loop = AgentLoop(
+        in_llmClient=llmClient,
+        in_promptBuilder=PromptBuilder(in_runtimeSettings=runtimeSettings),
+        in_outputParser=OutputParser(),
+        in_stopPolicy=StopPolicy(in_runtimeSettings=runtimeSettings),
+        in_modelSettings=_makeModelSettings(),
+        in_toolExecutionCoordinator=ToolExecutionCoordinator(
+            in_toolRegistry=toolReg,
+            in_maxToolOutputChars=runtimeSettings.maxToolOutputChars,
+        ),
+        in_toolMetadataRenderer=ToolMetadataRenderer(),
+        in_toolRegistry=toolReg,
+    )
+
+    result = loop.run(
+        in_userMessage="сделай дайджест почты",
+        in_skillsBlock="",
+        in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
+    )
+
+    assert result.completionReason == "tool_configuration_error"
+    assert "не настроен email аккаунта" in result.finalAnswer
+    assert result.stepCount == 1
+    assert result.toolCallCount == 1
+    assert result.stepTraces[-1].get("status") == "tool_configuration_error"
+
+
 def testAgentLoopToolObservationIsCompactJson() -> None:
     runtimeSettings = _makeRuntimeSettings(in_maxSteps=5)
     llmClient = SequenceLlmClient(

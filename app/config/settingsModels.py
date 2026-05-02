@@ -1,6 +1,4 @@
-from typing import Any
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AppSettings(BaseModel):
@@ -165,25 +163,10 @@ class SchedulerJobSettings(BaseModel):
 
 
 class SchedulerSettings(BaseModel):
-    enabled: bool = False
-    schedulesConfigPath: str = Field(
-        default="",
-        description=(
-            "Путь к schedules.yaml. Пустая строка = файл в каталоге tenant администратора "
-            "(рядом с tools.yaml)."
-        ),
-    )
-    tickSeconds: int = Field(default=1, ge=1, le=30)
-    jobs: list[SchedulerJobSettings] = Field(default_factory=list)
-    reminders: list["ReminderModel"] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator("schedulesConfigPath", mode="before")
-    @classmethod
-    def _coerceSchedulesPath(cls, in_value: Any) -> str:
-        if in_value is None:
-            return ""
-        ret = str(in_value).strip()
-        return ret
+    enabled: bool = False
+    tickSeconds: int = Field(default=1, ge=1, le=30)
 
 
 class ReminderScheduleModel(BaseModel):
@@ -235,6 +218,7 @@ class TelegramNewsDigestToolSettings(BaseModel):
 class EmailReaderToolSettings(BaseModel):
     accountName: str = "gmail"
     email: str = ""
+    password: str = ""
     imapHost: str = "imap.gmail.com"
     imapPort: int = Field(default=993, ge=1, le=65535)
     imapSsl: bool = True
@@ -244,21 +228,8 @@ class EmailReaderToolSettings(BaseModel):
 
 
 class ToolsSettings(BaseModel):
-    toolsConfigPath: str = Field(
-        default="",
-        description=(
-            "Путь к tools.yaml. Пустая строка или null в YAML = "
-            "<memory.memoryRootPath>/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml."
-        ),
-    )
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator("toolsConfigPath", mode="before")
-    @classmethod
-    def _coerceToolsConfigPath(cls, in_value: Any) -> str:
-        if in_value is None:
-            return ""
-        ret = str(in_value).strip()
-        return ret
     telegramNewsDigest: TelegramNewsDigestToolSettings = Field(
         default_factory=TelegramNewsDigestToolSettings
     )
@@ -276,6 +247,18 @@ class SettingsModel(BaseModel):
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+    adminTenantToolsYamlPath: str = Field(
+        default="",
+        description=(
+            "Абсолютный путь к tenant tools.yaml администратора; выставляется только в loadSettings."
+        ),
+    )
+    adminTenantSchedulesYamlPath: str = Field(
+        default="",
+        description=(
+            "Абсолютный путь к tenant schedules.yaml администратора; выставляется только в loadSettings."
+        ),
+    )
 
     telegramBotToken: str = Field(min_length=1)
     openRouterApiKey: str = Field(min_length=1)

@@ -9,9 +9,11 @@ from app.tools.implementations.userTopicDigestTool import UserTopicDigestTool
 from app.tools.implementations.listRemindersTool import ListRemindersTool
 from app.tools.implementations.readEmailTool import ReadEmailTool
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
+from app.tools.implementations.scheduleRecurringAgentRunTool import ScheduleRecurringAgentRunTool
 from app.tools.implementations.scheduleReminderTool import ScheduleReminderTool
 from app.tools.implementations.saveDigestPreferenceTool import SaveDigestPreferenceTool
 from app.tools.implementations.saveEmailPreferenceTool import SaveEmailPreferenceTool
+from app.tools.implementations.saveUserMemoryNoteTool import SaveUserMemoryNoteTool
 from app.tools.implementations.webSearchTool import WebSearchTool
 from app.tools.registry.toolRegistry import ToolDefinitionModel, ToolRegistry
 from app.tools.registry.toolSchemas import (
@@ -20,9 +22,11 @@ from app.tools.registry.toolSchemas import (
     ListRemindersArgsModel,
     ReadEmailArgsModel,
     ReadMemoryFileArgsModel,
+    ScheduleRecurringAgentRunArgsModel,
     ScheduleReminderArgsModel,
     SaveDigestPreferenceArgsModel,
     SaveEmailPreferenceArgsModel,
+    SaveUserMemoryNoteArgsModel,
     UserTopicTelegramDigestArgsModel,
     WebSearchArgsModel,
 )
@@ -68,19 +72,24 @@ def buildToolRegistry(
     )
     saveDigestPreferenceTool = SaveDigestPreferenceTool(in_memoryStore=in_memoryStore)
     saveEmailPreferenceTool = SaveEmailPreferenceTool(in_memoryStore=in_memoryStore)
+    saveUserMemoryNoteTool = SaveUserMemoryNoteTool(in_memoryStore=in_memoryStore)
     readMemoryFileTool = ReadMemoryFileTool(
         in_memoryRootPath=in_settings.memory.memoryRootPath,
         in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths,
     )
     readEmailTool = ReadEmailTool(
         in_emailSettings=in_settings.tools.emailReader,
-        in_password=in_settings.emailAppPassword,
+        in_password=in_settings.tools.emailReader.password,
+        in_memoryRootPath=in_settings.memory.memoryRootPath,
     )
     webSearchTool = WebSearchTool()
     reminderConfigStore = ReminderConfigStore(
-        in_schedulesConfigPath=in_settings.scheduler.schedulesConfigPath
+        in_memorySettings=in_settings.memory,
     )
     scheduleReminderTool = ScheduleReminderTool(in_reminderConfigStore=reminderConfigStore)
+    scheduleRecurringAgentRunTool = ScheduleRecurringAgentRunTool(
+        in_reminderConfigStore=reminderConfigStore,
+    )
     listRemindersTool = ListRemindersTool(
         in_reminderConfigStore=reminderConfigStore,
         in_dataRootPath=in_settings.app.dataRootPath,
@@ -144,6 +153,17 @@ def buildToolRegistry(
             executeCallable=saveEmailPreferenceTool.execute,
         ),
         ToolDefinitionModel(
+            name="save_user_memory_note",
+            description=(
+                "Сохраняет явную пользовательскую заметку в long_term.md (строка user_memory_json). "
+                "Используй, когда пользователь просит «запомни/запиши» общий факт, не относящийся к "
+                "предпочтениям дайджеста или почты — сначала сформулируй краткий noteText."
+            ),
+            argsModel=SaveUserMemoryNoteArgsModel,
+            timeoutSeconds=5,
+            executeCallable=saveUserMemoryNoteTool.execute,
+        ),
+        ToolDefinitionModel(
             name="read_memory_file",
             description=(
                 "Читает файл только из разрешенных read-only путей для памяти и логов."
@@ -174,9 +194,22 @@ def buildToolRegistry(
             executeCallable=scheduleReminderTool.execute,
         ),
         ToolDefinitionModel(
+            name="schedule_recurring_agent_run",
+            description=(
+                "Регулярный запуск агента по расписанию (kind=internal_run в tenant schedules.yaml): "
+                "интервал в секундах, опциональное окно часов суток, текст задачи как при сообщении в чат "
+                "(дайджест новостей/почты и т.д.). Не смешивать с schedule_reminder — там только "
+                "telegram_message по времени суток."
+            ),
+            argsModel=ScheduleRecurringAgentRunArgsModel,
+            timeoutSeconds=5,
+            executeCallable=scheduleRecurringAgentRunTool.execute,
+        ),
+        ToolDefinitionModel(
             name="list_reminders",
             description=(
-                "Возвращает список reminder-ов из schedules.yaml и их runtime state из jobs_state.json."
+                "Возвращает напоминания (telegram_message) и регулярные запуски агента (internal_run) "
+                "из schedules.yaml и runtime state из jobs_state.json."
             ),
             argsModel=ListRemindersArgsModel,
             timeoutSeconds=5,
@@ -185,7 +218,8 @@ def buildToolRegistry(
         ToolDefinitionModel(
             name="delete_reminder",
             description=(
-                "Удаляет reminder по reminderId из schedules.yaml и runtime state."
+                "Удаляет задачу по taskId: напоминание (telegram_message) или регулярный запуск (internal_run) "
+                "из schedules.yaml и runtime state."
             ),
             argsModel=DeleteReminderArgsModel,
             timeoutSeconds=5,

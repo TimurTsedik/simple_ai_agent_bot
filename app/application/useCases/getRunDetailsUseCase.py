@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.common.runSessionScope import sessionIdMatchesTenantPrincipal
 from app.observability.stores.jsonRunRepository import JsonRunRepository
 
 
@@ -28,7 +29,10 @@ class GetRunDetailsUseCase:
             allowedText = None
         if allowedText is not None:
             record_session = str(item.get("sessionId", "") or "")
-            if record_session != str(allowedText):
+            if sessionIdMatchesTenantPrincipal(
+                in_recordSessionId=record_session,
+                in_tenantPrincipalId=str(allowedText),
+            ) is False:
                 ret = None
                 return ret
         ret = item

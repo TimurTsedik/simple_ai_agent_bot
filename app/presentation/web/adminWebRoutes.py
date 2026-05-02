@@ -30,6 +30,10 @@ from app.presentation.web.adminPages import renderRunsPage
 from app.presentation.web.adminPages import renderRunStepsPage
 from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
+from app.common.adminTenantConfigPaths import (
+    resolveAdminTenantSchedulesYamlPath,
+    resolveAdminTenantToolsYamlPath,
+)
 from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.presentation.web.adminPages import renderLongTermMemoryPage
 from app.presentation.web.adminPages import renderSchedulesConfigViewPage
@@ -164,11 +168,10 @@ def registerAdminWebRoutes(
 
     def resolveToolsConfigPath() -> Path:
         ret: Path
-        toolsPath = Path(settings.tools.toolsConfigPath)
-        if toolsPath.is_absolute() is False:
-            ret = toolsPath.resolve()
-        else:
-            ret = toolsPath
+        ret = resolveAdminTenantToolsYamlPath(
+            in_memoryRootPath=settings.memory.memoryRootPath,
+            in_adminTelegramUserId=int(settings.adminTelegramUserId),
+        )
         return ret
 
     def atomicWriteTextFile(in_path: Path, in_text: str) -> None:
@@ -188,11 +191,10 @@ def registerAdminWebRoutes(
 
     def resolveSchedulesConfigPath() -> Path:
         ret: Path
-        schedulesPath = Path(settings.scheduler.schedulesConfigPath)
-        if schedulesPath.is_absolute() is False:
-            ret = schedulesPath.resolve()
-        else:
-            ret = schedulesPath
+        ret = resolveAdminTenantSchedulesYamlPath(
+            in_memoryRootPath=settings.memory.memoryRootPath,
+            in_adminTelegramUserId=int(settings.adminTelegramUserId),
+        )
         return ret
 
     def loadSchedulesYamlTextOrEmpty() -> tuple[str, str]:
@@ -205,16 +207,36 @@ def registerAdminWebRoutes(
         ret = (yamlText, str(schedulesPath))
         return ret
 
-    def validateToolsYamlOrRaise(in_yamlText: str) -> None:
-        loaded = yaml.safe_load(in_yamlText) or {}
-        if not isinstance(loaded, dict):
+    def normalizeToolsYamlWithExistingOrRaise(in_yamlText: str) -> str:
+        ret: str
+        loadedRaw = yaml.safe_load(in_yamlText) or {}
+        if not isinstance(loadedRaw, dict):
             raise ValidationError.from_exception_data("tools_yaml", [])
-        _ = TelegramNewsDigestToolSettings.model_validate(
-            loaded.get("telegramNewsDigest", {}) if isinstance(loaded, dict) else {}
-        )
-        _ = EmailReaderToolSettings.model_validate(
-            loaded.get("emailReader", {}) if isinstance(loaded, dict) else {}
-        )
+
+        toolsPath = resolveToolsConfigPath()
+        existingRaw: dict = {}
+        if toolsPath.exists():
+            existingLoaded = yaml.safe_load(toolsPath.read_text(encoding="utf-8")) or {}
+            if isinstance(existingLoaded, dict):
+                existingRaw = dict(existingLoaded)
+
+        merged = dict(loadedRaw)
+        if "emailReader" not in merged and isinstance(existingRaw, dict):
+            existingEmailReader = existingRaw.get("emailReader")
+            if isinstance(existingEmailReader, dict):
+                merged["emailReader"] = existingEmailReader
+
+        emailReaderSectionRaw = merged.get("emailReader", {}) if isinstance(merged, dict) else {}
+        parsedEmailReader = EmailReaderToolSettings.model_validate(emailReaderSectionRaw)
+        merged["emailReader"] = parsedEmailReader.model_dump(mode="python")
+        if "telegramNewsDigest" in merged:
+            telegramDigestSectionRaw = merged.get("telegramNewsDigest", {})
+            parsedTelegramDigest = TelegramNewsDigestToolSettings.model_validate(
+                telegramDigestSectionRaw
+            )
+            merged["telegramNewsDigest"] = parsedTelegramDigest.model_dump(mode="python")
+        ret = yaml.safe_dump(merged, allow_unicode=True, sort_keys=False)
+        return ret
 
     def composeTelegramUsersHtml(
         in_notice_ok_text: str,
@@ -524,14 +546,18 @@ def registerAdminWebRoutes(
             return RedirectResponse(url="/login", status_code=303)
         ensureWritesEnabledOr403()
         errorText = ""
+        contentToRender = content
         try:
-            validateToolsYamlOrRaise(in_yamlText=content)
+            normalizedContent = normalizeToolsYamlWithExistingOrRaise(
+                in_yamlText=content
+            )
             toolsPath = resolveToolsConfigPath()
-            atomicWriteTextFile(in_path=toolsPath, in_text=content)
+            atomicWriteTextFile(in_path=toolsPath, in_text=normalizedContent)
+            contentToRender = normalizedContent
         except (ValidationError, yaml.YAMLError, OSError) as in_exc:
             errorText = str(in_exc)
         ret = renderToolsConfigEditPage(
-            in_toolsYamlText=content,
+            in_toolsYamlText=contentToRender,
             in_errorText=errorText or "Сохранено.",
             in_adminWritesEnabled=settings.security.adminWritesEnabled,
         )

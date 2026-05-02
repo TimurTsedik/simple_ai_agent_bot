@@ -6,7 +6,8 @@ def buildAdminRunsScopeHintPlainText(in_adminTelegramUserId: int) -> str:
         in_telegramUserId=in_adminTelegramUserId,
     )
     ret = (
-        "Ограничение: в админке учитываются только раны с sessionId, совпадающим с tenant админа "
-        f"({principal_text}). Раны scheduler и других Telegram-пользователей здесь не показываются."
+        "Ограничение: в админке показываются раны tenant администратора "
+        f"({principal_text}) — включая под-сессии вроде scheduler "
+        "(sessionId с префиксом `telegramUser:<id>:`). Раны других Telegram-пользователей не показываются."
     )
     return ret

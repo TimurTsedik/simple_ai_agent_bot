@@ -4,32 +4,6 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-def sessionsEquivalentForAdminRunsView(
-    in_recordSessionId: str,
-    in_allowedSessionId: str,
-) -> bool:
-    """Старые раны в index имели sessionId `telegram:<id>`, сейчас tenant — `telegramUser:<id>`."""
-
-    left = str(in_recordSessionId or "").strip()
-    right = str(in_allowedSessionId or "").strip()
-    ret = False
-    if left == right:
-        ret = True
-    elif (
-        left.startswith("telegram:")
-        and right.startswith("telegramUser:")
-        and left[len("telegram:") :] == right[len("telegramUser:") :]
-    ):
-        ret = True
-    elif (
-        left.startswith("telegramUser:")
-        and right.startswith("telegram:")
-        and left[len("telegramUser:") :] == right[len("telegram:") :]
-    ):
-        ret = True
-    return ret
-
-
 class JsonRunRepository:
     def __init__(self, in_dataRootPath: str) -> None:
         self._runsDirPath = Path(in_dataRootPath) / "runs"
@@ -98,10 +72,7 @@ class JsonRunRepository:
             if not isinstance(parsedValue, dict):
                 continue
             record_session = str(parsedValue.get("sessionId", "") or "")
-            if sessionsEquivalentForAdminRunsView(
-                in_recordSessionId=record_session,
-                in_allowedSessionId=str(in_session_id),
-            ) is False:
+            if record_session != str(in_session_id):
                 continue
             matchedRecords.append(parsedValue)
             needTotal = boundedOffset + boundedLimit

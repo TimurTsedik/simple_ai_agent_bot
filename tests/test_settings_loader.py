@@ -51,10 +51,12 @@ def _writeConfigFile(
         "  maxBytes: 10485760",
         "  backupCount: 5",
     ]
+    data_root_index = lines.index("  dataRootPath: ./data")
+    insert_pos = data_root_index + 1
     if in_usersRegistryPath is not None:
-        regPosix = in_usersRegistryPath.resolve().as_posix()
-        data_root_index = lines.index("  dataRootPath: ./data")
-        lines.insert(data_root_index + 1, f'  usersRegistryPath: "{regPosix}"')
+        reg_posix = in_usersRegistryPath.resolve().as_posix()
+        lines.insert(insert_pos, f'  usersRegistryPath: "{reg_posix}"')
+        insert_pos += 1
     if in_memoryRootPath is not None:
         memoryPosix = in_memoryRootPath.resolve().as_posix()
         lines.extend(
@@ -743,7 +745,7 @@ def testLoadSettingsCreatesTenantSchedulesYamlFromExampleWhenSchedulerDisabled()
     assert settings is not None
 
 
-def testLoadSettingsMigratesLegacyAppConfigSchedulesYamlToTenantSessions() -> None:
+def testLoadSettingsUsesExplicitSchedulesConfigPathOnDisk() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
@@ -785,15 +787,9 @@ def testLoadSettingsMigratesLegacyAppConfigSchedulesYamlToTenantSessions() -> No
         finally:
             os.chdir(cwdBefore)
 
-        tenantPath = (
-            memoryRoot.resolve()
-            / "sessions"
-            / "telegramUser_16739703"
-            / "schedules.yaml"
-        )
-        assert tenantPath.exists() is True
-        assert Path(settings.scheduler.schedulesConfigPath) == tenantPath.resolve()
-        assert "jobs: []" in tenantPath.read_text(encoding="utf-8")
+        assert legacyPath.exists() is True
+        assert Path(settings.scheduler.schedulesConfigPath) == legacyPath.resolve()
+        assert "jobs: []" in legacyPath.read_text(encoding="utf-8")
 
     if previousTelegramToken is None:
         os.environ.pop("TELEGRAM_BOT_TOKEN", None)
@@ -811,7 +807,7 @@ def testLoadSettingsMigratesLegacyAppConfigSchedulesYamlToTenantSessions() -> No
     assert settings is not None
 
 
-def testLoadSettingsMigratesLegacyAppConfigToolsYamlToTenantSessions() -> None:
+def testLoadSettingsUsesExplicitToolsConfigPathOnDisk() -> None:
     previousTelegramToken = os.environ.get("TELEGRAM_BOT_TOKEN")
     previousOpenRouterApiKey = os.environ.get("OPENROUTER_API_KEY")
     previousCookieSecret = os.environ.get("SESSION_COOKIE_SECRET")
@@ -849,14 +845,8 @@ def testLoadSettingsMigratesLegacyAppConfigToolsYamlToTenantSessions() -> None:
         finally:
             os.chdir(cwdBefore)
 
-        tenantPath = (
-            memoryRoot.resolve()
-            / "sessions"
-            / "telegramUser_16739703"
-            / "tools.yaml"
-        )
-        assert tenantPath.exists() is True
-        assert Path(settings.tools.toolsConfigPath) == tenantPath.resolve()
+        assert legacyPath.exists() is True
+        assert Path(settings.tools.toolsConfigPath) == legacyPath.resolve()
         assert settings.tools.telegramNewsDigest.digestChannelUsernames == ["from_legacy"]
 
     if previousTelegramToken is None:

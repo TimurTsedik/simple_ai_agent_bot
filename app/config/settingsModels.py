@@ -219,7 +219,7 @@ class ReminderModel(BaseModel):
     schedule: ReminderScheduleModel = Field(default_factory=ReminderScheduleModel)
     ownerMemoryPrincipalId: str = Field(
         default="",
-        description="Tenant key, напр. telegramUser:123. Пусто = legacy (виден только admin-tenant).",
+        description='Tenant key, напр. telegramUser:123. Пусто = без привязки к tenant (только admin-контекст).',
     )
     createdAtUnixTs: int | None = Field(default=None, ge=0)
     lastFiredAtUnixTs: int | None = Field(default=None, ge=0)
@@ -285,5 +285,5 @@ class SettingsModel(BaseModel):
     adminTelegramUserId: int = Field(
         default=16739703,
         ge=1,
-        description="Telegram user id владельца админки / дефолтного tenant для миграций и scoped UI.",
+        description="Telegram user id владельца админки / дефолтного tenant для scoped UI.",
     )

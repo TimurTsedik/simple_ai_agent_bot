@@ -11,7 +11,7 @@ def testJsonRunRepositoryWritesRunFileAndIndex() -> None:
         runRecord = {
             "traceId": "t1",
             "runId": "r1",
-            "sessionId": "telegram:1",
+            "sessionId": "telegramUser:1",
             "runStatus": "completed",
             "completionReason": "final_answer",
             "selectedModel": "model",
@@ -33,7 +33,7 @@ def testJsonRunRepositoryWritesRunFileAndIndex() -> None:
     assert indexData["completionReason"] == "final_answer"
 
 
-def testJsonRunRepositoryListRunsMatchesTelegramUserAliasForLegacyTelegramPrefix() -> None:
+def testJsonRunRepositoryListRunsFiltersByExactSessionId() -> None:
     with TemporaryDirectory() as tempDir:
         repository = JsonRunRepository(in_dataRootPath=tempDir)
         repository.saveRun(
@@ -50,9 +50,9 @@ def testJsonRunRepositoryListRunsMatchesTelegramUserAliasForLegacyTelegramPrefix
         )
         repository.saveRun(
             in_runRecord={
-                "traceId": "t_other",
-                "runId": "r_other",
-                "sessionId": "telegram:100",
+                "traceId": "t_ok",
+                "runId": "r_ok",
+                "sessionId": "telegramUser:99",
                 "runStatus": "completed",
                 "completionReason": "final_answer",
                 "selectedModel": "model",
@@ -60,14 +60,21 @@ def testJsonRunRepositoryListRunsMatchesTelegramUserAliasForLegacyTelegramPrefix
                 "finishedAt": "2026-01-01T00:00:03+00:00",
             }
         )
-        filtered = repository.listRuns(
+        filteredLegacyPrefix = repository.listRuns(
             in_limit=10,
             in_offset=0,
             in_session_id="telegramUser:99",
         )
+        filteredExact = repository.listRuns(
+            in_limit=10,
+            in_offset=0,
+            in_session_id="telegram:99",
+        )
 
-    assert len(filtered) == 1
-    assert filtered[0]["runId"] == "r_legacy"
+    assert len(filteredLegacyPrefix) == 1
+    assert filteredLegacyPrefix[0]["runId"] == "r_ok"
+    assert len(filteredExact) == 1
+    assert filteredExact[0]["runId"] == "r_legacy"
 
 
 def testJsonRunRepositoryReadsListAndDetails() -> None:
@@ -77,7 +84,7 @@ def testJsonRunRepositoryReadsListAndDetails() -> None:
             in_runRecord={
                 "traceId": "t1",
                 "runId": "r1",
-                "sessionId": "telegram:1",
+                "sessionId": "telegramUser:1",
                 "runStatus": "completed",
                 "completionReason": "final_answer",
                 "selectedModel": "model",
@@ -89,7 +96,7 @@ def testJsonRunRepositoryReadsListAndDetails() -> None:
             in_runRecord={
                 "traceId": "t2",
                 "runId": "r2",
-                "sessionId": "telegram:2",
+                "sessionId": "telegramUser:2",
                 "runStatus": "completed",
                 "completionReason": "stop_response",
                 "selectedModel": "model",

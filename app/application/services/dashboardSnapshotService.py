@@ -4,6 +4,7 @@ from typing import Any
 
 from app.application.services.modelStatsService import ModelStatsService
 from app.application.useCases.getRunListUseCase import GetRunListUseCase
+from app.common.adminRunsScopeHint import buildAdminRunsScopeHintPlainText
 from app.common.webDisplayTime import formatIso8601ForWeb
 from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
 from app.common.webDisplayTime import resolveDisplayZone
@@ -91,6 +92,9 @@ class DashboardSnapshotService:
             lastRunCreatedDisplay = "—"
 
         ret = {
+            "adminRunsScopeHint": buildAdminRunsScopeHintPlainText(
+                in_adminTelegramUserId=int(self._settings.adminTelegramUserId),
+            ),
             "adminWritesEnabled": self._settings.security.adminWritesEnabled,
             "toolsCount": len(self._toolRegistry.listTools()),
             "skillsCount": len(self._skillStore.loadAllSkills()),

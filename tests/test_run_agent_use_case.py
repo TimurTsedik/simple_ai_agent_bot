@@ -223,7 +223,7 @@ def testRunAgentUseCaseDropsToolConfigWhenNoToolCalls() -> None:
         in_settings=_buildSettings(),
     )
 
-    _result = useCase.execute(in_sessionId="telegram:1", in_inputMessage="кто ты?")
+    _result = useCase.execute(in_sessionId="telegramUser:1", in_inputMessage="кто ты?")
 
     assert repository.savedRunRecord is not None
     configSnapshot = repository.savedRunRecord["effectiveConfigSnapshot"]
@@ -273,7 +273,7 @@ def testRunAgentUseCaseKeepsToolConfigWhenToolCallExists() -> None:
     )
 
     _result = useCase.execute(
-        in_sessionId="telegram:1",
+        in_sessionId="telegramUser:1",
         in_inputMessage="сделай дайджест новостей",
     )
 
@@ -436,7 +436,7 @@ def testRunAgentUseCaseRequiresReadEmailForEmailOnlySkill() -> None:
     )
 
     _ = useCase.execute(
-        in_sessionId="telegram:1",
+        in_sessionId="telegramUser:1",
         in_inputMessage="прочитай непрочитанные письма",
     )
 
@@ -478,7 +478,7 @@ def testRunAgentUseCaseDoesNotRequireToolForEmailPreferenceFeedbackSkill() -> No
     )
 
     _ = useCase.execute(
-        in_sessionId="telegram:1",
+        in_sessionId="telegramUser:1",
         in_inputMessage="запомни: письма от research@aton.ru важные",
     )
 
@@ -520,7 +520,7 @@ def testRunAgentUseCaseDoesNotRequireDigestToolForFeedbackSkill() -> None:
     )
 
     _ = useCase.execute(
-        in_sessionId="telegram:1",
+        in_sessionId="telegramUser:1",
         in_inputMessage="мне понравились новости про ИИ, запомни",
     )
 

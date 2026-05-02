@@ -198,10 +198,19 @@ def renderIndexPage(in_stats: dict[str, Any], in_displayZone: ZoneInfo) -> str:
         if lastRunId
         else "<span class='muted'>—</span>"
     )
+    runs_scope_hint_text = str(in_stats.get("adminRunsScopeHint", "") or "").strip()
+    runs_scope_hint_html = (
+        f"<p class='muted' style='margin:10px 0 0 0;font-size:14px;line-height:1.45;'>"
+        f"{html.escape(runs_scope_hint_text)}"
+        "</p>"
+        if runs_scope_hint_text != ""
+        else ""
+    )
     content = (
         "<h1 class='title'>simple-ai-agent-bot</h1>"
         "<p class='muted' style='margin-top:0;'>Admin dashboard</p>"
         f"<div class='row'>{badge}<span class='muted'>security.adminWritesEnabled</span></div>"
+        f"{runs_scope_hint_html}"
         "<div class='grid' style='margin-top:12px;'>"
         "<div class='card col4'>"
         "<p class='muted' style='margin:0;'>Tools</p>"
@@ -301,7 +310,11 @@ def renderLogsPage(in_logItems: list[Any], in_displayZone: ZoneInfo) -> str:
     return ret
 
 
-def renderRunsPage(in_runItems: list[Any], in_displayZone: ZoneInfo) -> str:
+def renderRunsPage(
+    in_runItems: list[Any],
+    in_displayZone: ZoneInfo,
+    in_adminRunsScopeHint: str = "",
+) -> str:
     ret: str
     rows = []
     for runItem in in_runItems:
@@ -324,8 +337,16 @@ def renderRunsPage(in_runItems: list[Any], in_displayZone: ZoneInfo) -> str:
             "</tr>"
         )
     bodyRows = "".join(rows) if rows else "<tr><td colspan='5'>Запусков пока нет.</td></tr>"
+    scope_hint_block = ""
+    if str(in_adminRunsScopeHint or "").strip() != "":
+        scope_hint_block = (
+            f"<p class='muted' style='margin:0 0 12px 0;font-size:14px;line-height:1.45;'>"
+            f"{html.escape(str(in_adminRunsScopeHint).strip())}"
+            "</p>"
+        )
     content = (
         "<h1 class='title'>Runs</h1>"
+        f"{scope_hint_block}"
         f"<p class='muted'>Показаны последние {len(in_runItems)} запусков.</p>"
         "<table>"
         "<thead><tr><th>runId</th><th>sessionId</th><th>status</th>"

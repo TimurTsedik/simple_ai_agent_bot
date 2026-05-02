@@ -92,6 +92,8 @@ def testDashboardSnapshotServiceUsesTtlCache() -> None:
         )
         firstStats = service.getDashboardStatsSnapshot()
         secondStats = service.getDashboardStatsSnapshot()
+        assert "adminRunsScopeHint" in firstStats
+        assert "telegramUser:" in str(firstStats.get("adminRunsScopeHint", ""))
         assert firstStats is secondStats
         time.sleep(0.55)
         thirdStats = service.getDashboardStatsSnapshot()

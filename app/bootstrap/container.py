@@ -32,13 +32,6 @@ from app.integrations.telegram.schedulerTelegramFormatter import formatScheduler
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
 from app.integrations.telegram.telegramFileDownloader import TelegramFileDownloader
-from app.memory.services.legacyMemoryMigration import (
-    ensureLegacyDigestReadStateMigrated,
-    ensureLegacyRootLongTermMigrated,
-)
-from app.memory.services.legacySchedulerSessionMigration import (
-    ensureLegacySchedulerSessionDirsMigrated,
-)
 from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.models.providers.openRouterClient import OpenRouterClient
@@ -97,19 +90,6 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
     memoryStore = MarkdownMemoryStore(in_memorySettings=settings.memory)
     adminMemoryPrincipalId = formatTelegramUserMemoryPrincipal(
         in_telegramUserId=settings.adminTelegramUserId,
-    )
-    ensureLegacyRootLongTermMigrated(
-        in_memoryRootPath=settings.memory.memoryRootPath,
-        in_longTermFileName=settings.memory.longTermFileName,
-        in_targetMemoryPrincipalId=adminMemoryPrincipalId,
-    )
-    ensureLegacyDigestReadStateMigrated(
-        in_dataRootPath=settings.app.dataRootPath,
-        in_targetMemoryPrincipalId=adminMemoryPrincipalId,
-    )
-    ensureLegacySchedulerSessionDirsMigrated(
-        in_memoryRootPath=settings.memory.memoryRootPath,
-        in_adminTelegramUserId=settings.adminTelegramUserId,
     )
     telegramUserRegistryStore = TelegramUserRegistryStore(
         in_registryFilePath=str(settings.app.usersRegistryPath),

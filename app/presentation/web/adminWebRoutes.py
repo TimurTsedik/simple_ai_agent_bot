@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.bootstrap.container import ApplicationContainer
+from app.common.adminRunsScopeHint import buildAdminRunsScopeHintPlainText
 from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
 from app.common.webDisplayTime import resolveDisplayZone
 from app.config.settingsModels import EmailReaderToolSettings, TelegramNewsDigestToolSettings
@@ -539,7 +540,14 @@ def registerAdminWebRoutes(
             return RedirectResponse(url="/login", status_code=303)
         runItems = getRunListUseCase.execute(in_limit=limit, in_offset=offset)
         displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
-        ret = renderRunsPage(in_runItems=runItems, in_displayZone=displayZone)
+        runs_scope_hint = buildAdminRunsScopeHintPlainText(
+            in_adminTelegramUserId=int(settings.adminTelegramUserId),
+        )
+        ret = renderRunsPage(
+            in_runItems=runItems,
+            in_displayZone=displayZone,
+            in_adminRunsScopeHint=runs_scope_hint,
+        )
         return ret
 
     @in_app.get("/runs/{runId}", response_class=HTMLResponse)

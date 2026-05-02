@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 import re
-import shutil
 from typing import Any
 
 import yaml
@@ -131,87 +130,29 @@ def _defaultTenantToolsYamlPath(
     return ret
 
 
-def _resolvedLegacyRepoToolsYamlPath() -> Path:
-    ret = (Path.cwd() / "app" / "config" / "tools.yaml").resolve()
-    return ret
-
-
-def _pathsPointToSameFile(in_a: Path, in_b: Path) -> bool:
-    ret: bool
-    try:
-        ret = in_a.samefile(in_b)
-    except FileNotFoundError:
-        ret = False
-    return ret
-
-
-def _looksLikeLegacyAppConfigToolsYamlPath(in_rawPath: str) -> bool:
-    normRaw = Path(in_rawPath.strip()).as_posix().lstrip("./")
-    ret = normRaw == "app/config/tools.yaml" or normRaw.endswith("/app/config/tools.yaml")
-    return ret
-
-
 def _resolveEffectiveToolsYamlPath(
     in_rawToolsConfigPath: str,
     in_memoryRootPath: str,
     in_adminTelegramUserId: int,
 ) -> Path:
-    tenantPath = _defaultTenantToolsYamlPath(
-        in_memoryRootPath=in_memoryRootPath,
-        in_adminTelegramUserId=in_adminTelegramUserId,
-    ).resolve()
     if str(in_rawToolsConfigPath or "").strip() == "":
-        ret = tenantPath
+        ret = _defaultTenantToolsYamlPath(
+            in_memoryRootPath=in_memoryRootPath,
+            in_adminTelegramUserId=in_adminTelegramUserId,
+        ).resolve()
         return ret
     rawStr = str(in_rawToolsConfigPath).strip()
     requested = Path(rawStr)
     if requested.is_absolute() is False:
         requested = requested.resolve()
-    legacyResolved = _resolvedLegacyRepoToolsYamlPath()
-    legacyRequestedExists = legacyResolved.exists() is True
-    if (
-        _looksLikeLegacyAppConfigToolsYamlPath(in_rawPath=rawStr)
-        or (
-            legacyRequestedExists is True
-            and _pathsPointToSameFile(in_a=requested, in_b=legacyResolved) is True
-        )
-    ):
-        ret = tenantPath
-        return ret
     ret = requested.resolve()
     return ret
 
 
-def _allowsLegacyMigrateToTenant(in_rawToolsConfigPath: str) -> bool:
-    rawStr = str(in_rawToolsConfigPath or "").strip()
-    if rawStr == "":
-        ret = False
-        return ret
-    legacyResolved = _resolvedLegacyRepoToolsYamlPath()
-    if legacyResolved.exists() is False or legacyResolved.is_file() is False:
-        ret = False
-        return ret
-    requested = Path(rawStr)
-    if requested.is_absolute() is False:
-        requested = requested.resolve()
-    looksLegacy = _looksLikeLegacyAppConfigToolsYamlPath(in_rawPath=rawStr)
-    sameAsLegacy = _pathsPointToSameFile(in_a=requested, in_b=legacyResolved)
-    ret = looksLegacy is True or sameAsLegacy is True
-    return ret
-
-
-def _ensureToolsYamlOnDisk(
-    in_targetToolsPath: Path,
-    in_allowLegacyMigrateFromAppConfig: bool,
-) -> None:
+def _ensureToolsYamlOnDisk(in_targetToolsPath: Path) -> None:
     if in_targetToolsPath.exists() is True:
         return
     in_targetToolsPath.parent.mkdir(parents=True, exist_ok=True)
-    if in_allowLegacyMigrateFromAppConfig is True:
-        legacyPath = _resolvedLegacyRepoToolsYamlPath()
-        if legacyPath.exists() is True and legacyPath.is_file() is True:
-            shutil.copyfile(legacyPath, in_targetToolsPath)
-            return
     in_targetToolsPath.write_text(DEFAULT_TENANT_TOOLS_YAML_TEXT, encoding="utf-8")
 
 
@@ -229,78 +170,29 @@ def _defaultTenantSchedulesYamlPath(
     return ret
 
 
-def _resolvedLegacyRepoSchedulesYamlPath() -> Path:
-    ret = (Path.cwd() / "app" / "config" / "schedules.yaml").resolve()
-    return ret
-
-
-def _looksLikeLegacyAppConfigSchedulesYamlPath(in_rawPath: str) -> bool:
-    normRaw = Path(in_rawPath.strip()).as_posix().lstrip("./")
-    ret = normRaw == "app/config/schedules.yaml" or normRaw.endswith("/app/config/schedules.yaml")
-    return ret
-
-
 def _resolveEffectiveSchedulesYamlPath(
     in_rawSchedulesConfigPath: str,
     in_memoryRootPath: str,
     in_adminTelegramUserId: int,
 ) -> Path:
-    tenantPath = _defaultTenantSchedulesYamlPath(
-        in_memoryRootPath=in_memoryRootPath,
-        in_adminTelegramUserId=in_adminTelegramUserId,
-    ).resolve()
     if str(in_rawSchedulesConfigPath or "").strip() == "":
-        ret = tenantPath
+        ret = _defaultTenantSchedulesYamlPath(
+            in_memoryRootPath=in_memoryRootPath,
+            in_adminTelegramUserId=in_adminTelegramUserId,
+        ).resolve()
         return ret
     rawStr = str(in_rawSchedulesConfigPath).strip()
     requested = Path(rawStr)
     if requested.is_absolute() is False:
         requested = requested.resolve()
-    legacyResolved = _resolvedLegacyRepoSchedulesYamlPath()
-    legacyRequestedExists = legacyResolved.exists() is True
-    if (
-        _looksLikeLegacyAppConfigSchedulesYamlPath(in_rawPath=rawStr)
-        or (
-            legacyRequestedExists is True
-            and _pathsPointToSameFile(in_a=requested, in_b=legacyResolved) is True
-        )
-    ):
-        ret = tenantPath
-        return ret
     ret = requested.resolve()
     return ret
 
 
-def _allowsLegacyMigrateSchedules(in_rawSchedulesConfigPath: str) -> bool:
-    rawStr = str(in_rawSchedulesConfigPath or "").strip()
-    if rawStr == "":
-        ret = False
-        return ret
-    legacyResolved = _resolvedLegacyRepoSchedulesYamlPath()
-    if legacyResolved.exists() is False or legacyResolved.is_file() is False:
-        ret = False
-        return ret
-    requested = Path(rawStr)
-    if requested.is_absolute() is False:
-        requested = requested.resolve()
-    looksLegacy = _looksLikeLegacyAppConfigSchedulesYamlPath(in_rawPath=rawStr)
-    sameAsLegacy = _pathsPointToSameFile(in_a=requested, in_b=legacyResolved)
-    ret = looksLegacy is True or sameAsLegacy is True
-    return ret
-
-
-def _ensureSchedulesYamlOnDisk(
-    in_targetSchedulesPath: Path,
-    in_allowLegacyMigrateFromAppConfig: bool,
-) -> None:
+def _ensureSchedulesYamlOnDisk(in_targetSchedulesPath: Path) -> None:
     if in_targetSchedulesPath.exists() is True:
         return
     in_targetSchedulesPath.parent.mkdir(parents=True, exist_ok=True)
-    if in_allowLegacyMigrateFromAppConfig is True:
-        legacyPath = _resolvedLegacyRepoSchedulesYamlPath()
-        if legacyPath.exists() is True and legacyPath.is_file() is True:
-            shutil.copyfile(legacyPath, in_targetSchedulesPath)
-            return
     in_targetSchedulesPath.write_text(DEFAULT_TENANT_SCHEDULES_YAML_TEXT, encoding="utf-8")
 
 
@@ -347,29 +239,21 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
         )
     _validateAdminTokens(in_tokens=baseSettings.adminRawTokens)
 
-    # Tool-specific settings (tools.yaml): по умолчанию файл в зоне памяти администратора
-    # (sessions/telegramUser_<id>/tools.yaml). Старый путь app/config/tools.yaml
-    # перенаправляется туда с одноразовым копированием.
+    # tools.yaml: пустой toolsConfigPath → tenant администратора; иначе явный путь.
     rawToolsSource = baseSettings.tools.toolsConfigPath
     toolsConfigPath = _resolveEffectiveToolsYamlPath(
         in_rawToolsConfigPath=rawToolsSource,
         in_memoryRootPath=baseSettings.memory.memoryRootPath,
         in_adminTelegramUserId=baseSettings.adminTelegramUserId,
     )
-    allowLegacyMigrateFromAppConfig = _allowsLegacyMigrateToTenant(
-        in_rawToolsConfigPath=rawToolsSource
-    )
-    _ensureToolsYamlOnDisk(
-        in_targetToolsPath=toolsConfigPath,
-        in_allowLegacyMigrateFromAppConfig=allowLegacyMigrateFromAppConfig,
-    )
+    _ensureToolsYamlOnDisk(in_targetToolsPath=toolsConfigPath)
 
     toolsData: dict[str, Any] | None = None
     if toolsConfigPath.exists():
         loadedToolsData = _readYamlFile(in_path=toolsConfigPath)
         toolsData = loadedToolsData if isinstance(loadedToolsData, dict) else None
 
-    legacyDigest = TelegramNewsDigestToolSettings(
+    configFallbackDigest = TelegramNewsDigestToolSettings(
         digestChannelUsernames=list(baseSettings.telegram.digestChannelUsernames),
         portfolioTickers=list(baseSettings.telegram.portfolioTickers),
         digestSemanticKeywords=list(baseSettings.telegram.digestSemanticKeywords),
@@ -377,7 +261,7 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
     effectiveDigest: TelegramNewsDigestToolSettings
     effectiveEmail: EmailReaderToolSettings
     if toolsData is None:
-        effectiveDigest = legacyDigest
+        effectiveDigest = configFallbackDigest
         effectiveEmail = EmailReaderToolSettings()
     else:
         try:
@@ -386,7 +270,7 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             )
             effectiveDigest = parsedDigest
         except ValidationError:
-            effectiveDigest = legacyDigest
+            effectiveDigest = configFallbackDigest
         try:
             parsedEmail = EmailReaderToolSettings.model_validate(
                 toolsData.get("emailReader", {}) if isinstance(toolsData, dict) else {}
@@ -407,18 +291,13 @@ def loadSettings(in_configPath: str, in_envPath: str = DEFAULT_ENV_PATH) -> Sett
             )
         }
     )
-    # schedules.yaml по умолчанию рядом с tools.yaml tenant администратора; legacy app/config/… — migrate по явному пути.
     rawSchedSource = ret.scheduler.schedulesConfigPath
     schedulesResolved = _resolveEffectiveSchedulesYamlPath(
         in_rawSchedulesConfigPath=rawSchedSource,
         in_memoryRootPath=ret.memory.memoryRootPath,
         in_adminTelegramUserId=ret.adminTelegramUserId,
     )
-    allowSchedMigrate = _allowsLegacyMigrateSchedules(in_rawSchedulesConfigPath=rawSchedSource)
-    _ensureSchedulesYamlOnDisk(
-        in_targetSchedulesPath=schedulesResolved,
-        in_allowLegacyMigrateFromAppConfig=allowSchedMigrate,
-    )
+    _ensureSchedulesYamlOnDisk(in_targetSchedulesPath=schedulesResolved)
     schedulesConfigStr = str(schedulesResolved)
     if ret.scheduler.enabled is True:
         if schedulesResolved.exists() is False:

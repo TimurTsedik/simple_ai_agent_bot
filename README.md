@@ -107,12 +107,23 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - **Основной конфиг**: `app/config/config.yaml` (без секретов).
 - **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`, опционально `ADMIN_TELEGRAM_USER_ID` (см. ниже).
 
-**Multi-user (Telegram):** единый белый список — файл **`app.usersRegistryPath`** (по умолчанию `data/users/registry.yaml`): все `telegramUserId` оттуда могут общаться с ботом; рассылки scheduler/reminder уходят тем же списком. Добавление через веб **`/users`** (нужно `security.adminWritesEnabled: true`) или правка YAML реестра; при создании выделяется `sessions/telegramUser_<id>/` с автосгенерированными `tools.yaml` / `schedules.yaml` (минимальный каркас из кода, см. `app/config/defaultTenantSessionYaml.py`) и пустым контекстом (`long_term.md`, `summary.md`, `recent.md`). Поле `telegram.allowedUserIds` в конфиге больше не используется — список только в реестре. Каждый разрешённый пользователь получает tenant-ключ сессии `telegramUser:<id>`: краткосрочная память (`recent.md`, `summary.md`), долгосрочная (`long_term.md`), state digest и напоминания с `ownerMemoryPrincipalId` изолированы между пользователями. Веб-админка и список runs по умолчанию ограничены администратором: `adminTelegramUserId` в конфиге или **`ADMIN_TELEGRAM_USER_ID` в `.env`**. При первом запуске корневой legacy `data/memory/long_term.md` копируется в namespace этого пользователя и переименовывается в `.migrated.bak`.
+**Multi-user (Telegram):** единый белый список — файл **`app.usersRegistryPath`** (по умолчанию `data/users/registry.yaml`): все `telegramUserId` оттуда могут общаться с ботом; рассылки scheduler/reminder уходят тем же списком. Добавление через веб **`/users`** (нужно `security.adminWritesEnabled: true`) или правка YAML реестра; при создании выделяется `sessions/telegramUser_<id>/` с автосгенерированными `tools.yaml` / `schedules.yaml` (минимальный каркас из кода, см. `app/config/defaultTenantSessionYaml.py`) и пустым контекстом (`long_term.md`, `summary.md`, `recent.md`). Поле `telegram.allowedUserIds` в конфиге больше не используется — список только в реестре. Каждый разрешённый пользователь получает tenant-ключ сессии `telegramUser:<id>`: краткосрочная память (`recent.md`, `summary.md`), долгосрочная (`long_term.md`), state digest и напоминания с `ownerMemoryPrincipalId` изолированы между пользователями. Веб-админка и список runs по умолчанию ограничены администратором: `adminTelegramUserId` в конфиге или **`ADMIN_TELEGRAM_USER_ID` в `.env`**. Перенос старых файлов памяти из общего корня в каталог tenant выполняется вручную при необходимости.
 
 Требования к web-auth:
 - `SESSION_COOKIE_SECRET` — минимум 32 символа
 - `ADMIN_RAW_TOKENS` — CSV, 1..`security.maxAdminTokens` токенов
 - каждый admin token — минимум 16 символов, только `A-Z a-z 0-9 . _ -`, без дублей
+
+### Session id в текущем коде
+
+- Входящие сообщения Telegram обрабатываются с **`sessionId` = `telegramUser:<telegramUserId>`** (см. `formatTelegramUserMemoryPrincipal`).
+- Фильтр админки и дашборда по runs сравнивает **`sessionId` в индексе строго** с tenant админа. Если в **`data/runs/index.jsonl`** остались старые строки с **`telegram:<id>`**, их нужно нормализовать (см. **`scripts/normalize_runs_index_session_ids.py`**), иначе такие раны не попадут в выдачу админа.
+- Scheduler и internal-run используют свои схемы session id (`scheduler:…`, нормализация через `normalizeScheduledInternalSessionId`); **новый** произвольный код не должен вводить **`telegram:`** как основной формат для Telegram-user tenant.
+
+### Что выполняется при старте процесса
+
+1. **`loadSettings`**: чтение YAML + env; пустые **`tools.toolsConfigPath`** / **`scheduler.schedulesConfigPath`** разрешаются в каталог tenant админа; при отсутствии файлов — запись минимальных шаблонов из **`defaultTenantSessionYaml.py`**. Непустые пути трактуются как явные файлы (относительно cwd процесса).
+2. **`buildApplicationContainer`**: сбор зависимостей и use case без автоматических миграций дисковых данных.
 
 ## Веб-админка
 

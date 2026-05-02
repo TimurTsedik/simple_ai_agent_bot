@@ -1,9 +1,6 @@
 from typing import Any
 
-from app.observability.stores.jsonRunRepository import (
-    JsonRunRepository,
-    sessionsEquivalentForAdminRunsView,
-)
+from app.observability.stores.jsonRunRepository import JsonRunRepository
 
 
 class GetRunDetailsUseCase:
@@ -24,10 +21,7 @@ class GetRunDetailsUseCase:
         allowedText = self._allowedSessionId
         if allowedText is not None:
             record_session = str(item.get("sessionId", "") or "")
-            if sessionsEquivalentForAdminRunsView(
-                in_recordSessionId=record_session,
-                in_allowedSessionId=str(allowedText),
-            ) is False:
+            if record_session != str(allowedText):
                 ret = None
                 return ret
         ret = item

@@ -5,8 +5,8 @@ from app.application.useCases.getRunListUseCase import GetRunListUseCase
 class FakeRunRepository:
     def __init__(self) -> None:
         self._items = [
-            {"runId": "r2", "sessionId": "telegram:2"},
-            {"runId": "r1", "sessionId": "telegram:1"},
+            {"runId": "r2", "sessionId": "telegramUser:2"},
+            {"runId": "r1", "sessionId": "telegramUser:1"},
         ]
 
     def listRuns(
@@ -47,4 +47,4 @@ def testGetRunDetailsUseCaseReturnsSingleItem() -> None:
     result = useCase.execute(in_runId="r1")
 
     assert result is not None
-    assert result["sessionId"] == "telegram:1"
+    assert result["sessionId"] == "telegramUser:1"

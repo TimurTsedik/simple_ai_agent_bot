@@ -16,9 +16,9 @@ telegram:
   voiceMaxSeconds: 60
   voiceMaxBytes: 5000000
 
-# Настройки инструментов: по умолчанию файл живёт там же, что память админа:
+# Настройки инструментов: пустой toolsConfigPath → файл в каталоге памяти админа:
 # ${memory.memoryRootPath}/sessions/telegramUser_${ADMIN_TELEGRAM_USER_ID}/tools.yaml
-# Один раз мигрировать старый app/config/tools.yaml: укажи toolsConfigPath: "./app/config/tools.yaml".
+# Иначе — явный путь к YAML (относительно cwd процесса).
 tools:
   toolsConfigPath: ""
 
@@ -78,10 +78,9 @@ memory:
 scheduler:
   enabled: false
   # Пусто = data/memory/sessions/telegramUser_<ADMIN>/schedules.yaml (рядом с tools.yaml).
-  # Миграция со старого пути: schedulesConfigPath: "./app/config/schedules.yaml"
   schedulesConfigPath: ""
   tickSeconds: 1
 
-# Telegram user id владельца веб-админки и цель по умолчанию для миграции legacy long_term.md.
+# Telegram user id владельца веб-админки (tenant по умолчанию для пустых tools/schedules путей).
 # Перекрывается переменной окружения ADMIN_TELEGRAM_USER_ID (рекомендуется для .env).
 adminTelegramUserId: 16739703

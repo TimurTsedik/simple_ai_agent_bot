@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
+
 
 def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
     ret: TestClient
@@ -32,7 +34,13 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
     memoryRoot.mkdir(parents=True, exist_ok=True)
     logsRoot.mkdir(parents=True, exist_ok=True)
     runsRoot.mkdir(parents=True, exist_ok=True)
-    (memoryRoot / "long_term.md").write_text("line-one\n<script>x</script>\n", encoding="utf-8")
+    adminPrincipal = formatTelegramUserMemoryPrincipal(in_telegramUserId=16739703)
+    adminSessionDir = memoryRoot / "sessions" / str(adminPrincipal).replace(":", "_")
+    adminSessionDir.mkdir(parents=True, exist_ok=True)
+    (adminSessionDir / "long_term.md").write_text(
+        "line-one\n<script>x</script>\n",
+        encoding="utf-8",
+    )
 
     configPath.write_text(
         "app:\n"
@@ -164,6 +172,8 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch, tmp_path) -> None:
 
     assert runsResponse.status_code == 200
     assert indexResponse.status_code == 200
+    assert "Ограничение:" in runsResponse.text
+    assert "Ограничение:" in indexResponse.text
     assert "Статистика LLM (provider)" in indexResponse.text
     assert statusResponse.status_code == 200
     assert diffResponse.status_code == 200

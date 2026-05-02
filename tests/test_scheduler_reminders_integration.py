@@ -65,6 +65,7 @@ def testSchedulerReminderFiresOncePerMinuteAndDecrementsRemainingRuns(tmp_path: 
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: ("", ""),
         in_onReminderTriggeredCallable=lambda reminderId, text: sentItems.append((reminderId, text)),
         in_onReminderCompletedCallable=lambda reminderId: ReminderConfigStore(
@@ -111,6 +112,7 @@ def testSchedulerReminderHotReloadsFromSchedulesFile(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: ("", ""),
         in_onReminderTriggeredCallable=lambda reminderId, text: sentItems.append((reminderId, text)),
         in_nowUnixTsProvider=lambda: nowUnixTs,

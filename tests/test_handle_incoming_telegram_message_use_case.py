@@ -26,7 +26,13 @@ class FakeRunAgentUseCase:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def execute(self, in_sessionId: str, in_inputMessage: str) -> FakeRunResult:
+    def execute(
+        self,
+        in_sessionId: str,
+        in_inputMessage: str,
+        in_memoryPrincipalId: str | None = None,
+    ) -> FakeRunResult:
+        _ = in_memoryPrincipalId
         self.calls.append((in_sessionId, in_inputMessage))
         ret = FakeRunResult(in_finalAnswer=f"echo:{in_inputMessage}")
         return ret
@@ -39,8 +45,13 @@ class FakeMemoryService:
     def resetSession(self, in_sessionId: str) -> None:
         self.resetSessionIds.append(in_sessionId)
 
-    def buildMemoryBlock(self, in_sessionId: str) -> str:
+    def buildMemoryBlock(
+        self,
+        in_sessionId: str,
+        in_longTermPrincipalId: str | None = None,
+    ) -> str:
         _ = in_sessionId
+        _ = in_longTermPrincipalId
         ret = "## Session Summary\nx\n\n## Recent Messages\n- user: a\n\n## Long-Term Memory\n- b"
         return ret
 
@@ -66,7 +77,7 @@ def testAuthorizedUserGetsAcceptedMessage() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -84,7 +95,7 @@ def testAuthorizedUserGetsAcceptedMessage() -> None:
 
     assert result.isAuthorized is True
     assert result.outgoingText == "echo:Привет"
-    assert runAgentUseCase.calls == [("telegram:200", "Привет")]
+    assert runAgentUseCase.calls == [("telegramUser:100", "Привет")]
 
 
 def testUnauthorizedUserGetsDeniedMessage() -> None:
@@ -92,7 +103,7 @@ def testUnauthorizedUserGetsDeniedMessage() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -117,7 +128,7 @@ def testAuthorizedUserResetCommandClearsSessionMemory() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -135,7 +146,7 @@ def testAuthorizedUserResetCommandClearsSessionMemory() -> None:
 
     assert result.isAuthorized is True
     assert "Сессия сброшена" in result.outgoingText
-    assert memoryService.resetSessionIds == ["telegram:777"]
+    assert memoryService.resetSessionIds == ["telegramUser:100"]
     assert runAgentUseCase.calls == []
 
 
@@ -144,7 +155,7 @@ def testAuthorizedUserContextCommandShowsContextAndWindow() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -172,7 +183,7 @@ def testAuthorizedUserHelpCommandReturnsTemplatesWithoutAgentRun() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -203,7 +214,7 @@ def testAuthorizedUserStartCommandMentionsHelpCommand() -> None:
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=[100],
+        in_get_allowed_user_ids=lambda: {100},
         in_denyMessageText="Доступ запрещён",
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]

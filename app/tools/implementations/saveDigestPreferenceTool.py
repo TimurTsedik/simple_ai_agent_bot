@@ -11,7 +11,12 @@ from app.tools.telegramUsernameNormalize import normalizeTelegramChannelUsername
 class SaveDigestPreferenceTool:
     in_memoryStore: MarkdownMemoryStore
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         topicsRaw = [t for t in in_args.get("likedTopics", []) if isinstance(t, str)]
         channelsRaw = [c for c in in_args.get("likedChannels", []) if isinstance(c, str)]
@@ -63,11 +68,16 @@ class SaveDigestPreferenceTool:
             "savedAt": datetime.now(UTC).isoformat(),
         }
         lineText = "- digest_pref_json: " + json.dumps(payload, ensure_ascii=False, sort_keys=True)
-        existingLines = self.in_memoryStore.readLongTermMemory()
+        existingLines = self.in_memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         mergedLines = list(existingLines)
         if lineText not in mergedLines:
             mergedLines.append(lineText)
-        self.in_memoryStore.writeLongTermMemory(in_lines=mergedLines)
+        self.in_memoryStore.writeLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_lines=mergedLines,
+        )
         ret = {
             "ok": True,
             "message": "Предпочтение для будущих дайджестов сохранено в долгосрочную память.",

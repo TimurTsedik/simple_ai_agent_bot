@@ -148,6 +148,7 @@ def _renderNav() -> str:
         "<a href='/tools'>Tools</a>"
         "<a href='/skills'>Skills</a>"
         "<a href='/memory/long-term'>Memory</a>"
+        "<a href='/users'>Users</a>"
         "<a href='/config/tools'>Tool config</a>"
         "<a href='/config/schedules'>Schedules config</a>"
         "<a href='/git/status'>Git Status</a>"
@@ -925,4 +926,64 @@ def renderSchedulesConfigViewPage(
         f"<pre>{html.escape(in_schedulesYamlText)}</pre>"
     )
     ret = _renderLayout(in_title="Schedules Config", in_content=content, in_showNav=True)
+    return ret
+
+
+def renderTelegramUsersPage(
+    in_user_rows_html: str,
+    in_registry_path_text: str,
+    in_notice_ok_text: str,
+    in_notice_error_text: str,
+    in_writes_enabled: bool,
+) -> str:
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_writes_enabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    noticeOk = ""
+    if str(in_notice_ok_text or "").strip() != "":
+        noticeOk = f"<p class='badge badge-ok' style='margin:0 0 12px 0;'>{html.escape(in_notice_ok_text)}</p>"
+    noticeErr = ""
+    if str(in_notice_error_text or "").strip() != "":
+        noticeErr = f"<p class='danger' style='margin:0 0 12px 0;'>{html.escape(in_notice_error_text)}</p>"
+    disabled_form = ""
+    writes_disabled_tip = ""
+    if in_writes_enabled is False:
+        disabled_form = "disabled"
+        writes_disabled_tip = (
+            "<p class='muted'>Создание пользователей отключено (<code>security.adminWritesEnabled</code>)."
+            "</p>"
+        )
+    input_style = (
+        "padding:8px 10px;border:1px solid #2c3a63;border-radius:10px;"
+        "background:#0e1529;color:#e8ecf6;min-width:220px;"
+    )
+    content = (
+        "<h1 class='title'>Пользователи Telegram</h1>"
+        f"<div class='row'>{badge}</div>"
+        f"<p class='muted'>Общий реестр: <code>{html.escape(in_registry_path_text)}</code></p>"
+        f"{writes_disabled_tip}"
+        f"{noticeOk}{noticeErr}"
+        "<div class='col12'><h2 class='muted' style='font-size:16px;margin:16px 0 8px 0;'>Новый пользователь</h2>"
+        "<form method='post' action='/users/create' style='margin-bottom:20px;'>"
+        "<div class='row' style='margin-bottom:8px;'><label><span class='muted'>Telegram ID</span><br />"
+        f"<input type='number' min='1' name='telegram_user_id' required {disabled_form} "
+        f"style='{input_style}' /></label></div>"
+        "<div class='row' style='margin-bottom:8px;'><label><span class='muted'>Отображаемое имя (необязательно)"
+        "</span><br />"
+        f"<input type='text' name='display_name' {disabled_form} style='{input_style};min-width:320px;' />"
+        "</label></div>"
+        "<div class='row' style='margin-bottom:8px;'><label><span class='muted'>Заметка (необязательно)"
+        "</span><br />"
+        f"<input type='text' name='note' {disabled_form} style='{input_style};min-width:320px;' />"
+        "</label></div>"
+        f"<button class='btn' type='submit' {disabled_form}>Создать</button>"
+        "</form></div>"
+        "<h2 class='muted' style='font-size:16px;margin:16px 0 8px 0;'>Зарегистрированные в реестре</h2>"
+        "<table><thead><tr><th>Telegram ID</th><th>Имя</th><th>Создан</th><th>Заметка</th>"
+        "</tr></thead>"
+        f"<tbody>{in_user_rows_html}</tbody></table>"
+    )
+    ret = _renderLayout(in_title="Telegram Users", in_content=content, in_showNav=True)
     return ret

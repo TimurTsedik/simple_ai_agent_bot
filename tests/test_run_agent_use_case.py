@@ -31,13 +31,19 @@ class FakeMemoryService:
         self.calledBuildMemoryBlock = False
         self.calledBuildLongTermOnlyMemoryBlock = False
 
-    def buildMemoryBlock(self, in_sessionId: str) -> str:
+    def buildMemoryBlock(
+        self,
+        in_sessionId: str,
+        in_longTermPrincipalId: str | None = None,
+    ) -> str:
         _ = in_sessionId
+        _ = in_longTermPrincipalId
         self.calledBuildMemoryBlock = True
         ret = "memory block"
         return ret
 
-    def buildLongTermOnlyMemoryBlock(self) -> str:
+    def buildLongTermOnlyMemoryBlock(self, in_memoryPrincipalId: str) -> str:
+        _ = in_memoryPrincipalId
         self.calledBuildLongTermOnlyMemoryBlock = True
         ret = "long-term only memory block"
         return ret
@@ -48,11 +54,13 @@ class FakeMemoryService:
         in_userMessage: str,
         in_finalAnswer: str,
         in_memoryCandidates: list[str],
+        in_memoryPrincipalId: str,
     ) -> None:
         _ = in_sessionId
         _ = in_userMessage
         _ = in_finalAnswer
         _ = in_memoryCandidates
+        _ = in_memoryPrincipalId
 
 
 class FakeRunRepository:
@@ -74,12 +82,14 @@ class FakeAgentLoop:
         in_userMessage: str,
         in_skillsBlock: str,
         in_memoryBlock: str,
+        in_memoryPrincipalId: str,
         in_allowToolCalls: bool = True,
         in_requiredFirstSuccessfulToolName: str = "",
     ) -> AgentLoopResultModel:
         _ = in_userMessage
         _ = in_skillsBlock
         self.lastMemoryBlock = in_memoryBlock
+        _ = in_memoryPrincipalId
         _ = in_allowToolCalls
         self.lastRequiredFirstToolName = in_requiredFirstSuccessfulToolName
         ret = self._result
@@ -123,7 +133,6 @@ def _buildSettings() -> SettingsModel:
         app=AppSettings(appName="test", environment="test", dataRootPath="./data"),
         telegram=TelegramSettings(
             pollingTimeoutSeconds=10,
-            allowedUserIds=[1],
             denyMessageText="deny",
             digestChannelUsernames=["channel_one"],
             portfolioTickers=["AAA"],

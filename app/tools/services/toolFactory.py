@@ -1,3 +1,4 @@
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.config.settingsModels import SettingsModel
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.reminders.reminderConfigStore import ReminderConfigStore
@@ -32,6 +33,9 @@ def buildToolRegistry(
     in_memoryStore: MarkdownMemoryStore,
 ) -> ToolRegistry:
     ret: ToolRegistry
+    adminMemoryPrincipalId = formatTelegramUserMemoryPrincipal(
+        in_telegramUserId=in_settings.adminTelegramUserId,
+    )
     def _getDigestChannels() -> list[str]:
         retChannels = list(in_settings.tools.telegramNewsDigest.digestChannelUsernames)
         if len(retChannels) == 0:
@@ -65,7 +69,8 @@ def buildToolRegistry(
     saveDigestPreferenceTool = SaveDigestPreferenceTool(in_memoryStore=in_memoryStore)
     saveEmailPreferenceTool = SaveEmailPreferenceTool(in_memoryStore=in_memoryStore)
     readMemoryFileTool = ReadMemoryFileTool(
-        in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths
+        in_memoryRootPath=in_settings.memory.memoryRootPath,
+        in_allowedReadOnlyPaths=in_settings.security.allowedReadOnlyPaths,
     )
     readEmailTool = ReadEmailTool(
         in_emailSettings=in_settings.tools.emailReader,
@@ -79,10 +84,12 @@ def buildToolRegistry(
     listRemindersTool = ListRemindersTool(
         in_reminderConfigStore=reminderConfigStore,
         in_dataRootPath=in_settings.app.dataRootPath,
+        in_adminMemoryPrincipalId=adminMemoryPrincipalId,
     )
     deleteReminderTool = DeleteReminderTool(
         in_reminderConfigStore=reminderConfigStore,
         in_dataRootPath=in_settings.app.dataRootPath,
+        in_adminMemoryPrincipalId=adminMemoryPrincipalId,
     )
     toolDefinitions = [
         ToolDefinitionModel(

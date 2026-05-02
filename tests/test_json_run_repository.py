@@ -33,6 +33,43 @@ def testJsonRunRepositoryWritesRunFileAndIndex() -> None:
     assert indexData["completionReason"] == "final_answer"
 
 
+def testJsonRunRepositoryListRunsMatchesTelegramUserAliasForLegacyTelegramPrefix() -> None:
+    with TemporaryDirectory() as tempDir:
+        repository = JsonRunRepository(in_dataRootPath=tempDir)
+        repository.saveRun(
+            in_runRecord={
+                "traceId": "t_legacy",
+                "runId": "r_legacy",
+                "sessionId": "telegram:99",
+                "runStatus": "completed",
+                "completionReason": "final_answer",
+                "selectedModel": "model",
+                "createdAt": "2026-01-01T00:00:00+00:00",
+                "finishedAt": "2026-01-01T00:00:01+00:00",
+            }
+        )
+        repository.saveRun(
+            in_runRecord={
+                "traceId": "t_other",
+                "runId": "r_other",
+                "sessionId": "telegram:100",
+                "runStatus": "completed",
+                "completionReason": "final_answer",
+                "selectedModel": "model",
+                "createdAt": "2026-01-01T00:00:02+00:00",
+                "finishedAt": "2026-01-01T00:00:03+00:00",
+            }
+        )
+        filtered = repository.listRuns(
+            in_limit=10,
+            in_offset=0,
+            in_session_id="telegramUser:99",
+        )
+
+    assert len(filtered) == 1
+    assert filtered[0]["runId"] == "r_legacy"
+
+
 def testJsonRunRepositoryReadsListAndDetails() -> None:
     with TemporaryDirectory() as tempDir:
         repository = JsonRunRepository(in_dataRootPath=tempDir)

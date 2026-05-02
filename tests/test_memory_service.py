@@ -30,6 +30,7 @@ def testMemoryServiceUpdatesRecentSummaryAndLongTerm() -> None:
                 "Пользователь предпочитает короткий формат",
                 "Сегодня проверить временную задачу",
             ],
+            in_memoryPrincipalId="telegram:1",
         )
         memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
 
@@ -59,12 +60,14 @@ def testMemoryServiceSkipsServiceAnswersInRecentAndSummary() -> None:
             in_userMessage="Сделай дайджест",
             in_finalAnswer="Есть новости по рынку РФ",
             in_memoryCandidates=[],
+            in_memoryPrincipalId="telegram:1",
         )
         service.updateAfterRun(
             in_sessionId="telegram:1",
             in_userMessage="Сделай дайджест еще раз",
             in_finalAnswer="Извините, достигнут лимит вызовов инструментов, попробуйте позже.",
             in_memoryCandidates=[],
+            in_memoryPrincipalId="telegram:1",
         )
         memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
 
@@ -84,10 +87,11 @@ def testMemoryServiceIncludesDigestTopicConfigHintsInMemoryBlock() -> None:
         )
         store = MarkdownMemoryStore(in_memorySettings=memorySettings)
         store.writeLongTermMemory(
+            in_memoryPrincipalId="telegram:1",
             in_lines=[
                 '- digest_topic_config_json: {"channels":["chan_one"],"kind":"digest_topic_config",'
                 '"keywords":["macro"],"topicKey":"рынок","topicLabel":"Рынок","updatedAt":"2026-01-02"}'
-            ]
+            ],
         )
         service = MemoryService(
             in_memoryStore=store,
@@ -112,12 +116,13 @@ def testMemoryServiceIncludesDigestPreferenceHintsInMemoryBlock() -> None:
         )
         store = MarkdownMemoryStore(in_memorySettings=memorySettings)
         store.writeLongTermMemory(
+            in_memoryPrincipalId="telegram:1",
             in_lines=[
                 "- digest_pref_json: "
                 '{"kind":"digest_user_preference","likedChannels":["ai_news"],'
                 '"likedKeywords":["gpt"],"likedTopics":["ai"],"savedAt":"2026-01-01T00:00:00+00:00",'
                 '"userNote":"more technical"}'
-            ]
+            ],
         )
         service = MemoryService(
             in_memoryStore=store,
@@ -142,6 +147,7 @@ def testMemoryServiceIncludesEmailPreferenceHintsInMemoryBlock() -> None:
         )
         store = MarkdownMemoryStore(in_memorySettings=memorySettings)
         store.writeLongTermMemory(
+            in_memoryPrincipalId="telegram:1",
             in_lines=[
                 "- email_pref_json: "
                 '{"kind":"email_user_preference",'
@@ -149,7 +155,7 @@ def testMemoryServiceIncludesEmailPreferenceHintsInMemoryBlock() -> None:
                 '"preferredKeywords":["облигации"],'
                 '"savedAt":"2026-01-01T00:00:00+00:00",'
                 '"userNote":"corporate actions"}'
-            ]
+            ],
         )
         service = MemoryService(
             in_memoryStore=store,
@@ -157,7 +163,7 @@ def testMemoryServiceIncludesEmailPreferenceHintsInMemoryBlock() -> None:
             in_recentMessagesLimit=4,
             in_sessionSummaryMaxChars=2000,
         )
-        memoryBlock = service.buildLongTermOnlyMemoryBlock()
+        memoryBlock = service.buildLongTermOnlyMemoryBlock(in_memoryPrincipalId="telegram:1")
 
     assert "## Email preference hints" in memoryBlock
     assert "research@aton.ru" in memoryBlock
@@ -185,9 +191,12 @@ def testMemoryServiceBuildsLongTermOnlyMemoryBlockForDigestFlows() -> None:
             in_userMessage="прочитай письма",
             in_finalAnswer="дайджест уже был выше",
             in_memoryCandidates=["Пользователь предпочитает краткий дайджест"],
+            in_memoryPrincipalId="scheduler:email",
         )
 
-        memoryBlock = service.buildLongTermOnlyMemoryBlock()
+        memoryBlock = service.buildLongTermOnlyMemoryBlock(
+            in_memoryPrincipalId="scheduler:email",
+        )
 
     assert "## Session Summary" not in memoryBlock
     assert "## Recent Messages" not in memoryBlock
@@ -215,6 +224,7 @@ def testMemoryServiceSkipsWebSearchAccessDeniedInRecentAndSummary() -> None:
             in_userMessage="Поищи в интернете про кошек",
             in_finalAnswer="Не удалось выполнить поиск в интернете из-за ошибки доступа (ACCESS_DENIED).",
             in_memoryCandidates=[],
+            in_memoryPrincipalId="telegram:1",
         )
         memoryBlock = service.buildMemoryBlock(in_sessionId="telegram:1")
 

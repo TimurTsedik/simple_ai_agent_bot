@@ -39,10 +39,10 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         "  appName: \"simple-ai-agent-bot\"\n"
         "  environment: \"test\"\n"
         f"  dataRootPath: \"{dataRoot.as_posix()}\"\n"
+        f"  usersRegistryPath: \"{(in_tmpPath / 'users' / 'registry.yaml').as_posix()}\"\n"
         "  displayTimeZone: \"UTC\"\n"
         "telegram:\n"
         "  pollingTimeoutSeconds: 30\n"
-        "  allowedUserIds: [16739703]\n"
         "  denyMessageText: \"Доступ запрещён\"\n"
         "models:\n"
         "  openRouterBaseUrl: \"https://openrouter.ai/api/v1\"\n"
@@ -80,7 +80,7 @@ def _buildClient(in_monkeypatch, in_tmpPath: Path) -> TestClient:
         f"  memoryRootPath: \"{memoryRoot.as_posix()}\"\n"
         "scheduler:\n"
         "  enabled: false\n"
-        "  schedulesConfigPath: \"./app/config/schedules.yaml\"\n"
+        "  schedulesConfigPath: \"\"\n"
         "  tickSeconds: 1\n",
         encoding="utf-8",
     )
@@ -169,6 +169,10 @@ def testWebLoginAndGitPagesRenderSafely(monkeypatch, tmp_path) -> None:
     assert diffResponse.status_code == 200
     assert schedulesResponse.status_code == 200
     assert "Scheduler settings (schedules.yaml)" in schedulesResponse.text
+
+    usersResponse = client.get("/users")
+    assert usersResponse.status_code == 200
+    assert "Пользователи Telegram" in usersResponse.text
     assert "<script>" not in statusResponse.text
     assert "<script>" not in diffResponse.text
     assert "&lt;script&gt;" in statusResponse.text
@@ -210,6 +214,10 @@ def testToolsAndSkillsPagesRequireLogin(monkeypatch, tmp_path) -> None:
     schedulesConfigResponse = client.get("/config/schedules", follow_redirects=False)
     assert schedulesConfigResponse.status_code == 303
     assert schedulesConfigResponse.headers.get("location") == "/login"
+
+    usersPageResponse = client.get("/users", follow_redirects=False)
+    assert usersPageResponse.status_code == 303
+    assert usersPageResponse.headers.get("location") == "/login"
 
 
 def testWebLoginBruteforceBlocksAfterThreeFailures(monkeypatch, tmp_path) -> None:

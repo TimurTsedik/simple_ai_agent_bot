@@ -19,11 +19,18 @@ class MemoryService:
         self._recentMessagesLimit = in_recentMessagesLimit
         self._sessionSummaryMaxChars = in_sessionSummaryMaxChars
 
-    def buildMemoryBlock(self, in_sessionId: str) -> str:
+    def buildMemoryBlock(self, in_sessionId: str, in_longTermPrincipalId: str | None = None) -> str:
         ret: str
+        longTermPrincipalResolved = (
+            str(in_longTermPrincipalId).strip()
+            if in_longTermPrincipalId is not None and str(in_longTermPrincipalId).strip() != ""
+            else in_sessionId
+        )
         recentLines = self._memoryStore.readSessionRecentMessages(in_sessionId=in_sessionId)
         summaryText = self._memoryStore.readSessionSummary(in_sessionId=in_sessionId)
-        longTermLines = self._memoryStore.readLongTermMemory()
+        longTermLines = self._memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=longTermPrincipalResolved,
+        )
         ret = (
             "## Session Summary\n"
             + summaryText
@@ -34,9 +41,11 @@ class MemoryService:
         )
         return ret
 
-    def buildLongTermOnlyMemoryBlock(self) -> str:
+    def buildLongTermOnlyMemoryBlock(self, in_memoryPrincipalId: str) -> str:
         ret: str
-        longTermLines = self._memoryStore.readLongTermMemory()
+        longTermLines = self._memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         ret = self._buildLongTermBlock(in_longTermLines=longTermLines)
         return ret
 
@@ -193,6 +202,7 @@ class MemoryService:
         in_userMessage: str,
         in_finalAnswer: str,
         in_memoryCandidates: list[str],
+        in_memoryPrincipalId: str,
     ) -> None:
         self._updateRecentMessages(
             in_sessionId=in_sessionId,
@@ -204,7 +214,10 @@ class MemoryService:
             in_userMessage=in_userMessage,
             in_finalAnswer=in_finalAnswer,
         )
-        self._updateLongTermMemory(in_memoryCandidates=in_memoryCandidates)
+        self._updateLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_memoryCandidates=in_memoryCandidates,
+        )
 
     def resetSession(self, in_sessionId: str) -> None:
         self._memoryStore.clearSessionMemory(in_sessionId=in_sessionId)
@@ -255,8 +268,14 @@ class MemoryService:
                 in_text=truncatedSummary,
             )
 
-    def _updateLongTermMemory(self, in_memoryCandidates: list[str]) -> None:
-        existingLines = self._memoryStore.readLongTermMemory()
+    def _updateLongTermMemory(
+        self,
+        in_memoryPrincipalId: str,
+        in_memoryCandidates: list[str],
+    ) -> None:
+        existingLines = self._memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         acceptedCandidates = self._memoryPolicy.filterLongTermCandidates(
             in_candidates=in_memoryCandidates
         )
@@ -265,7 +284,10 @@ class MemoryService:
             bulletLine = f"- {candidateText}"
             if bulletLine not in mergedLines:
                 mergedLines.append(bulletLine)
-        self._memoryStore.writeLongTermMemory(in_lines=mergedLines)
+        self._memoryStore.writeLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_lines=mergedLines,
+        )
 
     def _isServiceAssistantAnswer(self, in_finalAnswer: str) -> bool:
         ret: bool

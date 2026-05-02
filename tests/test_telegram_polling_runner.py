@@ -43,7 +43,6 @@ def _buildSettings() -> SettingsModel:
         app=AppSettings(appName="test", environment="test", dataRootPath="./data"),
         telegram=TelegramSettings(
             pollingTimeoutSeconds=10,
-            allowedUserIds=[1],
             denyMessageText="deny",
             digestChannelUsernames=["channel_one"],
         ),

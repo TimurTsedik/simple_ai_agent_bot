@@ -106,7 +106,12 @@ class UserTopicDigestTool:
     in_dataRootPath: str
     in_fetchEngine: DigestTelegramNewsTool
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         topicLabel = str(in_args.get("topic", "") or "").strip()
         topicKey = normalizeUserDigestTopicKey(in_topicLabel=topicLabel)
@@ -133,7 +138,10 @@ class UserTopicDigestTool:
             return ret
 
         if deleteTopicFlag is True:
-            deletedFlag = self._deleteTopicConfigLines(in_topicKey=topicKey)
+            deletedFlag = self._deleteTopicConfigLines(
+                in_topicKey=topicKey,
+                in_memoryPrincipalId=in_memoryPrincipalId,
+            )
             ret = {
                 "ok": True,
                 "status": "deleted" if deletedFlag else "not_found",
@@ -144,6 +152,7 @@ class UserTopicDigestTool:
             ret = self._executeFetchUnreadBranch(
                 in_topicKey=topicKey,
                 in_topicLabel=topicLabel,
+                in_memoryPrincipalId=in_memoryPrincipalId,
             )
         else:
             ret = self._executeConfigureBranch(
@@ -151,6 +160,7 @@ class UserTopicDigestTool:
                 in_topicLabel=topicLabel,
                 in_channelsArgRaw=channelsArgRaw,
                 in_keywordsArgRaw=keywordsArgRaw,
+                in_memoryPrincipalId=in_memoryPrincipalId,
             )
         return ret
 
@@ -160,6 +170,7 @@ class UserTopicDigestTool:
         in_topicLabel: str,
         in_channelsArgRaw: list[str],
         in_keywordsArgRaw: list[str],
+        in_memoryPrincipalId: str,
     ) -> dict[str, Any]:
         ret: dict[str, Any]
         effectiveChannelsLiftedTuple: tuple[str, ...]
@@ -171,7 +182,10 @@ class UserTopicDigestTool:
                 in_keywordsArgRaw=in_keywordsArgRaw,
             )
         )
-        existingConfig = self._loadTopicConfig(in_topicKey=in_topicKey)
+        existingConfig = self._loadTopicConfig(
+            in_topicKey=in_topicKey,
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         mergedChannels = self._mergeChannelLists(
             in_existing=list(existingConfig.get("channels", []))
             if isinstance(existingConfig, dict)
@@ -198,8 +212,14 @@ class UserTopicDigestTool:
                 "keywords": mergedKeywords,
                 "updatedAt": datetime.now(UTC).isoformat(),
             }
-            self._upsertTopicConfigLine(in_payload=payloadConfig)
-        refreshedConfig = self._loadTopicConfig(in_topicKey=in_topicKey)
+            self._upsertTopicConfigLine(
+                in_payload=payloadConfig,
+                in_memoryPrincipalId=in_memoryPrincipalId,
+            )
+        refreshedConfig = self._loadTopicConfig(
+            in_topicKey=in_topicKey,
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         if refreshedConfig is None:
             ret = {
                 "ok": True,
@@ -247,9 +267,13 @@ class UserTopicDigestTool:
         self,
         in_topicKey: str,
         in_topicLabel: str,
+        in_memoryPrincipalId: str,
     ) -> dict[str, Any]:
         ret: dict[str, Any]
-        topicConfig = self._loadTopicConfig(in_topicKey=in_topicKey)
+        topicConfig = self._loadTopicConfig(
+            in_topicKey=in_topicKey,
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         if topicConfig is None:
             ret = {
                 "ok": False,
@@ -276,7 +300,9 @@ class UserTopicDigestTool:
                 }
             else:
                 keywordTerms = self._normalizeKeywordTerms(in_keywords=keywordsList)
-                stateStore = self._buildReadStateStore()
+                stateStore = self._buildReadStateStore(
+                    in_memoryPrincipalId=in_memoryPrincipalId,
+                )
                 lastSeenMap = stateStore.readChannelLastSeenMap()
                 channelErrors: dict[str, str] = {}
                 resultItems: list[dict[str, str]] = []
@@ -494,9 +520,15 @@ class UserTopicDigestTool:
         ret = mergedList[:_MAX_KEYWORD_PHRASES]
         return ret
 
-    def _loadTopicConfig(self, in_topicKey: str) -> dict[str, Any] | None:
+    def _loadTopicConfig(
+        self,
+        in_topicKey: str,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any] | None:
         ret: dict[str, Any] | None
-        memoryLines = self.in_memoryStore.readLongTermMemory()
+        memoryLines = self.in_memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         foundPayload: dict[str, Any] | None = None
         for lineText in memoryLines:
             strippedLine = lineText.strip()
@@ -518,8 +550,14 @@ class UserTopicDigestTool:
         ret = foundPayload
         return ret
 
-    def _upsertTopicConfigLine(self, in_payload: dict[str, Any]) -> None:
-        memoryLines = self.in_memoryStore.readLongTermMemory()
+    def _upsertTopicConfigLine(
+        self,
+        in_payload: dict[str, Any],
+        in_memoryPrincipalId: str,
+    ) -> None:
+        memoryLines = self.in_memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         replacedLines: list[str] = []
         topicKeyValue = str(in_payload.get("topicKey", "") or "").strip().lower()
         didReplace = False
@@ -548,11 +586,20 @@ class UserTopicDigestTool:
                 replacedLines.append(lineText)
         if didReplace is False:
             replacedLines.append(_CONFIG_LINE_PREFIX + " " + json.dumps(in_payload, ensure_ascii=False, sort_keys=True))
-        self.in_memoryStore.writeLongTermMemory(in_lines=replacedLines)
+        self.in_memoryStore.writeLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_lines=replacedLines,
+        )
 
-    def _deleteTopicConfigLines(self, in_topicKey: str) -> bool:
+    def _deleteTopicConfigLines(
+        self,
+        in_topicKey: str,
+        in_memoryPrincipalId: str,
+    ) -> bool:
         ret: bool
-        memoryLines = self.in_memoryStore.readLongTermMemory()
+        memoryLines = self.in_memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         filteredLines: list[str] = []
         removedCount = 0
         targetKey = in_topicKey.strip().lower()
@@ -578,14 +625,19 @@ class UserTopicDigestTool:
                 removedCount += 1
             else:
                 filteredLines.append(lineText)
-        self.in_memoryStore.writeLongTermMemory(in_lines=filteredLines)
+        self.in_memoryStore.writeLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_lines=filteredLines,
+        )
         ret = removedCount > 0
         return ret
 
-    def _buildReadStateStore(self) -> TelegramDigestReadStateStore:
+    def _buildReadStateStore(self, in_memoryPrincipalId: str) -> TelegramDigestReadStateStore:
         ret: TelegramDigestReadStateStore
         rootPath = Path(self.in_dataRootPath).resolve()
-        statePath = rootPath / "state" / "telegram_digest_read_state.json"
+        sanitizedPrincipal = str(in_memoryPrincipalId or "").strip().replace(":", "_")
+        stateDir = rootPath / "state" / "telegram_digest_read_state"
+        statePath = stateDir / f"{sanitizedPrincipal}.json"
         ret = TelegramDigestReadStateStore(in_stateFilePath=statePath)
         return ret
 

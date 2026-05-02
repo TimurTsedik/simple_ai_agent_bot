@@ -107,7 +107,8 @@ def testReadEmailToolReturnsItemsAndSnippets():
         in_imapClientFactory=lambda _s: fake,
     )
     result = tool.execute(
-        {"mailbox": "INBOX", "unreadOnly": True, "sinceHours": 24, "maxItems": 10, "snippetChars": 50}
+        {"mailbox": "INBOX", "unreadOnly": True, "sinceHours": 24, "maxItems": 10, "snippetChars": 50},
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 2
@@ -135,7 +136,10 @@ def testReadEmailToolExtractsSnippetFromHtml():
         in_password="app_password",
         in_imapClientFactory=lambda _s: fake,
     )
-    result = tool.execute({"maxItems": 1, "snippetChars": 100, "unreadOnly": False})
+    result = tool.execute(
+        {"maxItems": 1, "snippetChars": 100, "unreadOnly": False},
+        in_memoryPrincipalId="telegramUser:1",
+    )
     assert result["count"] == 1
     assert "Hello" in result["items"][0]["snippet"]
     assert "AI" in result["items"][0]["snippet"]
@@ -160,7 +164,10 @@ def testReadEmailToolCleansUrlsAndCssNoise():
         in_password="app_password",
         in_imapClientFactory=lambda _s: fake,
     )
-    result = tool.execute({"maxItems": 1, "snippetChars": 300, "unreadOnly": False})
+    result = tool.execute(
+        {"maxItems": 1, "snippetChars": 300, "unreadOnly": False},
+        in_memoryPrincipalId="telegramUser:1",
+    )
     snippet = result["items"][0]["snippet"]
     assert "Hi" in snippet
     assert "Click" in snippet
@@ -180,7 +187,10 @@ def testReadEmailToolFiltersBySinceHours():
         in_password="app_password",
         in_imapClientFactory=lambda _s: fake,
     )
-    result = tool.execute({"sinceHours": 1, "maxItems": 10})
+    result = tool.execute(
+        {"sinceHours": 1, "maxItems": 10},
+        in_memoryPrincipalId="telegramUser:1",
+    )
     assert result["count"] == 1
     assert result["items"][0]["subject"] == "New"
 
@@ -193,7 +203,7 @@ def testReadEmailToolRequiresPassword():
         in_imapClientFactory=lambda _s: FakeImapClient({}),
     )
     with pytest.raises(RuntimeError):
-        _ = tool.execute({})
+        _ = tool.execute({}, in_memoryPrincipalId="telegramUser:1")
 
 
 def testReadEmailToolCanKeepUnreadWithoutSeenFlag() -> None:
@@ -207,7 +217,8 @@ def testReadEmailToolCanKeepUnreadWithoutSeenFlag() -> None:
         in_imapClientFactory=lambda _s: fake,
     )
     result = tool.execute(
-        {"unreadOnly": True, "markAsRead": False, "sinceHours": 24, "maxItems": 10}
+        {"unreadOnly": True, "markAsRead": False, "sinceHours": 24, "maxItems": 10},
+        in_memoryPrincipalId="telegramUser:1",
     )
     assert result["count"] == 1
     assert result["markedAsReadCount"] == 0
@@ -231,7 +242,8 @@ def testReadEmailToolFiltersOutSeenFlagWhenUnreadOnly() -> None:
         in_imapClientFactory=lambda _s: fake,
     )
     result = tool.execute(
-        {"unreadOnly": True, "markAsRead": True, "sinceHours": 24, "maxItems": 10}
+        {"unreadOnly": True, "markAsRead": True, "sinceHours": 24, "maxItems": 10},
+        in_memoryPrincipalId="telegramUser:1",
     )
     assert result["count"] == 1
     assert result["items"][0]["subject"] == "Unread ok"

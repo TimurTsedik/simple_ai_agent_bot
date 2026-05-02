@@ -36,7 +36,8 @@ def testWebSearchToolParsesResultsAndFetchesPages() -> None:
             "maxResults": 10,
             "fetchTopN": 2,
             "maxCharsPerPage": 8000,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["searchProvider"] == "duckduckgo_html"
@@ -63,7 +64,8 @@ def testWebSearchToolBlocksLocalhostUrls() -> None:
     tool = WebSearchTool(fetchHtmlCallable=fakeFetch)
 
     result = tool.execute(
-        in_args={"query": "x", "maxResults": 1, "fetchTopN": 1, "maxCharsPerPage": 8000}
+        in_args={"query": "x", "maxResults": 1, "fetchTopN": 1, "maxCharsPerPage": 8000},
+        in_memoryPrincipalId="telegramUser:1",
     )
     assert len(result.get("blockedUrls", [])) == 1
     assert result["blockedUrls"][0]["url"] == "http://localhost/secret"
@@ -89,7 +91,8 @@ def testWebSearchToolUnwrapsDdgRedirectUrls() -> None:
 
     tool = WebSearchTool(fetchHtmlCallable=fakeFetch)
     result = tool.execute(
-        in_args={"query": "x", "maxResults": 1, "fetchTopN": 1, "maxCharsPerPage": 8000}
+        in_args={"query": "x", "maxResults": 1, "fetchTopN": 1, "maxCharsPerPage": 8000},
+        in_memoryPrincipalId="telegramUser:1",
     )
     assert len(result.get("results", [])) == 1
     assert result["results"][0]["url"] == "https://example.com/a"
@@ -127,7 +130,8 @@ def testWebSearchToolStopsFetchingOnDeadline() -> None:
 
     tool = WebSearchTool(fetchHtmlCallable=fakeFetch)
     result = tool.execute(
-        in_args={"query": "x", "maxResults": 3, "fetchTopN": 3, "maxCharsPerPage": 8000}
+        in_args={"query": "x", "maxResults": 3, "fetchTopN": 3, "maxCharsPerPage": 8000},
+        in_memoryPrincipalId="telegramUser:1",
     )
     assert len(result.get("results", [])) == 3
     assert len(result.get("fetchedPages", [])) >= 1

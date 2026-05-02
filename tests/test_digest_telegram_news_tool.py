@@ -27,7 +27,8 @@ def testDigestToolFiltersByChannelKeywordAndDate() -> None:
             "keywords": ["ai"],
             "sinceUnixTs": 1700000000,
             "maxItems": 5,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -57,7 +58,8 @@ def testDigestToolUsesDefaultKeywordsWhenRequestKeywordsEmpty() -> None:
             "keywords": [],
             "sinceUnixTs": 1700000000,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -88,7 +90,8 @@ def testDigestToolUsesTodayStartWhenSinceIsZero() -> None:
             "keywords": [],
             "sinceUnixTs": 0,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -119,7 +122,8 @@ def testDigestToolUsesSinceHoursWhenProvided() -> None:
             "keywords": [],
             "sinceHours": 1,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["sinceUnixTsUsed"] == 16400
@@ -144,7 +148,8 @@ def testDigestToolMergesRequestedAndDefaultKeywords() -> None:
             "keywords": ["узкая фраза которой нет в посте"],
             "sinceUnixTs": 1700000000,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -170,7 +175,8 @@ def testDigestToolUsesFallbackPatternWhenPrimaryMissingTime() -> None:
             "keywords": [],
             "sinceUnixTs": 1700000000,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -204,7 +210,8 @@ def testDigestToolUsesExplicitChannelsFromArgs() -> None:
             "keywords": ["alpha"],
             "sinceUnixTs": 1700000000,
             "maxItems": 5,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -231,7 +238,8 @@ def testDigestToolUsesTopicSeedsForAiTopic() -> None:
             "keywords": [],
             "sinceUnixTs": 1700000000,
             "maxItems": 5,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result["count"] == 1
@@ -258,7 +266,8 @@ def testDigestToolReportsInvalidChannelArgsAndFallsBackToConfig() -> None:
             "keywords": [],
             "sinceUnixTs": 1700000000,
             "maxItems": 5,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert "invalidChannelArgs" in result
@@ -287,7 +296,8 @@ def testDigestToolRecordsChannelFetchErrors() -> None:
     )
 
     result = tool.execute(
-        in_args={"keywords": [], "sinceUnixTs": 0, "maxItems": 10}
+        in_args={"keywords": [], "sinceUnixTs": 0, "maxItems": 10},
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert "bad_channel" in result.get("channelErrors", {})
@@ -318,7 +328,8 @@ def testDigestToolDiagnosticsShowsKeywordFiltering() -> None:
             "keywords": [],
             "sinceUnixTs": 1,
             "maxItems": 10,
-        }
+        },
+        in_memoryPrincipalId="telegramUser:1",
     )
     diagnostics = result.get("diagnostics", {})
 

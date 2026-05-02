@@ -10,7 +10,7 @@ class ToolDefinitionModel:
     description: str
     argsModel: type[BaseModel]
     timeoutSeconds: int
-    executeCallable: Callable[[dict[str, Any]], Any]
+    executeCallable: Callable[..., Any]
 
 
 class ToolRegistry:

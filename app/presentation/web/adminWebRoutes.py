@@ -1,3 +1,4 @@
+import html
 import os
 from pathlib import Path
 from threading import Lock
@@ -15,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.bootstrap.container import ApplicationContainer
+from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
 from app.common.webDisplayTime import resolveDisplayZone
 from app.config.settingsModels import EmailReaderToolSettings, TelegramNewsDigestToolSettings
 from app.presentation.web.adminPages import renderGitDiffPage
@@ -27,9 +29,11 @@ from app.presentation.web.adminPages import renderRunsPage
 from app.presentation.web.adminPages import renderRunStepsPage
 from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.presentation.web.adminPages import renderLongTermMemoryPage
 from app.presentation.web.adminPages import renderSchedulesConfigViewPage
 from app.presentation.web.adminPages import renderToolsConfigEditPage
+from app.presentation.web.adminPages import renderTelegramUsersPage
 from app.presentation.web.adminPages import renderToolsPage
 from app.security.webSessionAuth import createSessionCookieValue
 from app.security.webSessionAuth import hashAdminToken
@@ -51,7 +55,8 @@ def registerAdminWebRoutes(
     getGitDiffUseCase = in_container.getGitDiffUseCase
     dashboardSnapshotService = in_container.dashboardSnapshotService
     readMemoryFileTool = ReadMemoryFileTool(
-        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths
+        in_memoryRootPath=settings.memory.memoryRootPath,
+        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths,
     )
 
     if hasattr(in_app.state, "adminLoginBruteforceState") is False:
@@ -205,6 +210,41 @@ def registerAdminWebRoutes(
             loaded.get("emailReader", {}) if isinstance(loaded, dict) else {}
         )
 
+    def composeTelegramUsersHtml(
+        in_notice_ok_text: str,
+        in_notice_error_text: str,
+    ) -> str:
+        registry_store = in_container.telegramUserRegistryStore
+        display_zone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        rows_parts: list[str] = []
+        for rec in sorted(
+            registry_store.listUsers(),
+            key=lambda item: int(item.telegramUserId),
+        ):
+            created_label = formatUnixEpochSecondsForWeb(
+                float(rec.createdAtUnixTs),
+                display_zone,
+            )
+            rows_parts.append(
+                "<tr>"
+                f"<td>{html.escape(str(rec.telegramUserId))}</td>"
+                f"<td>{html.escape(str(rec.displayName or '') or '—')}</td>"
+                f"<td>{html.escape(created_label)}</td>"
+                f"<td>{html.escape(str(rec.note or '') or '—')}</td>"
+                "</tr>"
+            )
+        rows_body = "".join(rows_parts)
+        registry_path_resolved = str(Path(settings.app.usersRegistryPath).resolve())
+        ret = renderTelegramUsersPage(
+            in_user_rows_html=rows_body
+            or "<tr><td colspan='4' class='muted'>Нет пользователей в реестре</td></tr>",
+            in_registry_path_text=registry_path_resolved,
+            in_notice_ok_text=in_notice_ok_text,
+            in_notice_error_text=in_notice_error_text,
+            in_writes_enabled=settings.security.adminWritesEnabled is True,
+        )
+        return ret
+
     @in_app.get("/", response_class=HTMLResponse)
     def getIndex(in_request: Request):
         if isWebAuthorized(in_request=in_request) is False:
@@ -342,9 +382,16 @@ def registerAdminWebRoutes(
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         memoryRoot = Path(settings.memory.memoryRootPath).resolve()
-        longTermPath = (memoryRoot / settings.memory.longTermFileName).resolve()
+        principalId = formatTelegramUserMemoryPrincipal(
+            in_telegramUserId=settings.adminTelegramUserId,
+        )
+        sanitizedPrincipal = principalId.replace(":", "_")
+        longTermPath = (
+            memoryRoot / "sessions" / sanitizedPrincipal / settings.memory.longTermFileName
+        ).resolve()
         result = readMemoryFileTool.execute(
-            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)}
+            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)},
+            in_memoryPrincipalId=principalId,
         )
         contentText = str(result.get("content", "") or "")
         pathText = str(result.get("path", "") or "")
@@ -423,6 +470,46 @@ def registerAdminWebRoutes(
             in_schedulesYamlText=schedulesText,
             in_schedulesPath=schedulesPathText,
         )
+        return ret
+
+    @in_app.get("/users", response_class=HTMLResponse)
+    def getTelegramUsersAdminPage(in_request: Request):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        ret = composeTelegramUsersHtml("", "")
+        return ret
+
+    @in_app.post("/users/create", response_class=HTMLResponse)
+    def postTelegramUsersCreate(
+        in_request: Request,
+        telegram_user_id: str = Form(...),
+        display_name: str = Form(""),
+        note: str = Form(""),
+    ):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        ensureWritesEnabledOr403()
+        result = None
+        notice_error_pre = ""
+        try:
+            telegram_id_parsed = int(str(telegram_user_id).strip())
+        except ValueError:
+            telegram_id_parsed = -1
+            notice_error_pre = "Некорректный Telegram ID (ожидается целое число)."
+        if notice_error_pre == "":
+            result = in_container.createTelegramUserUseCase.execute(
+                in_telegramUserId=int(telegram_id_parsed),
+                in_displayName=display_name,
+                in_note=note,
+            )
+        notice_ok = ""
+        notice_error = notice_error_pre
+        if result is not None:
+            if result.ok is True:
+                notice_ok = result.messageText
+            else:
+                notice_error = result.messageText
+        ret = composeTelegramUsersHtml(notice_ok, notice_error)
         return ret
 
     @in_app.post("/config/tools", response_class=HTMLResponse)

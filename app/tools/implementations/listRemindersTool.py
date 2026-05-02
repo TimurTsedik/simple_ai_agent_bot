@@ -10,6 +10,7 @@ from app.reminders.reminderConfigStore import ReminderConfigStore
 class ListRemindersTool:
     in_reminderConfigStore: ReminderConfigStore
     in_dataRootPath: str
+    in_adminMemoryPrincipalId: str
 
     def _loadRemindersState(self) -> dict[str, Any]:
         ret: dict[str, Any]
@@ -28,10 +29,18 @@ class ListRemindersTool:
         ret = remindersState
         return ret
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         _ = in_args
-        reminderItems = self.in_reminderConfigStore.listReminders()
+        reminderItems = self.in_reminderConfigStore.listRemindersForOwner(
+            in_ownerMemoryPrincipalId=str(in_memoryPrincipalId or "").strip(),
+            in_adminMemoryPrincipalId=str(self.in_adminMemoryPrincipalId or "").strip(),
+        )
         remindersState = self._loadRemindersState()
         mergedItems: list[dict[str, Any]] = []
         for reminderItem in reminderItems:

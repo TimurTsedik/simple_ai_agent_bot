@@ -145,7 +145,12 @@ def _parseDdgHtmlResults(in_htmlText: str, in_maxResults: int) -> list[dict[str,
 class WebSearchTool:
     fetchHtmlCallable: Callable[[str, int], str] = _defaultFetchHtml
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         startedAt = monotonic()
         query = str(in_args.get("query", "")).strip()

@@ -4,6 +4,32 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
+def sessionsEquivalentForAdminRunsView(
+    in_recordSessionId: str,
+    in_allowedSessionId: str,
+) -> bool:
+    """Старые раны в index имели sessionId `telegram:<id>`, сейчас tenant — `telegramUser:<id>`."""
+
+    left = str(in_recordSessionId or "").strip()
+    right = str(in_allowedSessionId or "").strip()
+    ret = False
+    if left == right:
+        ret = True
+    elif (
+        left.startswith("telegram:")
+        and right.startswith("telegramUser:")
+        and left[len("telegram:") :] == right[len("telegramUser:") :]
+    ):
+        ret = True
+    elif (
+        left.startswith("telegramUser:")
+        and right.startswith("telegram:")
+        and left[len("telegramUser:") :] == right[len("telegram:") :]
+    ):
+        ret = True
+    return ret
+
+
 class JsonRunRepository:
     def __init__(self, in_dataRootPath: str) -> None:
         self._runsDirPath = Path(in_dataRootPath) / "runs"
@@ -45,14 +71,43 @@ class JsonRunRepository:
             ret = None
         return ret
 
-    def listRuns(self, in_limit: int, in_offset: int = 0) -> list[dict[str, Any]]:
+    def listRuns(
+        self,
+        in_limit: int,
+        in_offset: int = 0,
+        in_session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         boundedLimit = max(1, in_limit)
         boundedOffset = max(0, in_offset)
-        needCount = boundedOffset + boundedLimit
-        recordsNewestFirst = self._loadIndexRecordsNewestFirstUpTo(
-            in_needCount=needCount,
-        )
-        ret = recordsNewestFirst[boundedOffset : boundedOffset + boundedLimit]
+        ret: list[dict[str, Any]]
+        if in_session_id is None:
+            needCount = boundedOffset + boundedLimit
+            recordsNewestFirst = self._loadIndexRecordsNewestFirstUpTo(
+                in_needCount=needCount,
+            )
+            ret = recordsNewestFirst[boundedOffset : boundedOffset + boundedLimit]
+            return ret
+        matchedRecords: list[dict[str, Any]] = []
+        for lineText in self._iterIndexLinesNewestFirst():
+            if not lineText.strip():
+                continue
+            try:
+                parsedValue = json.loads(lineText)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(parsedValue, dict):
+                continue
+            record_session = str(parsedValue.get("sessionId", "") or "")
+            if sessionsEquivalentForAdminRunsView(
+                in_recordSessionId=record_session,
+                in_allowedSessionId=str(in_session_id),
+            ) is False:
+                continue
+            matchedRecords.append(parsedValue)
+            needTotal = boundedOffset + boundedLimit
+            if len(matchedRecords) >= needTotal:
+                break
+        ret = matchedRecords[boundedOffset : boundedOffset + boundedLimit]
         return ret
 
     def _loadIndexRecordsNewestFirstUpTo(self, in_needCount: int) -> list[dict[str, Any]]:
@@ -75,6 +130,8 @@ class JsonRunRepository:
         return ret
 
     def _iterIndexLinesNewestFirst(self) -> Iterator[str]:
+        if self._indexFilePath.exists() is False:
+            return
         chunkSizeBytes = 65536
         lineBuffer = b""
         with self._indexFilePath.open("rb") as fileHandle:

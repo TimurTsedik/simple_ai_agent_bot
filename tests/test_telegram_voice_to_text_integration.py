@@ -41,7 +41,13 @@ class FakeRunAgentUseCase:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def execute(self, in_sessionId: str, in_inputMessage: str) -> FakeRunResult:
+    def execute(
+        self,
+        in_sessionId: str,
+        in_inputMessage: str,
+        in_memoryPrincipalId: str | None = None,
+    ) -> FakeRunResult:
+        _ = in_memoryPrincipalId
         self.calls.append((in_sessionId, in_inputMessage))
         ret = FakeRunResult(in_finalAnswer=f"echo:{in_inputMessage}")
         return ret
@@ -51,8 +57,13 @@ class FakeMemoryService:
     def resetSession(self, in_sessionId: str) -> None:
         _ = in_sessionId
 
-    def buildMemoryBlock(self, in_sessionId: str) -> str:
+    def buildMemoryBlock(
+        self,
+        in_sessionId: str,
+        in_longTermPrincipalId: str | None = None,
+    ) -> str:
         _ = in_sessionId
+        _ = in_longTermPrincipalId
         return ""
 
 
@@ -93,6 +104,11 @@ class FakeTranscriber:
 
 
 def _makeSettings(in_tmpDir: Path) -> SettingsModel:
+    toolsYamlPath = in_tmpDir / "tools.yaml"
+    toolsYamlPath.write_text(
+        "telegramNewsDigest:\n  digestChannelUsernames: []\n",
+        encoding="utf-8",
+    )
     ret = SettingsModel(
         app=AppSettings(
             appName="x",
@@ -102,12 +118,11 @@ def _makeSettings(in_tmpDir: Path) -> SettingsModel:
         ),
         telegram=TelegramSettings(
             pollingTimeoutSeconds=30,
-            allowedUserIds=[111],
             denyMessageText="deny",
             voiceMaxSeconds=60,
             voiceMaxBytes=5_000_000,
         ),
-        tools=ToolsSettings(toolsConfigPath="./app/config/tools.yaml"),
+        tools=ToolsSettings(toolsConfigPath=str(toolsYamlPath)),
         models=ModelSettings(
             openRouterBaseUrl="x",
             primaryModel="x",
@@ -167,7 +182,7 @@ def testTelegramUpdateHandlerTranscribesVoiceAndRunsAgent(tmp_path: Path) -> Non
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_get_allowed_user_ids=lambda: {111},
         in_denyMessageText=settings.telegram.denyMessageText,
         in_logger=logger,  # type: ignore[arg-type]
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]
@@ -199,7 +214,9 @@ def testTelegramUpdateHandlerTranscribesVoiceAndRunsAgent(tmp_path: Path) -> Non
     assert outgoingText == "echo:напомни через минуту выпить воды"
     assert downloader.calls == ["file123"]
     assert len(transcriber.calls) == 1
-    assert runAgentUseCase.calls == [("telegram:222", "напомни через минуту выпить воды")]
+    assert runAgentUseCase.calls == [
+        ("telegramUser:111", "напомни через минуту выпить воды"),
+    ]
 
 
 def testTelegramUpdateHandlerVoiceFailureReturnsUserMessage(tmp_path: Path) -> None:
@@ -208,7 +225,7 @@ def testTelegramUpdateHandlerVoiceFailureReturnsUserMessage(tmp_path: Path) -> N
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_get_allowed_user_ids=lambda: {111},
         in_denyMessageText=settings.telegram.denyMessageText,
         in_logger=logger,  # type: ignore[arg-type]
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]

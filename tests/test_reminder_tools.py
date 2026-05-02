@@ -17,13 +17,16 @@ def testScheduleListDeleteReminderToolsWorkAsContract(tmp_path: Path) -> None:
     )
     reminderConfigStore = ReminderConfigStore(in_schedulesConfigPath=str(schedulesPath))
     scheduleTool = ScheduleReminderTool(in_reminderConfigStore=reminderConfigStore)
+    ownerPrincipal = "telegramUser:99"
     listTool = ListRemindersTool(
         in_reminderConfigStore=reminderConfigStore,
         in_dataRootPath=str(tmp_path),
+        in_adminMemoryPrincipalId=ownerPrincipal,
     )
     deleteTool = DeleteReminderTool(
         in_reminderConfigStore=reminderConfigStore,
         in_dataRootPath=str(tmp_path),
+        in_adminMemoryPrincipalId=ownerPrincipal,
     )
 
     createResult = scheduleTool.execute(
@@ -36,7 +39,8 @@ def testScheduleListDeleteReminderToolsWorkAsContract(tmp_path: Path) -> None:
             "remainingRuns": 2,
             "enabled": True,
             "reminderId": "",
-        }
+        },
+        in_memoryPrincipalId=ownerPrincipal,
     )
     reminderIdValue = str(createResult["reminder"]["reminderId"])
     assert createResult["ok"] is True
@@ -49,17 +53,26 @@ def testScheduleListDeleteReminderToolsWorkAsContract(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    listResult = listTool.execute(in_args={})
+    listResult = listTool.execute(
+        in_args={},
+        in_memoryPrincipalId=ownerPrincipal,
+    )
     assert listResult["ok"] is True
     assert listResult["count"] == 1
     assert listResult["items"][0]["reminder"]["reminderId"] == reminderIdValue
     assert listResult["items"][0]["runtimeState"]["enabled"] is True
 
-    deleteResult = deleteTool.execute(in_args={"reminderId": reminderIdValue})
+    deleteResult = deleteTool.execute(
+        in_args={"reminderId": reminderIdValue},
+        in_memoryPrincipalId=ownerPrincipal,
+    )
     assert deleteResult["ok"] is True
     assert deleteResult["deletedFromConfig"] is True
     assert deleteResult["deletedFromRuntimeState"] is True
 
-    listResultAfterDelete = listTool.execute(in_args={})
+    listResultAfterDelete = listTool.execute(
+        in_args={},
+        in_memoryPrincipalId=ownerPrincipal,
+    )
     assert listResultAfterDelete["count"] == 0
 

@@ -11,11 +11,13 @@ from app.application.useCases.getGitStatusUseCase import GetGitStatusUseCase
 from app.application.useCases.getLogsUseCase import GetLogsUseCase
 from app.application.useCases.getRunDetailsUseCase import GetRunDetailsUseCase
 from app.application.useCases.getRunListUseCase import GetRunListUseCase
+from app.application.useCases.createTelegramUserUseCase import CreateTelegramUserUseCase
 from app.application.useCases.handleIncomingTelegramMessageUseCase import (
     HandleIncomingTelegramMessageUseCase,
 )
 from app.application.useCases.runAgentUseCase import RunAgentUseCase
 from app.common.contouringRequestsPolicy import ContouringRequestsPolicy
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.common.structuredLogger import createAppLogger
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsLoader import loadSettings
@@ -30,6 +32,13 @@ from app.integrations.telegram.schedulerTelegramFormatter import formatScheduler
 from app.integrations.telegram.telegramPollingRunner import TelegramPollingRunner
 from app.integrations.telegram.telegramUpdateHandler import TelegramUpdateHandler
 from app.integrations.telegram.telegramFileDownloader import TelegramFileDownloader
+from app.memory.services.legacyMemoryMigration import (
+    ensureLegacyDigestReadStateMigrated,
+    ensureLegacyRootLongTermMigrated,
+)
+from app.memory.services.legacySchedulerSessionMigration import (
+    ensureLegacySchedulerSessionDirsMigrated,
+)
 from app.memory.services.memoryService import MemoryService
 from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 from app.models.providers.openRouterClient import OpenRouterClient
@@ -50,6 +59,7 @@ from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 from app.tools.registry.toolMetadataRenderer import ToolMetadataRenderer
 from app.tools.registry.toolRegistry import ToolRegistry
 from app.tools.services.toolFactory import buildToolRegistry
+from app.users.telegramUserRegistryStore import TelegramUserRegistryStore
 
 
 @dataclass
@@ -71,6 +81,8 @@ class ApplicationContainer:
     skillStore: MarkdownSkillStore
     dashboardSnapshotService: DashboardSnapshotService
     modelStatsService: ModelStatsService
+    telegramUserRegistryStore: TelegramUserRegistryStore
+    createTelegramUserUseCase: CreateTelegramUserUseCase
 
 
 def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
@@ -83,6 +95,29 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
     outputParser = OutputParser()
     stopPolicy = StopPolicy(in_runtimeSettings=settings.runtime)
     memoryStore = MarkdownMemoryStore(in_memorySettings=settings.memory)
+    adminMemoryPrincipalId = formatTelegramUserMemoryPrincipal(
+        in_telegramUserId=settings.adminTelegramUserId,
+    )
+    ensureLegacyRootLongTermMigrated(
+        in_memoryRootPath=settings.memory.memoryRootPath,
+        in_longTermFileName=settings.memory.longTermFileName,
+        in_targetMemoryPrincipalId=adminMemoryPrincipalId,
+    )
+    ensureLegacyDigestReadStateMigrated(
+        in_dataRootPath=settings.app.dataRootPath,
+        in_targetMemoryPrincipalId=adminMemoryPrincipalId,
+    )
+    ensureLegacySchedulerSessionDirsMigrated(
+        in_memoryRootPath=settings.memory.memoryRootPath,
+        in_adminTelegramUserId=settings.adminTelegramUserId,
+    )
+    telegramUserRegistryStore = TelegramUserRegistryStore(
+        in_registryFilePath=str(settings.app.usersRegistryPath),
+    )
+    createTelegramUserUseCase = CreateTelegramUserUseCase(
+        in_registry_store=telegramUserRegistryStore,
+        in_memorySettings=settings.memory,
+    )
     toolRegistry = buildToolRegistry(in_settings=settings, in_memoryStore=memoryStore)
     toolMetadataRenderer = ToolMetadataRenderer()
     toolExecutionCoordinator = ToolExecutionCoordinator(
@@ -154,6 +189,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         runResult = runAgentUseCase.execute(
             in_sessionId=in_sessionId,
             in_inputMessage=in_message,
+            in_memoryPrincipalId=adminMemoryPrincipalId,
         )
         finalAnswer = runResult.finalAnswer or "Пустой ответ агента."
         ret = (runResult.runId, finalAnswer)
@@ -178,7 +214,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_preferSeparator="\n---\n",
         )
         apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
-        for chatId in settings.telegram.allowedUserIds:
+        for chatId in sorted(telegramUserRegistryStore.listRegisteredTelegramUserIds()):
             for index, chunk in enumerate(textChunks, start=1):
                 chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
                 try:
@@ -231,7 +267,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_preferSeparator="\n---\n",
         )
         apiUrl = f"https://api.telegram.org/bot{settings.telegramBotToken}/sendMessage"
-        for chatId in settings.telegram.allowedUserIds:
+        for chatId in sorted(telegramUserRegistryStore.listRegisteredTelegramUserIds()):
             for index, chunk in enumerate(textChunks, start=1):
                 chunkPrefix = f"[{index}/{len(textChunks)}]\n" if len(textChunks) > 1 else ""
                 contouringHttpPolicy.post(
@@ -276,6 +312,7 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
             in_schedulerSettings=settings.scheduler,
             in_loggingSettings=settings.logging,
             in_dataRootPath=settings.app.dataRootPath,
+            in_adminTelegramUserId=int(settings.adminTelegramUserId),
             in_runInternalCallable=runInternalForScheduler,
             in_onRunCompletedCallable=notifySchedulerResultToTelegram,
             in_onReminderTriggeredCallable=notifyReminderToTelegram,
@@ -290,8 +327,12 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         )
         schedulerRunner = None
 
+    def getAllowedTelegramUserIds() -> set[int]:
+        ret_ids = telegramUserRegistryStore.listRegisteredTelegramUserIds()
+        return ret_ids
+
     handleIncomingTelegramMessageUseCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_get_allowed_user_ids=getAllowedTelegramUserIds,
         in_denyMessageText=settings.telegram.denyMessageText,
         in_logger=logger,
         in_runAgentUseCase=runAgentUseCase,
@@ -324,8 +365,14 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_contouringHttpPolicy=contouringHttpPolicy,
     )
     getLogsUseCase = GetLogsUseCase(in_loggingSettings=settings.logging)
-    getRunListUseCase = GetRunListUseCase(in_runRepository=runRepository)
-    getRunDetailsUseCase = GetRunDetailsUseCase(in_runRepository=runRepository)
+    getRunListUseCase = GetRunListUseCase(
+        in_runRepository=runRepository,
+        in_allowedSessionId=adminMemoryPrincipalId,
+    )
+    getRunDetailsUseCase = GetRunDetailsUseCase(
+        in_runRepository=runRepository,
+        in_allowedSessionId=adminMemoryPrincipalId,
+    )
     repoRootPath = str(Path(__file__).resolve().parents[2])
     gitService = GitService(in_repoRootPath=repoRootPath)
     getGitStatusUseCase = GetGitStatusUseCase(in_gitService=gitService)
@@ -356,6 +403,8 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         skillStore=skillStore,
         dashboardSnapshotService=dashboardSnapshotService,
         modelStatsService=modelStatsService,
+        telegramUserRegistryStore=telegramUserRegistryStore,
+        createTelegramUserUseCase=createTelegramUserUseCase,
     )
     return ret
 

@@ -22,7 +22,8 @@ def testSaveDigestPreferenceToolRejectsEmptyPayload() -> None:
                 "likedChannels": [],
                 "likedKeywords": [],
                 "userNote": "",
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert result["ok"] is False
 
@@ -43,9 +44,10 @@ def testSaveDigestPreferenceToolWritesLongTermLine() -> None:
                 "likedChannels": ["@MyChannel"],
                 "likedKeywords": ["gpt"],
                 "userNote": "prefer deep dives",
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
-        lines = store.readLongTermMemory()
+        lines = store.readLongTermMemory(in_memoryPrincipalId="telegramUser:1")
 
     assert result["ok"] is True
     assert len(lines) == 1

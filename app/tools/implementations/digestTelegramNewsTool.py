@@ -67,7 +67,12 @@ class DigestTelegramNewsTool:
     sleepCallable: Callable[[float], None] = time.sleep
     fetchRetryDelaysSeconds: tuple[float, ...] = (0.15, 0.4, 1.0)
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         digestChannelUsernames = list(self.getDigestChannelUsernames())
         defaultKeywords = list(self.getDefaultKeywords())

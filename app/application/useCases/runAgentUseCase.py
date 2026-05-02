@@ -25,8 +25,18 @@ class RunAgentUseCase:
         self._runRepository = in_runRepository
         self._settings = in_settings
 
-    def execute(self, in_sessionId: str, in_inputMessage: str) -> AgentRunModel:
+    def execute(
+        self,
+        in_sessionId: str,
+        in_inputMessage: str,
+        in_memoryPrincipalId: str | None = None,
+    ) -> AgentRunModel:
         ret: AgentRunModel
+        memoryPrincipalId = (
+            in_memoryPrincipalId
+            if in_memoryPrincipalId is not None
+            else in_sessionId
+        )
         traceId = generateId()
         runId = generateId()
         createdAt = getUtcNowIso()
@@ -38,12 +48,14 @@ class RunAgentUseCase:
         memoryModeValue = routingResolution.memoryMode
         memoryBlock = self._resolveMemoryBlockFromRoutingMode(
             in_sessionId=in_sessionId,
+            in_memoryPrincipalId=memoryPrincipalId,
             in_memoryMode=memoryModeValue,
         )
         loopResult = self._agentLoop.run(
             in_userMessage=in_inputMessage,
             in_skillsBlock=skillsBlockText,
             in_memoryBlock=memoryBlock,
+            in_memoryPrincipalId=memoryPrincipalId,
             in_allowToolCalls=routingResolution.allowToolCalls,
             in_requiredFirstSuccessfulToolName=(
                 routingResolution.requiredFirstSuccessfulToolName
@@ -69,6 +81,7 @@ class RunAgentUseCase:
             in_userMessage=in_inputMessage,
             in_finalAnswer=loopResult.finalAnswer,
             in_memoryCandidates=loopResult.memoryCandidates,
+            in_memoryPrincipalId=memoryPrincipalId,
         )
         finishedAt = getUtcNowIso()
         runRecord = {
@@ -136,13 +149,19 @@ class RunAgentUseCase:
     def _resolveMemoryBlockFromRoutingMode(
         self,
         in_sessionId: str,
+        in_memoryPrincipalId: str,
         in_memoryMode: Literal["full", "long_term_only"],
     ) -> str:
         ret: str
         if in_memoryMode == "long_term_only":
-            ret = self._memoryService.buildLongTermOnlyMemoryBlock()
+            ret = self._memoryService.buildLongTermOnlyMemoryBlock(
+                in_memoryPrincipalId=in_memoryPrincipalId,
+            )
         else:
-            ret = self._memoryService.buildMemoryBlock(in_sessionId=in_sessionId)
+            ret = self._memoryService.buildMemoryBlock(
+                in_sessionId=in_sessionId,
+                in_longTermPrincipalId=in_memoryPrincipalId,
+            )
         return ret
 
     def _buildEffectiveConfigSnapshot(self, in_includeToolConfig: bool) -> dict:

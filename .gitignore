@@ -14,6 +14,9 @@ env/
 !.env.example
 app/config/config.yaml
 app/config/tools.yaml
+data/memory/sessions/*/tools.yaml
+data/memory/sessions/*/schedules.yaml
+data/users/registry.yaml
 app/config/schedules.yaml
 
 # SSH snapshot pulls (secrets + timestamps): keep local only, never commit

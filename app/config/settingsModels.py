@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class AppSettings(BaseModel):
@@ -10,11 +12,15 @@ class AppSettings(BaseModel):
         min_length=1,
         description="IANA time zone name for web admin display only (e.g. Europe/Moscow).",
     )
+    usersRegistryPath: str = Field(
+        default="./data/users/registry.yaml",
+        min_length=1,
+        description="Общий YAML: разрешённые пользователи Telegram и метаданные (единственный источник whitelist).",
+    )
 
 
 class TelegramSettings(BaseModel):
     pollingTimeoutSeconds: int = Field(ge=1, le=60)
-    allowedUserIds: list[int]
     denyMessageText: str
     digestChannelUsernames: list[str] = Field(default_factory=list)
     portfolioTickers: list[str] = Field(default_factory=list)
@@ -160,10 +166,24 @@ class SchedulerJobSettings(BaseModel):
 
 class SchedulerSettings(BaseModel):
     enabled: bool = False
-    schedulesConfigPath: str = "./app/config/schedules.yaml"
+    schedulesConfigPath: str = Field(
+        default="",
+        description=(
+            "Путь к schedules.yaml. Пустая строка = файл в каталоге tenant администратора "
+            "(рядом с tools.yaml)."
+        ),
+    )
     tickSeconds: int = Field(default=1, ge=1, le=30)
     jobs: list[SchedulerJobSettings] = Field(default_factory=list)
     reminders: list["ReminderModel"] = Field(default_factory=list)
+
+    @field_validator("schedulesConfigPath", mode="before")
+    @classmethod
+    def _coerceSchedulesPath(cls, in_value: Any) -> str:
+        if in_value is None:
+            return ""
+        ret = str(in_value).strip()
+        return ret
 
 
 class ReminderScheduleModel(BaseModel):
@@ -197,6 +217,10 @@ class ReminderModel(BaseModel):
     enabled: bool = True
     message: str = Field(default="", max_length=4000)
     schedule: ReminderScheduleModel = Field(default_factory=ReminderScheduleModel)
+    ownerMemoryPrincipalId: str = Field(
+        default="",
+        description="Tenant key, напр. telegramUser:123. Пусто = legacy (виден только admin-tenant).",
+    )
     createdAtUnixTs: int | None = Field(default=None, ge=0)
     lastFiredAtUnixTs: int | None = Field(default=None, ge=0)
     nextFireAtUnixTs: int | None = Field(default=None, ge=0)
@@ -220,7 +244,21 @@ class EmailReaderToolSettings(BaseModel):
 
 
 class ToolsSettings(BaseModel):
-    toolsConfigPath: str = "./app/config/tools.yaml"
+    toolsConfigPath: str = Field(
+        default="",
+        description=(
+            "Путь к tools.yaml. Пустая строка или null в YAML = "
+            "<memory.memoryRootPath>/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml."
+        ),
+    )
+
+    @field_validator("toolsConfigPath", mode="before")
+    @classmethod
+    def _coerceToolsConfigPath(cls, in_value: Any) -> str:
+        if in_value is None:
+            return ""
+        ret = str(in_value).strip()
+        return ret
     telegramNewsDigest: TelegramNewsDigestToolSettings = Field(
         default_factory=TelegramNewsDigestToolSettings
     )
@@ -244,3 +282,8 @@ class SettingsModel(BaseModel):
     sessionCookieSecret: str = Field(min_length=32)
     emailAppPassword: str = Field(default="")
     adminRawTokens: list[str] = Field(default_factory=list)
+    adminTelegramUserId: int = Field(
+        default=16739703,
+        ge=1,
+        description="Telegram user id владельца админки / дефолтного tenant для миграций и scoped UI.",
+    )

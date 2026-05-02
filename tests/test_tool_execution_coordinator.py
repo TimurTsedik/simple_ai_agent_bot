@@ -15,20 +15,23 @@ class PositiveNumberArgsModel(BaseModel):
     value: int = Field(ge=1)
 
 
-def _successTool(in_args: dict) -> dict:
+def _successTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+    _ = in_memoryPrincipalId
     ret = {"ok": True, "args": in_args}
     return ret
 
 
-def _slowTool(in_args: dict) -> dict:
+def _slowTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
     _ = in_args
+    _ = in_memoryPrincipalId
     time.sleep(0.05)
     ret = {"ok": True}
     return ret
 
 
-def _errorTool(in_args: dict) -> dict:
+def _errorTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
     _ = in_args
+    _ = in_memoryPrincipalId
     raise RuntimeError("boom")
 
 
@@ -49,7 +52,11 @@ def testCoordinatorReturnsSuccessEnvelope() -> None:
         in_maxToolOutputChars=1000,
     )
 
-    result = coordinator.execute(in_toolName="success_tool", in_rawArgs={})
+    result = coordinator.execute(
+        in_toolName="success_tool",
+        in_rawArgs={},
+        in_memoryPrincipalId="telegramUser:1",
+    )
 
     assert result.ok is True
     assert result.tool_name == "success_tool"
@@ -76,6 +83,7 @@ def testCoordinatorReturnsValidationError() -> None:
     result = coordinator.execute(
         in_toolName="validation_tool",
         in_rawArgs={"value": 0},
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.ok is False
@@ -100,7 +108,11 @@ def testCoordinatorReturnsTimeout() -> None:
         in_maxToolOutputChars=1000,
     )
 
-    result = coordinator.execute(in_toolName="slow_tool", in_rawArgs={})
+    result = coordinator.execute(
+        in_toolName="slow_tool",
+        in_rawArgs={},
+        in_memoryPrincipalId="telegramUser:1",
+    )
 
     assert result.ok is False
     assert result.error is not None
@@ -124,7 +136,11 @@ def testCoordinatorReturnsExecutionError() -> None:
         in_maxToolOutputChars=1000,
     )
 
-    result = coordinator.execute(in_toolName="error_tool", in_rawArgs={})
+    result = coordinator.execute(
+        in_toolName="error_tool",
+        in_rawArgs={},
+        in_memoryPrincipalId="telegramUser:1",
+    )
 
     assert result.ok is False
     assert result.error is not None

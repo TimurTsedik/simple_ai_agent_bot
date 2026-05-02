@@ -48,7 +48,12 @@ class ToolExecutionCoordinator:
         self._executorShutdown = False
         weakref.finalize(self, _shutdownExecutorPoolSilently, self._executor)
 
-    def execute(self, in_toolName: str, in_rawArgs: dict[str, Any]) -> ToolResultEnvelopeModel:
+    def execute(
+        self,
+        in_toolName: str,
+        in_rawArgs: dict[str, Any],
+        in_memoryPrincipalId: str,
+    ) -> ToolResultEnvelopeModel:
         ret: ToolResultEnvelopeModel
         startedAt = monotonic()
         toolDefinition = self._toolRegistry.getTool(in_toolName=in_toolName)
@@ -78,8 +83,10 @@ class ToolExecutionCoordinator:
                 )
             else:
                 future = self._executor.submit(
+                    self._invokeToolCallableWithPrincipal,
                     toolDefinition.executeCallable,
                     validatedArgs,
+                    in_memoryPrincipalId,
                 )
                 data: Any = None
                 executionError: Exception | None = None
@@ -128,6 +135,19 @@ class ToolExecutionCoordinator:
                             "truncated": isTruncated,
                         },
                     )
+        return ret
+
+    @staticmethod
+    def _invokeToolCallableWithPrincipal(
+        in_executeCallable: Any,
+        in_validatedArgs: dict[str, Any],
+        in_memoryPrincipalId: str,
+    ) -> Any:
+        ret: Any
+        ret = in_executeCallable(
+            in_validatedArgs,
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         return ret
 
     def shutdown(self, in_wait: bool = True) -> None:

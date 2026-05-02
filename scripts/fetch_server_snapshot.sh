@@ -107,10 +107,12 @@ echo "Collecting snapshot from ${remote}:${remoteAppDir}"
 "${sshBase[@]}" "${remote}" "uname -a; date -u; date; pwd" > "${localMetaDir}/server_info.txt"
 "${sshBase[@]}" "${remote}" "ls -la \"${remoteAppDir}\"" > "${localMetaDir}/app_dir_listing.txt"
 
-# 2) Config files
+# 2) Config files (+ tenant tools/schedules under admin Telegram id)
 "${scpBase[@]}" "${remote}:${remoteAppDir}/config/config.yaml" "${localConfigDir}/config.yaml" || true
-"${scpBase[@]}" "${remote}:${remoteAppDir}/config/tools.yaml" "${localConfigDir}/tools.yaml" || true
-"${scpBase[@]}" "${remote}:${remoteAppDir}/config/schedules.yaml" "${localConfigDir}/schedules.yaml" || true
+adminTelegramUserId="${ADMIN_TELEGRAM_USER_ID:-16739703}"
+tenantSessionsPath="${remoteAppDir}/data/memory/sessions/telegramUser_${adminTelegramUserId}"
+"${scpBase[@]}" "${remote}:${tenantSessionsPath}/tools.yaml" "${localConfigDir}/tools.yaml" || true
+"${scpBase[@]}" "${remote}:${tenantSessionsPath}/schedules.yaml" "${localConfigDir}/schedules.yaml" || true
 
 # 3) Scheduler state
 "${scpBase[@]}" "${remote}:${remoteAppDir}/data/scheduler/jobs_state.json" "${localSchedulerDir}/jobs_state.json" || true

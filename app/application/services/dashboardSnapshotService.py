@@ -7,6 +7,7 @@ from app.application.useCases.getRunListUseCase import GetRunListUseCase
 from app.common.webDisplayTime import formatIso8601ForWeb
 from app.common.webDisplayTime import formatUnixEpochSecondsForWeb
 from app.common.webDisplayTime import resolveDisplayZone
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.config.settingsModels import SettingsModel
 from app.skills.stores.markdownSkillStore import MarkdownSkillStore
 from app.tools.registry.toolRegistry import ToolRegistry
@@ -63,7 +64,16 @@ class DashboardSnapshotService:
         )
         recentPath = sessionMemoryRoot / self._settings.memory.recentMessagesFileName
         summaryPath = sessionMemoryRoot / self._settings.memory.sessionSummaryFileName
-        longTermPath = memoryRoot / self._settings.memory.longTermFileName
+        adminPrincipal = formatTelegramUserMemoryPrincipal(
+            in_telegramUserId=self._settings.adminTelegramUserId,
+        )
+        adminSessionFolder = adminPrincipal.replace(":", "_")
+        longTermPath = (
+            memoryRoot
+            / "sessions"
+            / adminSessionFolder
+            / self._settings.memory.longTermFileName
+        )
 
         recentSize = self._fileTextSize(in_filePath=recentPath)
         summarySize = self._fileTextSize(in_filePath=summaryPath)

@@ -21,7 +21,8 @@ def testSaveEmailPreferenceToolRejectsEmptyPayload() -> None:
                 "preferredSenders": [],
                 "preferredKeywords": [],
                 "userNote": "",
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert result["ok"] is False
 
@@ -41,9 +42,10 @@ def testSaveEmailPreferenceToolWritesLongTermLine() -> None:
                 "preferredSenders": ["Research@Aton.RU", "alfabank.ru"],
                 "preferredKeywords": ["облигации"],
                 "userNote": "корпоративные действия и аналитика",
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
-        lines = store.readLongTermMemory()
+        lines = store.readLongTermMemory(in_memoryPrincipalId="telegramUser:1")
 
     assert result["ok"] is True
     assert len(lines) == 1
@@ -67,7 +69,8 @@ def testSaveEmailPreferenceToolDeduplicatesSenders() -> None:
                 "preferredSenders": ["a@x.ru", "A@X.RU", " a@x.ru "],
                 "preferredKeywords": [],
                 "userNote": "",
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
 
     assert result["ok"] is True

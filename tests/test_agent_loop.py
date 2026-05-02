@@ -127,7 +127,8 @@ class ReminderArgsForTestModel(BaseModel):
     remainingRuns: int | None = None
 
 
-def _echoTool(in_args: dict) -> dict:
+def _echoTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+    _ = in_memoryPrincipalId
     ret = {"echo": in_args}
     return ret
 
@@ -163,7 +164,8 @@ def testAgentLoopBlocksRepeatToolCallAfterSuccess() -> None:
 
     callCount: dict[str, int] = {"a": 0}
 
-    def _countingTool(in_args: dict) -> dict:
+    def _countingTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         _ = in_args
         callCount["a"] += 1
         ret = {
@@ -215,7 +217,7 @@ def testAgentLoopBlocksRepeatToolCallAfterSuccess() -> None:
         ),
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
 
     assert result.completionReason == "final_answer"
     assert callCount["a"] == 1
@@ -236,7 +238,8 @@ def testAgentLoopAllowsSecondReadEmailCallWhenInsufficientItems() -> None:
 
     callCount: dict[str, int] = {"read_email": 0}
 
-    def _readEmailTool(in_args: dict) -> dict:
+    def _readEmailTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         callCount["read_email"] += 1
         unreadOnly = bool(in_args.get("unreadOnly", True)) is True
         countValue = 1 if unreadOnly is True else 5
@@ -268,7 +271,7 @@ def testAgentLoopAllowsSecondReadEmailCallWhenInsufficientItems() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     assert result.completionReason == "final_answer"
     assert callCount["read_email"] == 2
     blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
@@ -287,7 +290,8 @@ def testAgentLoopAllowsSecondDigestCallWhenFirstWindowTooNarrow() -> None:
 
     callCount: dict[str, int] = {"digest_telegram_news": 0}
 
-    def _digestTool(in_args: dict) -> dict:
+    def _digestTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         callCount["digest_telegram_news"] += 1
         if int(in_args.get("sinceHours", 24)) <= 24:
             ret = {
@@ -343,7 +347,7 @@ def testAgentLoopAllowsSecondDigestCallWhenFirstWindowTooNarrow() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     assert result.completionReason == "final_answer"
     assert callCount["digest_telegram_news"] == 2
     blockedSteps = [s for s in result.stepTraces if s.get("status") == "tool_call_blocked"]
@@ -361,7 +365,8 @@ def testAgentLoopAutoRetriesDigestOnTimeFilteredEmptyResult() -> None:
 
     callArgs: list[dict] = []
 
-    def _digestTool(in_args: dict) -> dict:
+    def _digestTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         callArgs.append(dict(in_args))
         if int(in_args.get("sinceHours", 24)) <= 24:
             ret = {
@@ -417,7 +422,7 @@ def testAgentLoopAutoRetriesDigestOnTimeFilteredEmptyResult() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     firstStep = result.stepTraces[0]
     preview = firstStep.get("observation", "")
 
@@ -452,6 +457,7 @@ def testAgentLoopReturnsFinalAnswer() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "final_answer"
@@ -468,7 +474,8 @@ def testAgentLoopBlocksFinalUntilRequiredToolSucceeds() -> None:
         ]
     )
 
-    def _readEmailTool(_in_args: dict) -> dict:
+    def _readEmailTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {
             "count": 1,
             "sinceUnixTsUsed": 0,
@@ -505,6 +512,7 @@ def testAgentLoopBlocksFinalUntilRequiredToolSucceeds() -> None:
         in_userMessage="прочитай письма и дай дайджест",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
         in_requiredFirstSuccessfulToolName="read_email",
     )
 
@@ -538,6 +546,7 @@ def testAgentLoopFallbackWhenFormatRepairExhaustedWithoutToolData() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "final_answer"
@@ -567,6 +576,7 @@ def testAgentLoopRepairsInvalidJsonOnce() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "final_answer"
@@ -583,7 +593,8 @@ def testAgentLoopReplacesTechnicalRepairAnswerWithFallback() -> None:
         ]
     )
 
-    def _failingTool(_in_args: dict) -> dict:
+    def _failingTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         raise TimeoutError("slow tool")
 
     toolReg = ToolRegistry(
@@ -611,7 +622,7 @@ def testAgentLoopReplacesTechnicalRepairAnswerWithFallback() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     assert result.completionReason == "final_answer"
     assert "Не удалось завершить запрос" in result.finalAnswer
 
@@ -652,6 +663,7 @@ def testAgentLoopStopsByMaxSteps() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "max_steps_exceeded"
@@ -695,6 +707,7 @@ def testAgentLoopStopsOnRepeatedSameToolCall() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "repeated_tool_call_loop"
@@ -737,6 +750,7 @@ def testAgentLoopStopsOnRepeatedSameToolNameWithDifferentArgs() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "repeated_tool_call_loop"
@@ -780,6 +794,7 @@ def testAgentLoopStopsOnSameSignatureWithinSlidingWindow() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     assert result.completionReason == "repeated_tool_call_loop"
@@ -820,6 +835,7 @@ def testAgentLoopBlocksToolCallWhenToolsDisabled() -> None:
         in_userMessage="кто ты?",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
         in_allowToolCalls=False,
     )
 
@@ -859,6 +875,7 @@ def testAgentLoopStopsAfterMaxBlockedToolCalls() -> None:
         in_userMessage="кто ты?",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
         in_allowToolCalls=False,
     )
 
@@ -876,7 +893,8 @@ def testAgentLoopStopsAfterRepeatedToolTimeouts() -> None:
         ]
     )
 
-    def _timeoutTool(_in_args: dict) -> dict:
+    def _timeoutTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         raise TimeoutError("slow tool")
 
     toolReg = ToolRegistry(
@@ -904,7 +922,7 @@ def testAgentLoopStopsAfterRepeatedToolTimeouts() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
 
     assert result.completionReason == "tool_timeout_limit"
     assert "превысил лимит времени" in result.finalAnswer
@@ -948,6 +966,7 @@ def testAgentLoopToolObservationIsCompactJson() -> None:
         in_userMessage="Привет",
         in_skillsBlock="",
         in_memoryBlock="",
+        in_memoryPrincipalId="telegramUser:1",
     )
 
     firstStep = result.stepTraces[0]
@@ -987,7 +1006,7 @@ def testToolCoordinatorSerializesDictAsJsonString() -> None:
         ),
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     toolResult = result.stepTraces[0].get("toolResult", {})
     dataText = str(toolResult.get("data", ""))
 
@@ -1005,7 +1024,8 @@ def testReadEmailObservationContainsUpToTenItems() -> None:
         ]
     )
 
-    def _readEmailTool(_in_args: dict) -> dict:
+    def _readEmailTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         items = []
         for index in range(7):
             items.append(
@@ -1051,7 +1071,7 @@ def testReadEmailObservationContainsUpToTenItems() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     obsText = str(result.stepTraces[0].get("observation", ""))
     obsPayload = json.loads(obsText)
     emailPreview = obsPayload.get("email_preview", {})
@@ -1069,7 +1089,8 @@ def testDigestObservationContainsUpToTenItems() -> None:
         ]
     )
 
-    def _digestTool(_in_args: dict) -> dict:
+    def _digestTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         items = []
         for index in range(6):
             items.append(
@@ -1113,7 +1134,7 @@ def testDigestObservationContainsUpToTenItems() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     obsText = str(result.stepTraces[0].get("observation", ""))
     obsPayload = json.loads(obsText)
     dataPreview = obsPayload.get("data_preview", {})
@@ -1131,7 +1152,8 @@ def testDigestObservationAddsFollowupHintWhenNoChannelsFetched() -> None:
         ]
     )
 
-    def _emptyDigestTool(_in_args: dict) -> dict:
+    def _emptyDigestTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {
             "items": [],
             "count": 0,
@@ -1175,7 +1197,7 @@ def testDigestObservationAddsFollowupHintWhenNoChannelsFetched() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     obsText = str(result.stepTraces[0].get("observation", ""))
     obsPayload = json.loads(obsText)
     dataPreview = obsPayload.get("data_preview", {})
@@ -1193,7 +1215,8 @@ def testUserTopicDigestObservationContainsStatusHintAndTopic() -> None:
         ]
     )
 
-    def _userTopicTool(_in_args: dict) -> dict:
+    def _userTopicTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {
             "ok": True,
             "status": "needs_channels",
@@ -1229,7 +1252,7 @@ def testUserTopicDigestObservationContainsStatusHintAndTopic() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     obsText = str(result.stepTraces[0].get("observation", ""))
     obsPayload = json.loads(obsText)
     userTopicPreview = obsPayload.get("user_topic_preview", {})
@@ -1250,7 +1273,8 @@ def testUserTopicDigestAllowsFetchUnreadAfterConfigureInSameRun() -> None:
         ]
     )
 
-    def _userTopicTwoPhaseTool(in_args: dict) -> dict:
+    def _userTopicTwoPhaseTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         fetchUnreadFlag = bool(in_args.get("fetchUnread", False))
         ret: dict
         if fetchUnreadFlag is False:
@@ -1297,7 +1321,7 @@ def testUserTopicDigestAllowsFetchUnreadAfterConfigureInSameRun() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     blockedStatuses = [
         traceItem.get("status")
         for traceItem in result.stepTraces
@@ -1321,7 +1345,8 @@ def testAgentLoopBuildsDigestFallbackFromSuccessfulObservation() -> None:
         ]
     )
 
-    def _digestTool(_in_args: dict) -> dict:
+    def _digestTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {
             "count": 2,
             "sinceUnixTsUsed": 1777367000,
@@ -1368,7 +1393,7 @@ def testAgentLoopBuildsDigestFallbackFromSuccessfulObservation() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     assert result.completionReason == "final_answer"
     assert "Краткий итог" in result.finalAnswer
     assert "Новость 1" in result.finalAnswer
@@ -1395,7 +1420,7 @@ def testAgentLoopFallbackMentionsNoToolDataWhenObservationsEmpty() -> None:
         in_toolMetadataRenderer=ToolMetadataRenderer(),
         in_toolRegistry=ToolRegistry(in_toolDefinitions=[]),
     )
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
     assert result.completionReason == "final_answer"
     assert "не удалось получить данные" in result.finalAnswer.lower()
 
@@ -1405,7 +1430,8 @@ def testToolCoordinatorKeepsValidJsonWhenTruncated() -> None:
 
     bigValue = "x" * 5000
 
-    def bigTool(_in_args: dict) -> dict:
+    def bigTool(_in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {
             "query": "q",
             "results": [{"title": "t", "url": "https://example.com", "snippet": bigValue}],
@@ -1430,7 +1456,11 @@ def testToolCoordinatorKeepsValidJsonWhenTruncated() -> None:
         in_maxToolOutputChars=300,
     )
 
-    result = coordinator.execute(in_toolName="web_search", in_rawArgs={})
+    result = coordinator.execute(
+        in_toolName="web_search",
+        in_rawArgs={},
+        in_memoryPrincipalId="telegramUser:1",
+    )
     assert result.ok is True
     assert isinstance(result.data, str)
     # Must stay valid JSON even when truncated.
@@ -1456,7 +1486,8 @@ def testAgentLoopBlocksFinalAfterToolValidationErrorAndForcesRetry() -> None:
         ]
     )
 
-    def _okReminderTool(in_args: dict) -> dict:
+    def _okReminderTool(in_args: dict, *, in_memoryPrincipalId: str) -> dict:
+        _ = in_memoryPrincipalId
         ret = {"ok": True, "saved": in_args}
         return ret
 
@@ -1486,7 +1517,7 @@ def testAgentLoopBlocksFinalAfterToolValidationErrorAndForcesRetry() -> None:
         in_toolRegistry=toolReg,
     )
 
-    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="")
+    result = loop.run(in_userMessage="x", in_skillsBlock="", in_memoryBlock="", in_memoryPrincipalId="telegramUser:1")
 
     assert result.completionReason == "final_answer"
     assert result.finalAnswer == "ok"

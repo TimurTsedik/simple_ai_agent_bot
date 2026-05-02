@@ -40,14 +40,20 @@ class MarkdownMemoryStore:
         )
         self._writeText(in_filePath=filePath, in_text=in_text)
 
-    def readLongTermMemory(self) -> list[str]:
+    def readLongTermMemory(self, in_memoryPrincipalId: str) -> list[str]:
         ret: list[str]
-        filePath = self._rootPath / self._memorySettings.longTermFileName
+        filePath = self._buildSessionFilePath(
+            in_sessionId=in_memoryPrincipalId,
+            in_fileName=self._memorySettings.longTermFileName,
+        )
         ret = self._readLines(in_filePath=filePath)
         return ret
 
-    def writeLongTermMemory(self, in_lines: list[str]) -> None:
-        filePath = self._rootPath / self._memorySettings.longTermFileName
+    def writeLongTermMemory(self, in_memoryPrincipalId: str, in_lines: list[str]) -> None:
+        filePath = self._buildSessionFilePath(
+            in_sessionId=in_memoryPrincipalId,
+            in_fileName=self._memorySettings.longTermFileName,
+        )
         self._writeLines(in_filePath=filePath, in_lines=in_lines)
 
     def clearSessionMemory(self, in_sessionId: str) -> None:

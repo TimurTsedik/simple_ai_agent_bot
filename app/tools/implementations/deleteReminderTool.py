@@ -10,6 +10,7 @@ from app.reminders.reminderConfigStore import ReminderConfigStore
 class DeleteReminderTool:
     in_reminderConfigStore: ReminderConfigStore
     in_dataRootPath: str
+    in_adminMemoryPrincipalId: str
 
     def _deleteReminderState(self, in_reminderId: str) -> bool:
         ret: bool
@@ -36,11 +37,18 @@ class DeleteReminderTool:
         ret = isDeleted
         return ret
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         reminderIdValue = str(in_args.get("reminderId", "") or "").strip()
-        isDeletedFromConfig = self.in_reminderConfigStore.deleteReminder(
-            in_reminderId=reminderIdValue
+        isDeletedFromConfig = self.in_reminderConfigStore.deleteReminderForOwner(
+            in_reminderId=reminderIdValue,
+            in_ownerMemoryPrincipalId=str(in_memoryPrincipalId or "").strip(),
+            in_adminMemoryPrincipalId=str(self.in_adminMemoryPrincipalId or "").strip(),
         )
         isDeletedFromState = self._deleteReminderState(in_reminderId=reminderIdValue)
         ret = {

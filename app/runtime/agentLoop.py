@@ -54,6 +54,7 @@ class AgentLoop:
         in_userMessage: str,
         in_skillsBlock: str,
         in_memoryBlock: str,
+        in_memoryPrincipalId: str,
         in_allowToolCalls: bool = True,
         in_requiredFirstSuccessfulToolName: str = "",
     ) -> AgentLoopResultModel:
@@ -527,6 +528,7 @@ class AgentLoop:
                     toolResult = self._toolExecutionCoordinator.execute(
                         in_toolName=toolName,
                         in_rawArgs=toolArgs,
+                        in_memoryPrincipalId=in_memoryPrincipalId,
                     )
                     digestAutoRetried = False
                     digestAutoRetryArgs: dict[str, Any] | None = None
@@ -546,6 +548,7 @@ class AgentLoop:
                             toolResult = self._toolExecutionCoordinator.execute(
                                 in_toolName=toolName,
                                 in_rawArgs=retryArgs,
+                                in_memoryPrincipalId=in_memoryPrincipalId,
                             )
                             toolArgs = retryArgs
                     if (

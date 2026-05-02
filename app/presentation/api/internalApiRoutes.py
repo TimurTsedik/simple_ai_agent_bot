@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi import Request
 
 from app.bootstrap.container import ApplicationContainer
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.common.structuredLogger import writeJsonlEvent
 from app.security.webSessionAuth import parseSessionCookieValue
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
@@ -15,7 +16,8 @@ def registerInternalApiRoutes(
 ) -> None:
     settings = in_container.settings
     readMemoryFileTool = ReadMemoryFileTool(
-        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths
+        in_memoryRootPath=settings.memory.memoryRootPath,
+        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths,
     )
 
     def resolveClientIpText(in_request: Request) -> str:
@@ -75,11 +77,15 @@ def registerInternalApiRoutes(
     @in_app.post("/internal/run")
     def runInternal(in_request: Request, in_payload: dict[str, str]) -> dict[str, str]:
         ensureInternalApiAuthorizedOrRaise(in_request=in_request)
-        sessionId = in_payload.get("sessionId", "telegram:debug")
+        defaultPrincipal = formatTelegramUserMemoryPrincipal(
+            in_telegramUserId=settings.adminTelegramUserId,
+        )
+        sessionId = in_payload.get("sessionId") or defaultPrincipal
         inputMessage = in_payload.get("message", "")
         runResult = in_container.runAgentUseCase.execute(
             in_sessionId=sessionId,
             in_inputMessage=inputMessage,
+            in_memoryPrincipalId=sessionId,
         )
         writeJsonlEvent(
             in_loggingSettings=settings.logging,
@@ -165,9 +171,16 @@ def registerInternalApiRoutes(
     ) -> dict[str, object]:
         ensureInternalApiAuthorizedOrRaise(in_request=in_request)
         memoryRoot = Path(settings.memory.memoryRootPath).resolve()
-        longTermPath = (memoryRoot / settings.memory.longTermFileName).resolve()
+        principalId = formatTelegramUserMemoryPrincipal(
+            in_telegramUserId=settings.adminTelegramUserId,
+        )
+        sanitizedPrincipal = principalId.replace(":", "_")
+        longTermPath = (
+            memoryRoot / "sessions" / sanitizedPrincipal / settings.memory.longTermFileName
+        ).resolve()
         result = readMemoryFileTool.execute(
-            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)}
+            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)},
+            in_memoryPrincipalId=principalId,
         )
         contentText = str(result.get("content", "") or "")
         truncated = len(contentText) >= int(maxChars)

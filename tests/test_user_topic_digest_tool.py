@@ -84,7 +84,8 @@ def testUserTopicDigestToolNeedsTopicWhenTopicBlank() -> None:
                 "keywords": [],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert result["status"] == "needs_topic"
     assert result["topicKey"] == ""
@@ -112,7 +113,8 @@ def testUserTopicDigestToolNeedsChannelsOnFirstCall() -> None:
                 "keywords": [],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert result["status"] == "needs_channels"
     assert result["topicKey"] == "ии"
@@ -139,7 +141,8 @@ def testUserTopicDigestToolNeedsKeywordsAfterChannels() -> None:
                 "keywords": [],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         result = tool.execute(
             in_args={
@@ -148,7 +151,8 @@ def testUserTopicDigestToolNeedsKeywordsAfterChannels() -> None:
                 "keywords": [],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert result["status"] == "needs_keywords"
     saved = result.get("savedConfig")
@@ -192,7 +196,8 @@ def testUserTopicDigestToolFetchUnreadRespectsKeywordsAndState() -> None:
                 "keywords": ["inflation"],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         firstFetch = tool.execute(
             in_args={
@@ -201,7 +206,8 @@ def testUserTopicDigestToolFetchUnreadRespectsKeywordsAndState() -> None:
                 "channels": [],
                 "keywords": [],
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         secondFetch = tool.execute(
             in_args={
@@ -210,11 +216,14 @@ def testUserTopicDigestToolFetchUnreadRespectsKeywordsAndState() -> None:
                 "channels": [],
                 "keywords": [],
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         assert firstFetch["count"] == 2
         assert secondFetch["count"] == 0
-        statePath = dataRoot / "state" / "telegram_digest_read_state.json"
+        statePath = (
+            dataRoot / "state" / "telegram_digest_read_state" / "telegramUser_1.json"
+        )
         stateText = statePath.read_text(encoding="utf-8")
         statePayload = json.loads(stateText)
         assert statePayload["channelLastSeenMessageId"]["alpha_news"] == 11
@@ -241,7 +250,8 @@ def testUserTopicDigestToolDeletesTopicConfig() -> None:
                 "keywords": ["kw"],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         deleteResult = tool.execute(
             in_args={
@@ -250,7 +260,8 @@ def testUserTopicDigestToolDeletesTopicConfig() -> None:
                 "channels": [],
                 "keywords": [],
                 "fetchUnread": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         missingResult = tool.execute(
             in_args={
@@ -259,7 +270,8 @@ def testUserTopicDigestToolDeletesTopicConfig() -> None:
                 "channels": [],
                 "keywords": [],
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
     assert deleteResult["status"] == "deleted"
     assert missingResult["status"] == "needs_channels"
@@ -299,7 +311,8 @@ def testUserTopicDigestToolCapsTwentyPerChannel() -> None:
                 "keywords": ["keyword"],
                 "fetchUnread": False,
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         fetchResult = tool.execute(
             in_args={
@@ -308,6 +321,7 @@ def testUserTopicDigestToolCapsTwentyPerChannel() -> None:
                 "channels": [],
                 "keywords": [],
                 "deleteTopic": False,
-            }
+            },
+            in_memoryPrincipalId="telegramUser:1",
         )
         assert fetchResult["count"] == 20

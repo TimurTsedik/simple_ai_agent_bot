@@ -51,8 +51,13 @@ class FakeMemoryService:
     def resetSession(self, in_sessionId: str) -> None:
         _ = in_sessionId
 
-    def buildMemoryBlock(self, in_sessionId: str) -> str:
+    def buildMemoryBlock(
+        self,
+        in_sessionId: str,
+        in_longTermPrincipalId: str | None = None,
+    ) -> str:
         _ = in_sessionId
+        _ = in_longTermPrincipalId
         ret = ""
         return ret
 
@@ -90,7 +95,12 @@ class FakeTranscriber:
         return ret
 
 
-def _makeSettings(in_tmpDir: Path, in_allowedUserId: int) -> SettingsModel:
+def _makeSettings(in_tmpDir: Path) -> SettingsModel:
+    toolsYamlPath = in_tmpDir / "tools.yaml"
+    toolsYamlPath.write_text(
+        "telegramNewsDigest:\n  digestChannelUsernames: []\n",
+        encoding="utf-8",
+    )
     ret = SettingsModel(
         app=AppSettings(
             appName="simple-ai-agent-bot",
@@ -100,12 +110,11 @@ def _makeSettings(in_tmpDir: Path, in_allowedUserId: int) -> SettingsModel:
         ),
         telegram=TelegramSettings(
             pollingTimeoutSeconds=30,
-            allowedUserIds=[int(in_allowedUserId)],
             denyMessageText="Доступ запрещён",
             voiceMaxSeconds=60,
             voiceMaxBytes=5_000_000,
         ),
-        tools=ToolsSettings(toolsConfigPath="./app/config/tools.yaml"),
+        tools=ToolsSettings(toolsConfigPath=str(toolsYamlPath)),
         models=ModelSettings(
             openRouterBaseUrl="x",
             primaryModel="x",
@@ -175,12 +184,13 @@ def main() -> None:
     tmpDir = (Path.cwd() / "data" / "tmp" / "smoke_voice").resolve()
     tmpDir.mkdir(parents=True, exist_ok=True)
 
-    settings = _makeSettings(in_tmpDir=tmpDir, in_allowedUserId=int(args.user_id))
+    allowedVoiceUserId = int(args.user_id)
+    settings = _makeSettings(in_tmpDir=tmpDir)
     logger = FakeLogger()
     runAgentUseCase = FakeRunAgentUseCase()
     memoryService = FakeMemoryService()
     useCase = HandleIncomingTelegramMessageUseCase(
-        in_allowedUserIds=settings.telegram.allowedUserIds,
+        in_get_allowed_user_ids=lambda: {allowedVoiceUserId},
         in_denyMessageText=settings.telegram.denyMessageText,
         in_logger=logger,  # type: ignore[arg-type]
         in_runAgentUseCase=runAgentUseCase,  # type: ignore[arg-type]

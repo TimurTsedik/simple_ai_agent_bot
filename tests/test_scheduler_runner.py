@@ -43,6 +43,7 @@ def testSchedulerRunsJobOnFirstTick(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda sessionId, message: (
             calls.append((sessionId, message)) or "run1",
             "answer",
@@ -53,7 +54,7 @@ def testSchedulerRunsJobOnFirstTick(tmp_path: Path) -> None:
 
     runner._tickOnce()
 
-    assert calls == [("scheduler:test", "hello")]
+    assert calls == [("telegramUser:16739703:scheduler:test", "hello")]
     statePath = tmp_path / "scheduler" / "jobs_state.json"
     assert statePath.exists() is True
 
@@ -89,6 +90,7 @@ def testSchedulerRespectsInterval(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
         in_nowUnixTsProvider=lambda: nowValue,
         in_sleepCallable=lambda _: None,
@@ -142,6 +144,7 @@ def testSchedulerRespectsHourWindow(tmp_path: Path, monkeypatch) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
         in_nowUnixTsProvider=lambda: nowUnixTs,
         in_sleepCallable=lambda _: None,
@@ -187,6 +190,7 @@ def testSchedulerHourWindowUsesConfiguredTimeZone(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: (calls.append("x") or "run1", "answer"),
         in_nowUnixTsProvider=lambda: nowUnixTs,
         in_sleepCallable=lambda _: None,
@@ -225,6 +229,7 @@ def testSchedulerCallsCompletionCallbackWithFinalAnswer(tmp_path: Path) -> None:
         in_schedulerSettings=schedulerSettings,
         in_loggingSettings=loggingSettings,
         in_dataRootPath=str(tmp_path),
+        in_adminTelegramUserId=16739703,
         in_runInternalCallable=lambda *_: ("run1", "result text"),
         in_onRunCompletedCallable=lambda jobId, sessionId, runId, finalAnswer: notifications.append(
             (jobId, sessionId, runId, finalAnswer)
@@ -235,5 +240,7 @@ def testSchedulerCallsCompletionCallbackWithFinalAnswer(tmp_path: Path) -> None:
 
     runner._tickOnce()
 
-    assert notifications == [("job1", "scheduler:test", "run1", "result text")]
+    assert notifications == [
+        ("job1", "telegramUser:16739703:scheduler:test", "run1", "result text")
+    ]
 

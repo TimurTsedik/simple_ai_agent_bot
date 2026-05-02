@@ -10,7 +10,12 @@ from app.memory.stores.markdownMemoryStore import MarkdownMemoryStore
 class SaveEmailPreferenceTool:
     in_memoryStore: MarkdownMemoryStore
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         sendersRaw = [
             s for s in in_args.get("preferredSenders", []) if isinstance(s, str)
@@ -66,11 +71,16 @@ class SaveEmailPreferenceTool:
         lineText = "- email_pref_json: " + json.dumps(
             payload, ensure_ascii=False, sort_keys=True
         )
-        existingLines = self.in_memoryStore.readLongTermMemory()
+        existingLines = self.in_memoryStore.readLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+        )
         mergedLines = list(existingLines)
         if lineText not in mergedLines:
             mergedLines.append(lineText)
-        self.in_memoryStore.writeLongTermMemory(in_lines=mergedLines)
+        self.in_memoryStore.writeLongTermMemory(
+            in_memoryPrincipalId=in_memoryPrincipalId,
+            in_lines=mergedLines,
+        )
         ret = {
             "ok": True,
             "message": (

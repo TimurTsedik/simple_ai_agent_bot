@@ -230,7 +230,12 @@ class ReadEmailTool:
     in_password: str
     in_imapClientFactory: Any = _defaultImapClientFactory
 
-    def execute(self, in_args: dict[str, Any]) -> dict[str, Any]:
+    def execute(
+        self,
+        in_args: dict[str, Any],
+        *,
+        in_memoryPrincipalId: str,
+    ) -> dict[str, Any]:
         ret: dict[str, Any]
         mailbox = str(in_args.get("mailbox", "INBOX"))
         unreadOnly = bool(in_args.get("unreadOnly", True)) is True

@@ -105,7 +105,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## Конфигурация
 
 - **Основной конфиг**: `app/config/config.yaml` (без секретов).
-- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`.
+- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`, опционально `ADMIN_TELEGRAM_USER_ID` (см. ниже).
+
+**Multi-user (Telegram):** единый белый список — файл **`app.usersRegistryPath`** (по умолчанию `data/users/registry.yaml`): все `telegramUserId` оттуда могут общаться с ботом; рассылки scheduler/reminder уходят тем же списком. Добавление через веб **`/users`** (нужно `security.adminWritesEnabled: true`) или правка YAML реестра; при создании выделяется `sessions/telegramUser_<id>/` с автосгенерированными `tools.yaml` / `schedules.yaml` (минимальный каркас из кода, см. `app/config/defaultTenantSessionYaml.py`) и пустым контекстом (`long_term.md`, `summary.md`, `recent.md`). Поле `telegram.allowedUserIds` в конфиге больше не используется — список только в реестре. Каждый разрешённый пользователь получает tenant-ключ сессии `telegramUser:<id>`: краткосрочная память (`recent.md`, `summary.md`), долгосрочная (`long_term.md`), state digest и напоминания с `ownerMemoryPrincipalId` изолированы между пользователями. Веб-админка и список runs по умолчанию ограничены администратором: `adminTelegramUserId` в конфиге или **`ADMIN_TELEGRAM_USER_ID` в `.env`**. При первом запуске корневой legacy `data/memory/long_term.md` копируется в namespace этого пользователя и переименовывается в `.migrated.bak`.
 
 Требования к web-auth:
 - `SESSION_COOKIE_SECRET` — минимум 32 символа
@@ -155,11 +157,14 @@ Troubleshooting:
 
 ## Инструменты и их настройки (`tools.yaml`)
 
-Часть настроек инструментов вынесена в `app/config/tools.yaml`.
+Часть настроек инструментов живёт в отдельном YAML-файле в **namespace памяти администратора** (тот же tenant, что и `long_term.md`):
+
+`${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml`
+
+(значение `ADMIN_TELEGRAM_USER_ID` — в `.env`, по умолчанию совпадает с владельцем админки.)
 
 Рекомендуемый подход:
-- держать в git файл-пример `app/config/tools.example.yaml`
-- локально копировать его в `app/config/tools.yaml` (он добавлен в `.gitignore`)
+- при первом старте без файла приложение записывает в каталог сессии админа минимальный **`tools.yaml`** (тот же каркас, что при провижинге пользователя в `defaultTenantSessionYaml.py`), **или** одноразово копирует старый `app/config/tools.yaml`, если ты явно указываешь этот путь в `tools.toolsConfigPath` (см. ниже); дальше правь уже файл в `sessions/telegramUser_<id>/tools.yaml`.
 
 Что там настраивается:
 - **`digest_telegram_news`**: необязательные дефолты `telegramNewsDigest.*` только для общего дайджеста (skill `telegram_news_digest`), когда в args не переданы каналы/фильтры; дайджесты **по теме** (`user_topic_telegram_digest`) эти списки не используют. В вызове доступны args `channels`, `topics`, `keywords`, `sinceHours`, `sinceUnixTs`, `maxItems`
@@ -168,11 +173,16 @@ Troubleshooting:
 - **`save_email_preference`**: пишет строку email-предпочтений (`email_pref_json` в `long_term.md`) с полями `preferredSenders` (email/домены) и `preferredKeywords`; используется skill-ом `email_preference_feedback`
 - **`read_email`**: `emailReader.*` (host/port/ssl/email и т.д.), пароль — только в env: `EMAIL_APP_PASSWORD`
 
-Путь к `tools.yaml` задаётся в `app/config/config.yaml`:
+Путь к файлу задаётся в `app/config/config.yaml`:
 
 ```yaml
 tools:
-  toolsConfigPath: "./app/config/tools.yaml"
+  # Пусто = путь по умолчанию: sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/tools.yaml под memory.memoryRootPath.
+  toolsConfigPath: ""
+
+  # Одноразовая миграция со старого расположения: при первом старте файл скопируется в tenant-зону админа.
+  # После успешной миграции можно снова оставить toolsConfigPath пустым.
+  # toolsConfigPath: "./app/config/tools.yaml"
 ```
 
 Изменения в `tools.yaml` применяются **без перезапуска**.
@@ -205,11 +215,18 @@ Email-дайджест строится агентом по skill-инструк
 - **Scheduler jobs**: регулярные внутренние run‑ы агента по интервалу и часовому окну.\n
 - **Reminders**: напоминания, которые записываются в `schedules.yaml`, имеют `remainingRuns` и автоматически удаляются после завершения (если включена соответствующая логика).\n
 
-Ниже описан общий формат `app/config/schedules.yaml` и как включить планировщик.
+Ниже описан общий формат файла расписаний (`schedules.yaml`) и как включить планировщик.
 
 ## Scheduler (variant B): автоматические запуски по расписанию
 
 Встроенный планировщик запускает **внутренние run-ы агента** по расписанию (каждый job — своё расписание).
+
+Файл расписаний по умолчанию живёт рядом с `tools.yaml` в namespace памяти администратора:
+
+`${memory.memoryRootPath}/sessions/telegramUser_<ADMIN_TELEGRAM_USER_ID>/schedules.yaml`
+
+Один раз можно мигрировать старый `app/config/schedules.yaml`, указав в `config.yaml` значение  
+`scheduler.schedulesConfigPath: "./app/config/schedules.yaml"` (далее можно снова оставить пустую строку).
 
 Как включить:
 
@@ -218,23 +235,19 @@ Email-дайджест строится агентом по skill-инструк
 ```yaml
 scheduler:
   enabled: true
-  schedulesConfigPath: "./app/config/schedules.yaml"
+  schedulesConfigPath: ""
   tickSeconds: 30
 ```
 
-2) Создать файл расписаний:
+2) Если файла ещё нет, при старте создаётся минимальный `schedules.yaml` (`jobs: []` / `reminders: []`) в том же каталоге, что и `tools.yaml` админа; полный пример структуры — в разделе «Формат schedules.yaml» ниже (или скопируй существующий tenant-файл, например из `data/memory/sessions/telegramUser_<id>/schedules.yaml`).
 
-```bash
-cp app/config/schedules.example.yaml app/config/schedules.yaml
-```
-
-Формат `app/config/schedules.yaml`:
+Формат `schedules.yaml`:
 - `jobs[]`:
   - `jobId` — уникальный ID job-а
   - `enabled` — включён/выключен
   - `schedule.intervalSeconds` — интервал в секундах (минимум 5)
   - `schedule.allowedHourStart / allowedHourEnd` — окно часов (например 8..23), локальное время сервера
-  - `actionInternalRun.sessionId` — sessionId для этих run-ов (удобно выделять `scheduler:*`)
+  - `actionInternalRun.sessionId` — см. ниже (`scheduler:*` привязывается к tenant админа автоматически)
   - `actionInternalRun.message` — короткий intent-текст, который будет отправлен агенту как пользовательское сообщение
 - `reminders[]`:
   - `reminderId`, `enabled`, `message`
@@ -251,8 +264,11 @@ State jobs/reminders сохраняется в: `data/scheduler/jobs_state.json`
 
 Особенности reminder-функционала:
 - фразы вида `через N минут/часов` конвертируются моделью в абсолютное `HH:MM` по `app.displayTimeZone` и сразу отправляются в `schedule_reminder` (без лишнего уточнения времени);
-- для записи напоминаний `config/schedules.yaml` в контейнере должен быть **writable** (не `:ro`);
-- при ограничениях на создание `schedules.yaml.tmp` используется fallback-запись напрямую в `schedules.yaml`.
+- для записи напоминаний файл расписаний в контейнере должен быть **writable** (не `:ro`); в `docker-compose.prod.yml` он монтируется в подкаталог `data/memory/sessions/...`;
+- при ограничениях на создание `schedules.yaml.tmp` используется fallback-запись напрямую в целевой `schedules.yaml`.
+
+**Фактический sessionId scheduler-job-ов.** Значение `scheduler:something` в YAML превращается внутри процесса в  
+`telegramUser:<ADMIN_TELEGRAM_USER_ID>:scheduler:something` (соответствующая директория под `sessions/`, см. память Markdown store). Так весь контекст планировщика относится к tenant администратора; долгая память (long‑term) при этих запусках читается из того же профиля, что и основной пользователь‑админ.
 
 ## Запуск тестов
 
@@ -322,8 +338,8 @@ PYTHONPATH=. pytest
   .env
   config/
     config.yaml
-    tools.yaml            # опционально, если используешь toolsConfigPath
     schedules.yaml         # только если scheduler.enabled=true
+  config/tools.yaml        # опционально: монтируется в tenant-файл под data/memory/... (см. docker-compose.prod.yml)
   data/                    # персистентные данные
     runs/
     logs/

@@ -1,7 +1,9 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.application.dto.incomingTelegramMessageDto import IncomingTelegramMessageDto
 from app.application.useCases.runAgentUseCase import RunAgentUseCase
+from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
 from app.config.settingsModels import RuntimeSettings
 from app.domain.protocols.loggerProtocol import LoggerProtocol
 from app.memory.services.memoryService import MemoryService
@@ -16,14 +18,14 @@ class HandleIncomingTelegramMessageResult:
 class HandleIncomingTelegramMessageUseCase:
     def __init__(
         self,
-        in_allowedUserIds: list[int],
+        in_get_allowed_user_ids: Callable[[], set[int]],
         in_denyMessageText: str,
         in_logger: LoggerProtocol,
         in_runAgentUseCase: RunAgentUseCase,
         in_memoryService: MemoryService,
         in_runtimeSettings: RuntimeSettings,
     ) -> None:
-        self._allowedUserIds = set(in_allowedUserIds)
+        self._get_allowed_user_ids = in_get_allowed_user_ids
         self._denyMessageText = in_denyMessageText
         self._logger = in_logger
         self._runAgentUseCase = in_runAgentUseCase
@@ -34,7 +36,8 @@ class HandleIncomingTelegramMessageUseCase:
         self, in_messageDto: IncomingTelegramMessageDto
     ) -> HandleIncomingTelegramMessageResult:
         ret: HandleIncomingTelegramMessageResult
-        isAuthorized = in_messageDto.telegramUserId in self._allowedUserIds
+        allowedIds = self._get_allowed_user_ids()
+        isAuthorized = in_messageDto.telegramUserId in allowedIds
         if isAuthorized:
             self._logger.info(
                 f"authorized_telegram_message user={in_messageDto.telegramUserId}"
@@ -57,7 +60,9 @@ class HandleIncomingTelegramMessageUseCase:
         ret: HandleIncomingTelegramMessageResult
         normalizedText = in_messageDto.text.strip()
         loweredText = normalizedText.lower()
-        sessionId = f"telegram:{in_messageDto.chatId}"
+        sessionId = formatTelegramUserMemoryPrincipal(
+            in_telegramUserId=in_messageDto.telegramUserId,
+        )
         if loweredText == "/start":
             outgoingText = (
                 "Бот активен. Доступные команды: /start, /help, /health, /reset, /context. "
@@ -82,6 +87,7 @@ class HandleIncomingTelegramMessageUseCase:
             runResult = self._runAgentUseCase.execute(
                 in_sessionId=sessionId,
                 in_inputMessage=normalizedText,
+                in_memoryPrincipalId=sessionId,
             )
             outgoingText = runResult.finalAnswer or "Пустой ответ агента."
         ret = HandleIncomingTelegramMessageResult(

@@ -25,7 +25,6 @@ def _buildSettings(in_dataRoot: str) -> SettingsModel:
         app=AppSettings(appName="test", environment="test", dataRootPath=in_dataRoot),
         telegram=TelegramSettings(
             pollingTimeoutSeconds=10,
-            allowedUserIds=[1],
             denyMessageText="deny",
         ),
         models=ModelSettings(

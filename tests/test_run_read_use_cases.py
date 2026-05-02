@@ -9,8 +9,16 @@ class FakeRunRepository:
             {"runId": "r1", "sessionId": "telegram:1"},
         ]
 
-    def listRuns(self, in_limit: int, in_offset: int = 0):  # noqa: ANN201
-        ret = self._items[in_offset : in_offset + in_limit]
+    def listRuns(
+        self,
+        in_limit: int,
+        in_offset: int = 0,
+        in_session_id: str | None = None,
+    ):  # noqa: ANN201
+        items = self._items
+        if in_session_id is not None:
+            items = [item for item in self._items if item.get("sessionId") == in_session_id]
+        ret = items[in_offset : in_offset + in_limit]
         return ret
 
     def getRunById(self, in_runId: str):  # noqa: ANN201

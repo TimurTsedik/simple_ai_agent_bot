@@ -12,6 +12,7 @@ import yaml
 from pydantic import ValidationError
 from zoneinfo import ZoneInfo
 
+from app.common.schedulerSessionId import normalizeScheduledInternalSessionId
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.settingsModels import (
     LoggingSettings,
@@ -47,6 +48,7 @@ class SchedulerRunner:
     in_schedulerSettings: SchedulerSettings
     in_loggingSettings: LoggingSettings
     in_dataRootPath: str
+    in_adminTelegramUserId: int
     in_runInternalCallable: Callable[[str, str], tuple[str, str]]
     in_onRunCompletedCallable: Callable[[str, str, str, str], None] | None = None
     in_onReminderTriggeredCallable: Callable[[str, str], None] | None = None
@@ -353,7 +355,10 @@ class SchedulerRunner:
         self._state["jobsState"] = jobsState
         self._persistState()
 
-        sessionId = str(in_job.actionInternalRun.sessionId)
+        sessionId = normalizeScheduledInternalSessionId(
+            in_sessionId=str(in_job.actionInternalRun.sessionId),
+            in_adminTelegramUserId=int(self.in_adminTelegramUserId),
+        )
         message = str(in_job.actionInternalRun.message)
         writeJsonlEvent(
             in_loggingSettings=self.in_loggingSettings,

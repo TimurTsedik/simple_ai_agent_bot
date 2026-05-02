@@ -53,6 +53,26 @@ class ReminderConfigStore:
         ret = list(parsedScheduler.reminders)
         return ret
 
+    def listRemindersForOwner(
+        self,
+        in_ownerMemoryPrincipalId: str,
+        in_adminMemoryPrincipalId: str,
+    ) -> list[ReminderModel]:
+        ret: list[ReminderModel]
+        allItems = self.listReminders()
+        ownerText = str(in_ownerMemoryPrincipalId or "").strip()
+        adminText = str(in_adminMemoryPrincipalId or "").strip()
+        filtered: list[ReminderModel] = []
+        for item in allItems:
+            itemOwner = str(getattr(item, "ownerMemoryPrincipalId", "") or "").strip()
+            if itemOwner == "":
+                if adminText != "" and ownerText == adminText:
+                    filtered.append(item)
+            elif itemOwner == ownerText:
+                filtered.append(item)
+        ret = filtered
+        return ret
+
     def addOrUpdateReminder(
         self,
         in_message: str,
@@ -62,6 +82,7 @@ class ReminderConfigStore:
         in_weekdays: list[int],
         in_remainingRuns: int | None,
         in_enabled: bool,
+        in_ownerMemoryPrincipalId: str,
         in_reminderId: str = "",
     ) -> ReminderModel:
         ret: ReminderModel
@@ -78,6 +99,7 @@ class ReminderConfigStore:
                 reminderId=reminderIdValue,
                 enabled=bool(in_enabled),
                 message=str(in_message or "").strip(),
+                ownerMemoryPrincipalId=str(in_ownerMemoryPrincipalId or "").strip(),
                 schedule={
                     "kind": str(in_scheduleKind or "daily"),
                     "weekdays": [int(item) for item in in_weekdays],
@@ -92,7 +114,7 @@ class ReminderConfigStore:
             for item in reminderItems:
                 if item.reminderId == reminderIdValue:
                     updatedReminder = targetReminder.model_copy(
-                        update={"createdAtUnixTs": item.createdAtUnixTs or nowUnixTs}
+                        update={"createdAtUnixTs": item.createdAtUnixTs or nowUnixTs},
                     )
                     normalizedItems.append(updatedReminder)
                     didReplace = True
@@ -108,6 +130,46 @@ class ReminderConfigStore:
             ret = next(
                 item for item in normalizedItems if item.reminderId == reminderIdValue
             )
+        return ret
+
+    def deleteReminderForOwner(
+        self,
+        in_reminderId: str,
+        in_ownerMemoryPrincipalId: str,
+        in_adminMemoryPrincipalId: str,
+    ) -> bool:
+        ret: bool
+        reminderIdValue = str(in_reminderId or "").strip()
+        ownerCaller = str(in_ownerMemoryPrincipalId or "").strip()
+        adminPrincipal = str(in_adminMemoryPrincipalId or "").strip()
+        isDeleted = False
+        with _SCHEDULES_FILE_LOCK:
+            schedulesData = self._readSchedulesData()
+            parsedScheduler = SchedulerSettings.model_validate({"enabled": True, **schedulesData})
+            reminderItems = list(parsedScheduler.reminders)
+            targetReminder = next(
+                (item for item in reminderItems if item.reminderId == reminderIdValue),
+                None,
+            )
+            canDelete = False
+            if targetReminder is not None:
+                itemOwner = str(targetReminder.ownerMemoryPrincipalId or "").strip()
+                if itemOwner == "":
+                    canDelete = adminPrincipal != "" and ownerCaller == adminPrincipal
+                else:
+                    canDelete = itemOwner == ownerCaller
+            if canDelete is True:
+                filteredItems = [
+                    item for item in reminderItems if item.reminderId != reminderIdValue
+                ]
+                isDeleted = len(filteredItems) != len(reminderItems)
+                if isDeleted is True:
+                    schedulesData["reminders"] = [
+                        item.model_dump(exclude_none=True) for item in filteredItems
+                    ]
+                    normalizedData = self._validateAndNormalize(in_data=schedulesData)
+                    self._writeSchedulesData(in_data=normalizedData)
+        ret = isDeleted
         return ret
 
     def deleteReminder(self, in_reminderId: str) -> bool:

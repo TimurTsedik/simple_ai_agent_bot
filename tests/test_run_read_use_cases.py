@@ -48,3 +48,29 @@ def testGetRunDetailsUseCaseReturnsSingleItem() -> None:
 
     assert result is not None
     assert result["sessionId"] == "telegramUser:1"
+
+
+def testGetRunListUseCaseScopeAllListsAllSessions() -> None:
+    repository = FakeRunRepository()
+    useCase = GetRunListUseCase(
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_allowedSessionId="telegramUser:1",
+    )
+    scoped = useCase.execute(in_limit=10, in_offset=0, in_runs_scope="admin")
+    all_runs = useCase.execute(in_limit=10, in_offset=0, in_runs_scope="all")
+    assert len(scoped) == 1
+    assert scoped[0]["runId"] == "r1"
+    assert len(all_runs) == 2
+
+
+def testGetRunDetailsUseCaseScopeAllBypassesAdminSession() -> None:
+    repository = FakeRunRepository()
+    useCase = GetRunDetailsUseCase(
+        in_runRepository=repository,  # type: ignore[arg-type]
+        in_allowedSessionId="telegramUser:1",
+    )
+    blocked = useCase.execute(in_runId="r2", in_runs_scope="admin")
+    opened = useCase.execute(in_runId="r2", in_runs_scope="all")
+    assert blocked is None
+    assert opened is not None
+    assert opened["runId"] == "r2"

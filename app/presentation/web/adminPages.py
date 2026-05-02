@@ -8,6 +8,18 @@ from app.common.webDisplayTime import formatIso8601ForWeb
 from app.common.webDisplayTime import formatTimestampFieldsDeepCopy
 
 
+def buildAdminRunNavQuery(in_runsScope: str, in_raw: bool = False) -> str:
+    parts: list[str] = []
+    if in_runsScope == "all":
+        parts.append("scope=all")
+    if in_raw is True:
+        parts.append("raw=1")
+    ret = ""
+    if len(parts) > 0:
+        ret = "?" + "&".join(parts)
+    return ret
+
+
 def _renderLayout(in_title: str, in_content: str, in_showNav: bool = True) -> str:
     ret: str
     navBlock = _renderNav() if in_showNav else ""
@@ -314,9 +326,13 @@ def renderRunsPage(
     in_runItems: list[Any],
     in_displayZone: ZoneInfo,
     in_adminRunsScopeHint: str = "",
+    in_runsScope: str = "admin",
+    in_limit: int = 50,
+    in_offset: int = 0,
 ) -> str:
     ret: str
     rows = []
+    scope_query = buildAdminRunNavQuery(in_runsScope, False)
     for runItem in in_runItems:
         runId = str(runItem.get("runId", "unknown"))
         sessionId = str(runItem.get("sessionId", ""))
@@ -329,7 +345,7 @@ def renderRunsPage(
             createdAt = ""
         rows.append(
             "<tr>"
-            f"<td><a href='/runs/{html.escape(runId)}'>{html.escape(runId)}</a></td>"
+            f"<td><a href='/runs/{html.escape(runId)}{scope_query}'>{html.escape(runId)}</a></td>"
             f"<td>{html.escape(sessionId)}</td>"
             f"<td>{html.escape(status)}</td>"
             f"<td>{html.escape(reason)}</td>"
@@ -344,8 +360,22 @@ def renderRunsPage(
             f"{html.escape(str(in_adminRunsScopeHint).strip())}"
             "</p>"
         )
+    admin_selected = " selected" if in_runsScope != "all" else ""
+    all_selected = " selected" if in_runsScope == "all" else ""
+    scope_form = (
+        "<form method='get' class='row' style='align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px 0;'>"
+        "<label for='runs_scope_select' class='muted'>Показать:</label>"
+        "<select class='btn' name='scope' id='runs_scope_select' onchange='this.form.submit()'>"
+        f"<option value='admin'{admin_selected}>только tenant админа</option>"
+        f"<option value='all'{all_selected}>все sessionId</option>"
+        "</select>"
+        f"<input type='hidden' name='limit' value='{html.escape(str(in_limit))}' />"
+        f"<input type='hidden' name='offset' value='{html.escape(str(in_offset))}' />"
+        "</form>"
+    )
     content = (
         "<h1 class='title'>Runs</h1>"
+        f"{scope_form}"
         f"{scope_hint_block}"
         f"<p class='muted'>Показаны последние {len(in_runItems)} запусков.</p>"
         "<table>"
@@ -383,7 +413,11 @@ def _jsonPreEscaped(in_value: Any, in_maxChars: int) -> str:
     return ret
 
 
-def _renderStructuredRunDetailsContent(in_runId: str, in_runDict: dict[str, Any]) -> str:
+def _renderStructuredRunDetailsContent(
+    in_runId: str,
+    in_runDict: dict[str, Any],
+    in_runs_scope: str = "admin",
+) -> str:
     ret: str
     timingDict = in_runDict.get("timing")
     if isinstance(timingDict, dict) is False:
@@ -501,12 +535,14 @@ def _renderStructuredRunDetailsContent(in_runId: str, in_runDict: dict[str, Any]
     )
     finalNote = "<p class='warning'>Показано усечённо.</p>" if finalTrunc is True else ""
     runEscaped = html.escape(in_runId)
+    nav_query = buildAdminRunNavQuery(in_runs_scope, False)
+    raw_query = buildAdminRunNavQuery(in_runs_scope, True)
     ret = (
         f"<h1 class='title'>Run {runEscaped}</h1>"
         "<p class='row'>"
-        f"<a href='/runs/{runEscaped}/steps'>Шаги agent loop</a>"
+        f"<a href='/runs/{runEscaped}/steps{nav_query}'>Шаги agent loop</a>"
         "<span class='muted'> · </span>"
-        f"<a href='/runs/{runEscaped}?raw=1'>Сырой JSON</a>"
+        f"<a href='/runs/{runEscaped}{raw_query}'>Сырой JSON</a>"
         "</p>"
         "<div class='card' style='margin-top:12px;'>"
         "<h3 style='margin:0 0 10px 0;'>Обзор</h3>"
@@ -604,6 +640,7 @@ def renderRunDetailsPage(
     in_runItem: dict[str, Any],
     in_displayZone: ZoneInfo,
     in_rawView: bool = False,
+    in_runsScope: str = "admin",
 ) -> str:
     ret: str
     displayRunItem = formatTimestampFieldsDeepCopy(in_value=in_runItem, in_zone=in_displayZone)
@@ -619,12 +656,13 @@ def renderRunDetailsPage(
     if in_rawView is True:
         prettyJson = json.dumps(runDict, ensure_ascii=False, indent=2)
         runEscaped = html.escape(in_runId)
+        scope_only_query = buildAdminRunNavQuery(in_runsScope, False)
         content = (
             f"<h1 class='title'>Run {runEscaped} — сырой JSON</h1>"
             "<p class='row'>"
-            f"<a href='/runs/{runEscaped}'>Структурированный вид</a>"
+            f"<a href='/runs/{runEscaped}{scope_only_query}'>Структурированный вид</a>"
             "<span class='muted'> · </span>"
-            f"<a href='/runs/{runEscaped}/steps'>Шаги agent loop</a>"
+            f"<a href='/runs/{runEscaped}/steps{scope_only_query}'>Шаги agent loop</a>"
             "</p>"
             f"<pre class='scroll-pre'>{html.escape(prettyJson)}</pre>"
         )
@@ -633,12 +671,17 @@ def renderRunDetailsPage(
     structuredContent = _renderStructuredRunDetailsContent(
         in_runId=in_runId,
         in_runDict=runDict,
+        in_runs_scope=in_runsScope,
     )
     ret = _renderLayout(in_title="Run Details", in_content=structuredContent, in_showNav=True)
     return ret
 
 
-def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str:
+def renderRunStepsPage(
+    in_runId: str,
+    in_stepItems: list[dict[str, Any]],
+    in_runsScope: str = "admin",
+) -> str:
     ret: str
     blocks: list[str] = []
     for stepItem in in_stepItems:
@@ -715,9 +758,10 @@ def renderRunStepsPage(in_runId: str, in_stepItems: list[dict[str, Any]]) -> str
             f"<pre>{html.escape(observationText)}</pre></details>"
             "</div>"
         )
+    back_query = buildAdminRunNavQuery(in_runsScope, False)
     content = (
         f"<h1 class='title'>Run {html.escape(in_runId)} — Agentic Loop Steps</h1>"
-        f"<p><a href='/runs/{html.escape(in_runId)}'>Назад к обзору run</a></p>"
+        f"<p><a href='/runs/{html.escape(in_runId)}{back_query}'>Назад к обзору run</a></p>"
         + ("".join(blocks) if blocks else "<p>Для этого запуска шаги не найдены.</p>")
     )
     ret = _renderLayout(in_title="Run Steps", in_content=content, in_showNav=True)

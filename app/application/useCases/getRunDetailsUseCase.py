@@ -12,13 +12,20 @@ class GetRunDetailsUseCase:
         self._runRepository = in_runRepository
         self._allowedSessionId = in_allowedSessionId
 
-    def execute(self, in_runId: str) -> dict[str, Any] | None:
+    def execute(
+        self,
+        in_runId: str,
+        in_runs_scope: str = "admin",
+    ) -> dict[str, Any] | None:
         ret: dict[str, Any] | None
         item = self._runRepository.getRunById(in_runId=in_runId)
         if item is None:
             ret = None
             return ret
+        normalized_scope = str(in_runs_scope or "admin").strip().lower()
         allowedText = self._allowedSessionId
+        if normalized_scope == "all":
+            allowedText = None
         if allowedText is not None:
             record_session = str(item.get("sessionId", "") or "")
             if record_session != str(allowedText):

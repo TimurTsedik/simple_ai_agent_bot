@@ -1,6 +1,7 @@
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Query
 from fastapi import Request
 
 from app.bootstrap.container import ApplicationContainer
@@ -19,6 +20,10 @@ def registerInternalApiRoutes(
         in_memoryRootPath=settings.memory.memoryRootPath,
         in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths,
     )
+
+    def normalizeInternalRunsScope(in_rawScope: str) -> str:
+        ret = "all" if str(in_rawScope or "").strip().lower() == "all" else "admin"
+        return ret
 
     def resolveClientIpText(in_request: Request) -> str:
         ret: str
@@ -113,26 +118,50 @@ def registerInternalApiRoutes(
 
     @in_app.get("/internal/runs")
     def getInternalRuns(
-        in_request: Request, limit: int = 50, offset: int = 0
+        in_request: Request,
+        limit: int = 50,
+        offset: int = 0,
+        scope: str = Query(default="admin"),
     ) -> dict[str, object]:
         ensureInternalApiAuthorizedOrRaise(in_request=in_request)
-        runItems = in_container.getRunListUseCase.execute(in_limit=limit, in_offset=offset)
+        runs_scope = normalizeInternalRunsScope(in_rawScope=scope)
+        runItems = in_container.getRunListUseCase.execute(
+            in_limit=limit,
+            in_offset=offset,
+            in_runs_scope=runs_scope,
+        )
         retRuns = {"count": len(runItems), "items": runItems}
         return retRuns
 
     @in_app.get("/internal/runs/{runId}")
-    def getInternalRunDetails(runId: str, in_request: Request) -> dict[str, object]:
+    def getInternalRunDetails(
+        runId: str,
+        in_request: Request,
+        scope: str = Query(default="admin"),
+    ) -> dict[str, object]:
         ensureInternalApiAuthorizedOrRaise(in_request=in_request)
-        runItem = in_container.getRunDetailsUseCase.execute(in_runId=runId)
+        runs_scope = normalizeInternalRunsScope(in_rawScope=scope)
+        runItem = in_container.getRunDetailsUseCase.execute(
+            in_runId=runId,
+            in_runs_scope=runs_scope,
+        )
         if runItem is None:
             raise HTTPException(status_code=404, detail="Run is not found")
         retRun = {"item": runItem}
         return retRun
 
     @in_app.get("/internal/runs/{runId}/steps")
-    def getInternalRunSteps(runId: str, in_request: Request) -> dict[str, object]:
+    def getInternalRunSteps(
+        runId: str,
+        in_request: Request,
+        scope: str = Query(default="admin"),
+    ) -> dict[str, object]:
         ensureInternalApiAuthorizedOrRaise(in_request=in_request)
-        runItem = in_container.getRunDetailsUseCase.execute(in_runId=runId)
+        runs_scope = normalizeInternalRunsScope(in_rawScope=scope)
+        runItem = in_container.getRunDetailsUseCase.execute(
+            in_runId=runId,
+            in_runs_scope=runs_scope,
+        )
         if runItem is None:
             raise HTTPException(status_code=404, detail="Run is not found")
         stepItems = runItem.get("stepTraces", [])

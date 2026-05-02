@@ -42,6 +42,11 @@ from app.security.webSessionAuth import parseSessionCookieValue
 from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 
 
+def _normalizeWebRunsScope(in_rawScope: str) -> str:
+    ret = "all" if str(in_rawScope or "").strip().lower() == "all" else "admin"
+    return ret
+
+
 def registerAdminWebRoutes(
     in_app: FastAPI,
     in_container: ApplicationContainer,
@@ -534,29 +539,53 @@ def registerAdminWebRoutes(
 
     @in_app.get("/runs", response_class=HTMLResponse)
     def getRunsPage(
-        in_request: Request, limit: int = 50, offset: int = 0
+        in_request: Request,
+        limit: int = 50,
+        offset: int = 0,
+        scope: str = Query(default="admin"),
     ):
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
-        runItems = getRunListUseCase.execute(in_limit=limit, in_offset=offset)
-        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
-        runs_scope_hint = buildAdminRunsScopeHintPlainText(
-            in_adminTelegramUserId=int(settings.adminTelegramUserId),
+        runs_scope = _normalizeWebRunsScope(in_rawScope=scope)
+        runItems = getRunListUseCase.execute(
+            in_limit=limit,
+            in_offset=offset,
+            in_runs_scope=runs_scope,
         )
+        displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
+        if runs_scope == "all":
+            runs_scope_hint = (
+                "Показаны запуски по всем sessionId (пользователи, scheduler и др.). "
+                "Данные чувствительны — не передавайте доступ посторонним."
+            )
+        else:
+            runs_scope_hint = buildAdminRunsScopeHintPlainText(
+                in_adminTelegramUserId=int(settings.adminTelegramUserId),
+            )
         ret = renderRunsPage(
             in_runItems=runItems,
             in_displayZone=displayZone,
             in_adminRunsScopeHint=runs_scope_hint,
+            in_runsScope=runs_scope,
+            in_limit=limit,
+            in_offset=offset,
         )
         return ret
 
     @in_app.get("/runs/{runId}", response_class=HTMLResponse)
     def getRunDetailsPage(
-        runId: str, in_request: Request, raw: int = Query(default=0)
+        runId: str,
+        in_request: Request,
+        raw: int = Query(default=0),
+        scope: str = Query(default="admin"),
     ):
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
-        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        runs_scope = _normalizeWebRunsScope(in_rawScope=scope)
+        runItem = getRunDetailsUseCase.execute(
+            in_runId=runId,
+            in_runs_scope=runs_scope,
+        )
         if runItem is None:
             raise HTTPException(status_code=404, detail="Run is not found")
         displayZone = resolveDisplayZone(in_timeZoneName=settings.app.displayTimeZone)
@@ -565,20 +594,33 @@ def registerAdminWebRoutes(
             in_runItem=runItem,
             in_displayZone=displayZone,
             in_rawView=(raw != 0),
+            in_runsScope=runs_scope,
         )
         return ret
 
     @in_app.get("/runs/{runId}/steps", response_class=HTMLResponse)
-    def getRunStepsPage(runId: str, in_request: Request):
+    def getRunStepsPage(
+        runId: str,
+        in_request: Request,
+        scope: str = Query(default="admin"),
+    ):
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
-        runItem = getRunDetailsUseCase.execute(in_runId=runId)
+        runs_scope = _normalizeWebRunsScope(in_rawScope=scope)
+        runItem = getRunDetailsUseCase.execute(
+            in_runId=runId,
+            in_runs_scope=runs_scope,
+        )
         if runItem is None:
             raise HTTPException(status_code=404, detail="Run is not found")
         stepItems = runItem.get("stepTraces", [])
         if not isinstance(stepItems, list):
             stepItems = []
-        ret = renderRunStepsPage(in_runId=runId, in_stepItems=stepItems)
+        ret = renderRunStepsPage(
+            in_runId=runId,
+            in_stepItems=stepItems,
+            in_runsScope=runs_scope,
+        )
         return ret
 
     @in_app.get("/git/status", response_class=HTMLResponse)

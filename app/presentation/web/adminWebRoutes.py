@@ -30,6 +30,7 @@ from app.presentation.web.adminPages import renderRunsPage
 from app.presentation.web.adminPages import renderRunStepsPage
 from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
+from app.common.structuredLogger import writeJsonlEvent
 from app.common.adminTenantConfigPaths import (
     resolveAdminTenantSchedulesYamlPath,
     resolveAdminTenantToolsYamlPath,
@@ -56,6 +57,7 @@ def registerAdminWebRoutes(
     in_container: ApplicationContainer,
 ) -> None:
     settings = in_container.settings
+    logger = in_container.logger
     toolRegistry = in_container.toolRegistry
     skillStore = in_container.skillStore
     getLogsUseCase = in_container.getLogsUseCase
@@ -462,7 +464,34 @@ def registerAdminWebRoutes(
         skillPath = Path(settings.skills.skillsDirPath) / f"{skillId}.md"
         if skillPath.exists() is False:
             raise HTTPException(status_code=404, detail="Skill is not found")
-        atomicWriteTextFile(in_path=skillPath, in_text=content)
+        try:
+            atomicWriteTextFile(in_path=skillPath, in_text=content)
+        except OSError as in_exc:
+            logger.error(
+                f"admin_skill_save_failed skillId={skillId} path={skillPath}: {in_exc}"
+            )
+            writeJsonlEvent(
+                in_loggingSettings=settings.logging,
+                in_eventType="admin_skill_save_error",
+                in_payload={
+                    "skillId": skillId,
+                    "path": str(skillPath.resolve()),
+                    "error": repr(in_exc),
+                },
+            )
+            errorHint = (
+                "Не удалось записать файл (часто это права в контейнере). "
+                "Укажите в config skills.skillsDirPath каталог под ./data/skills "
+                "и перезапустите приложение."
+            )
+            ret = renderSkillEditPage(
+                in_skillId=skillId,
+                in_title=skillId,
+                in_contentText=content,
+                in_errorText=f"{errorHint} Детали: {in_exc}",
+                in_adminWritesEnabled=settings.security.adminWritesEnabled,
+            )
+            return ret
         titleValue = skillId
         for lineText in content.splitlines():
             if lineText.startswith("# "):

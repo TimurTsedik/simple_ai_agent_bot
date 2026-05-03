@@ -9,7 +9,7 @@ services:
     env_file:
       - ./.env
     volumes:
-      # Персистентность: tenant tools.yaml / schedules.yaml / память / runs — всё под ./data
+      # Персистентность: всё под ./data (memory, runs, logs; при skills.skillsDirPath: ./data/skills — и скиллы)
       - ./data:/app/data
       - ./config/config.yaml:/app/app/config/config.yaml:ro
     healthcheck:

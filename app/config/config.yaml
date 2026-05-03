@@ -64,7 +64,8 @@ scheduler:
   tickSeconds: 30
 
 skills:
-  skillsDirPath: "./app/skills/assets"
+  # В Docker образе каталог приложения read-only у пользователя контейнера; каталог под ./data монтируется и доступен на запись.
+  skillsDirPath: "./data/skills"
 
 memory:
   memoryRootPath: "./data/memory"

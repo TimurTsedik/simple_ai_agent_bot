@@ -129,6 +129,16 @@ class LoggingSettings(BaseModel):
     backupCount: int = Field(ge=1, le=20)
 
 
+class SentrySettings(BaseModel):
+    enabled: bool = False
+    dsn: str = ""
+    environment: str = ""
+    release: str = ""
+    tracesSampleRate: float = Field(default=0.0, ge=0.0, le=1.0)
+    profilesSampleRate: float = Field(default=0.0, ge=0.0, le=1.0)
+    sendDefaultPii: bool = False
+
+
 class SkillsSettings(BaseModel):
     # In production containers, code directories are typically read-only.
     # Default to a writable data directory (mounted volume) so admin skill editing works.
@@ -244,6 +254,7 @@ class SettingsModel(BaseModel):
     tools: ToolsSettings = Field(default_factory=ToolsSettings)
     security: SecuritySettings
     logging: LoggingSettings
+    sentry: SentrySettings = Field(default_factory=SentrySettings)
     skills: SkillsSettings = Field(default_factory=SkillsSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)

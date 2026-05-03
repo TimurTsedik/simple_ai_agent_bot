@@ -87,6 +87,82 @@ def _applyEnvOverrides(
             raise SettingsLoadError(
                 "Invalid settings: ADMIN_TELEGRAM_USER_ID must be a positive integer."
             ) from in_exc
+    sentryRaw = ret.get("sentry", {})
+    sentryConfig: dict[str, Any]
+    if isinstance(sentryRaw, dict):
+        sentryConfig = dict(sentryRaw)
+    else:
+        sentryConfig = {}
+    sentryEnabledRaw = os.getenv("SENTRY_ENABLED", in_dotEnvValues.get("SENTRY_ENABLED"))
+    if sentryEnabledRaw is not None:
+        sentryConfig["enabled"] = _parseEnvBool(
+            in_rawValue=sentryEnabledRaw,
+            in_name="SENTRY_ENABLED",
+        )
+    sentryDsnRaw = os.getenv("SENTRY_DSN", in_dotEnvValues.get("SENTRY_DSN"))
+    if sentryDsnRaw is not None:
+        sentryConfig["dsn"] = sentryDsnRaw.strip()
+    sentryEnvironmentRaw = os.getenv(
+        "SENTRY_ENVIRONMENT",
+        in_dotEnvValues.get("SENTRY_ENVIRONMENT"),
+    )
+    if sentryEnvironmentRaw is not None:
+        sentryConfig["environment"] = sentryEnvironmentRaw.strip()
+    sentryReleaseRaw = os.getenv("SENTRY_RELEASE", in_dotEnvValues.get("SENTRY_RELEASE"))
+    if sentryReleaseRaw is not None:
+        sentryConfig["release"] = sentryReleaseRaw.strip()
+    sentryTracesSampleRateRaw = os.getenv(
+        "SENTRY_TRACES_SAMPLE_RATE",
+        in_dotEnvValues.get("SENTRY_TRACES_SAMPLE_RATE"),
+    )
+    if sentryTracesSampleRateRaw is not None:
+        sentryConfig["tracesSampleRate"] = _parseEnvFloat(
+            in_rawValue=sentryTracesSampleRateRaw,
+            in_name="SENTRY_TRACES_SAMPLE_RATE",
+        )
+    sentryProfilesSampleRateRaw = os.getenv(
+        "SENTRY_PROFILES_SAMPLE_RATE",
+        in_dotEnvValues.get("SENTRY_PROFILES_SAMPLE_RATE"),
+    )
+    if sentryProfilesSampleRateRaw is not None:
+        sentryConfig["profilesSampleRate"] = _parseEnvFloat(
+            in_rawValue=sentryProfilesSampleRateRaw,
+            in_name="SENTRY_PROFILES_SAMPLE_RATE",
+        )
+    sentrySendDefaultPiiRaw = os.getenv(
+        "SENTRY_SEND_DEFAULT_PII",
+        in_dotEnvValues.get("SENTRY_SEND_DEFAULT_PII"),
+    )
+    if sentrySendDefaultPiiRaw is not None:
+        sentryConfig["sendDefaultPii"] = _parseEnvBool(
+            in_rawValue=sentrySendDefaultPiiRaw,
+            in_name="SENTRY_SEND_DEFAULT_PII",
+        )
+    ret["sentry"] = sentryConfig
+    return ret
+
+
+def _parseEnvBool(in_rawValue: str, in_name: str) -> bool:
+    normalizedValue = in_rawValue.strip().lower()
+    ret: bool
+    if normalizedValue in {"1", "true", "yes", "y", "on"}:
+        ret = True
+    elif normalizedValue in {"0", "false", "no", "n", "off"}:
+        ret = False
+    else:
+        raise SettingsLoadError(
+            f"Invalid settings: {in_name} must be boolean-like (true/false, 1/0)."
+        )
+    return ret
+
+
+def _parseEnvFloat(in_rawValue: str, in_name: str) -> float:
+    ret: float
+    normalizedValue = in_rawValue.strip()
+    try:
+        ret = float(normalizedValue)
+    except ValueError as in_exc:
+        raise SettingsLoadError(f"Invalid settings: {in_name} must be a float.") from in_exc
     return ret
 
 

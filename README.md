@@ -89,6 +89,8 @@ OPENROUTER_API_KEY=...
 SESSION_COOKIE_SECRET=your-long-secret-at-least-32-chars
 ADMIN_RAW_TOKENS=admin_token_123456,admin_token_654321
 EMAIL_APP_PASSWORD=your_gmail_app_password
+SENTRY_ENABLED=true
+SENTRY_DSN=https://<key>@o<org>.ingest.sentry.io/<project>
 ```
 
 4) Запустить приложение:
@@ -104,7 +106,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ## Конфигурация
 
 - **Основной конфиг**: `app/config/config.yaml` (без секретов).
-- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`, опционально `ADMIN_TELEGRAM_USER_ID` (см. ниже).
+- **Секреты только через env**: `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `SESSION_COOKIE_SECRET`, `ADMIN_RAW_TOKENS`, `EMAIL_APP_PASSWORD`, опционально `ADMIN_TELEGRAM_USER_ID` и переменные Sentry (`SENTRY_*`).
+
+### Sentry (ошибки и логи)
+
+- Включение через `sentry.enabled: true` в `app/config/config.yaml` или через `SENTRY_ENABLED=true` в `.env`.
+- DSN лучше задавать только через `.env`: `SENTRY_DSN=...`.
+- Для трассировок можно включить sampling: `SENTRY_TRACES_SAMPLE_RATE` (например `0.1`), profiling — `SENTRY_PROFILES_SAMPLE_RATE`.
+- Приложение подключает `FastAPI` и `logging` интеграции Sentry; ошибки в фоновых потоках polling/scheduler тоже отправляются в Sentry.
 
 **Multi-user (Telegram):** единый белый список — файл **`app.usersRegistryPath`** (по умолчанию `data/users/registry.yaml`): все `telegramUserId` оттуда могут общаться с ботом; рассылки scheduler/reminder уходят тем же списком. Добавление через веб **`/users`** (нужно `security.adminWritesEnabled: true`) или правка YAML реестра; при создании выделяется `sessions/telegramUser_<id>/` с автосгенерированными `tools.yaml` / `schedules.yaml` (минимальный каркас из кода, см. `app/config/defaultTenantSessionYaml.py`) и пустым контекстом (`long_term.md`, `summary.md`, `recent.md`). Поле `telegram.allowedUserIds` в конфиге больше не используется — список только в реестре. Каждый разрешённый пользователь получает tenant-ключ сессии `telegramUser:<id>`: краткосрочная память (`recent.md`, `summary.md`), долгосрочная (`long_term.md`), state digest и напоминания с `ownerMemoryPrincipalId` изолированы между пользователями. Веб-админка и список runs по умолчанию ограничены администратором: `adminTelegramUserId` в конфиге или **`ADMIN_TELEGRAM_USER_ID` в `.env`**. Перенос старых файлов памяти из общего корня в каталог tenant выполняется вручную при необходимости.
 

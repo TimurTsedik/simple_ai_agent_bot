@@ -7,6 +7,8 @@ from app.bootstrap.container import buildApplicationContainer
 from app.common.structuredLogger import writeJsonlEvent
 from app.config.defaults import DEFAULT_CONFIG_PATH
 from app.config.settingsLoader import SettingsLoadError
+from app.observability.sentrySetup import captureSentryException
+from app.observability.sentrySetup import configureSentry
 from app.presentation.api.internalApiRoutes import registerInternalApiRoutes
 from app.presentation.web.adminWebRoutes import registerAdminWebRoutes
 from app.security.webSessionAuth import hashAdminToken
@@ -15,11 +17,36 @@ from app.security.webSessionAuth import hashAdminToken
 def _buildApp() -> FastAPI:
     container = buildApplicationContainer(in_configPath=DEFAULT_CONFIG_PATH)
     settings = container.settings
+    configureSentry(in_settings=settings, in_logger=container.logger)
 
     @asynccontextmanager
     async def lifespan(in_app: FastAPI):  # noqa: ANN202
+        def runTelegramPollingWorker() -> None:
+            try:
+                in_app.state.telegramPollingRunner.runForever()
+            except Exception as in_exc:
+                captureSentryException(in_exception=in_exc)
+                writeJsonlEvent(
+                    in_loggingSettings=settings.logging,
+                    in_eventType="telegram_polling_crashed",
+                    in_payload={"error": str(in_exc)},
+                )
+                raise
+
+        def runSchedulerWorker() -> None:
+            try:
+                in_app.state.schedulerRunner.runForever()
+            except Exception as in_exc:
+                captureSentryException(in_exception=in_exc)
+                writeJsonlEvent(
+                    in_loggingSettings=settings.logging,
+                    in_eventType="scheduler_thread_crashed",
+                    in_payload={"error": str(in_exc)},
+                )
+                raise
+
         pollingThread = Thread(
-            target=in_app.state.telegramPollingRunner.runForever,
+            target=runTelegramPollingWorker,
             name="telegramPollingThread",
             daemon=True,
         )
@@ -33,7 +60,7 @@ def _buildApp() -> FastAPI:
         schedulerThread = None
         if in_app.state.schedulerRunner is not None:
             schedulerThread = Thread(
-                target=in_app.state.schedulerRunner.runForever,
+                target=runSchedulerWorker,
                 name="schedulerThread",
                 daemon=True,
             )

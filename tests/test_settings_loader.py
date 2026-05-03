@@ -844,3 +844,68 @@ def testLoadSettingsIgnoresLegacyToolsToolsConfigPath() -> None:
         os.environ["SESSION_COOKIE_SECRET"] = previousCookieSecret
 
     assert settings.telegram.digestChannelUsernames == ["channel_one"]
+
+
+def testLoadSettingsAppliesSentryEnvOverrides() -> None:
+    previousSentryEnabled = os.environ.get("SENTRY_ENABLED")
+    previousSentryDsn = os.environ.get("SENTRY_DSN")
+    previousSentryTraces = os.environ.get("SENTRY_TRACES_SAMPLE_RATE")
+    previousSentryPii = os.environ.get("SENTRY_SEND_DEFAULT_PII")
+    with TemporaryDirectory() as tempDir:
+        configPath = Path(tempDir) / "config.yaml"
+        envPath = Path(tempDir) / ".env"
+        _writeConfigFile(
+            in_path=configPath,
+            in_memoryRootPath=Path(tempDir) / "memory",
+            in_usersRegistryPath=Path(tempDir) / "users" / "registry.yaml",
+        )
+        _writeEnvFile(
+            in_path=envPath,
+            in_token="tg-token-dotenv",
+            in_apiKey="or-key-dotenv",
+            in_cookieSecret="cookie-secret-dotenv-0123456789abcdef",
+        )
+        envPath.write_text(
+            envPath.read_text(encoding="utf-8")
+            + "\n"
+            + "\n".join(
+                [
+                    "SENTRY_ENABLED=true",
+                    "SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0",
+                    "SENTRY_TRACES_SAMPLE_RATE=0.15",
+                    "SENTRY_SEND_DEFAULT_PII=1",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        os.environ.pop("SENTRY_ENABLED", None)
+        os.environ.pop("SENTRY_DSN", None)
+        os.environ.pop("SENTRY_TRACES_SAMPLE_RATE", None)
+        os.environ.pop("SENTRY_SEND_DEFAULT_PII", None)
+        settings = loadSettings(
+            in_configPath=str(configPath),
+            in_envPath=str(envPath),
+        )
+
+    if previousSentryEnabled is None:
+        os.environ.pop("SENTRY_ENABLED", None)
+    else:
+        os.environ["SENTRY_ENABLED"] = previousSentryEnabled
+    if previousSentryDsn is None:
+        os.environ.pop("SENTRY_DSN", None)
+    else:
+        os.environ["SENTRY_DSN"] = previousSentryDsn
+    if previousSentryTraces is None:
+        os.environ.pop("SENTRY_TRACES_SAMPLE_RATE", None)
+    else:
+        os.environ["SENTRY_TRACES_SAMPLE_RATE"] = previousSentryTraces
+    if previousSentryPii is None:
+        os.environ.pop("SENTRY_SEND_DEFAULT_PII", None)
+    else:
+        os.environ["SENTRY_SEND_DEFAULT_PII"] = previousSentryPii
+
+    assert settings.sentry.enabled is True
+    assert settings.sentry.dsn == "https://examplePublicKey@o0.ingest.sentry.io/0"
+    assert settings.sentry.tracesSampleRate == 0.15
+    assert settings.sentry.sendDefaultPii is True

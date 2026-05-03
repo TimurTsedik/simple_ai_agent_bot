@@ -63,6 +63,15 @@ logging:
   maxBytes: 10485760
   backupCount: 5
 
+sentry:
+  enabled: false
+  dsn: ""
+  environment: ""
+  release: ""
+  tracesSampleRate: 0.0
+  profilesSampleRate: 0.0
+  sendDefaultPii: false
+
 skills:
   # В контейнере директория кода может быть read-only, поэтому skills лучше хранить в ./data (volume).
   skillsDirPath: "./data/skills"

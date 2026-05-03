@@ -79,9 +79,33 @@ class ApplicationContainer:
     createTelegramUserUseCase: CreateTelegramUserUseCase
 
 
+def _rewriteSkillsDirIfPointsAtBundledAssets(in_settings: SettingsModel) -> bool:
+    """Если в config указан каталог скиллов из образа (read-only), пишем в data/skills."""
+    ret: bool
+    bundledPath = (Path(__file__).resolve().parents[1] / "skills" / "assets").resolve()
+    rawPath = str(in_settings.skills.skillsDirPath or "").strip()
+    if rawPath == "":
+        ret = False
+        return ret
+    resolvedPath = Path(rawPath).resolve()
+    if resolvedPath != bundledPath:
+        ret = False
+        return ret
+    dataSkillsPath = Path(in_settings.app.dataRootPath).resolve() / "skills"
+    in_settings.skills.skillsDirPath = str(dataSkillsPath)
+    ret = True
+    return ret
+
+
 def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
     settings = loadSettings(in_configPath=in_configPath)
+    didRewriteSkillsPath = _rewriteSkillsDirIfPointsAtBundledAssets(in_settings=settings)
     logger = createAppLogger(in_loggingSettings=settings.logging)
+    if didRewriteSkillsPath is True:
+        logger.info(
+            "skills.skillsDirPath pointed at bundled assets (read-only in Docker); "
+            f"using writable path {settings.skills.skillsDirPath}"
+        )
     promptBuilder = PromptBuilder(
         in_runtimeSettings=settings.runtime,
         in_displayTimeZoneName=settings.app.displayTimeZone,

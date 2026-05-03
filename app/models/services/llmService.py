@@ -35,6 +35,7 @@ class LlmService(LlmClientProtocol):
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str | None = None,
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
         now = datetime.now(UTC)
@@ -65,13 +66,16 @@ class LlmService(LlmClientProtocol):
                     sanitizedRawResponse = self._sanitizeRawResponseForLogs(
                         in_rawResponse=rawResponse
                     )
+                    rawLogPayload: dict[str, Any] = {
+                        "selectedModel": modelName,
+                        "rawResponse": str(sanitizedRawResponse),
+                    }
+                    if in_runId is not None and str(in_runId).strip() != "":
+                        rawLogPayload["runId"] = str(in_runId).strip()
                     writeJsonlEvent(
                         in_loggingSettings=self._loggingSettings,
                         in_eventType="llm_raw_response",
-                        in_payload={
-                            "selectedModel": modelName,
-                            "rawResponse": str(sanitizedRawResponse),
-                        },
+                        in_payload=rawLogPayload,
                     )
                     extractedText = self._extractAssistantText(in_responseData=rawResponse)
                     if self._modelStatsService is not None:
@@ -114,14 +118,17 @@ class LlmService(LlmClientProtocol):
                             "errorMessage": in_exc.message,
                         }
                     )
+                    fallbackLogPayload: dict[str, Any] = {
+                        "selectedModel": modelName,
+                        "errorCode": in_exc.code,
+                        "errorMessage": in_exc.message,
+                    }
+                    if in_runId is not None and str(in_runId).strip() != "":
+                        fallbackLogPayload["runId"] = str(in_runId).strip()
                     writeJsonlEvent(
                         in_loggingSettings=self._loggingSettings,
                         in_eventType="llm_fallback_event",
-                        in_payload={
-                            "selectedModel": modelName,
-                            "errorCode": in_exc.code,
-                            "errorMessage": in_exc.message,
-                        },
+                        in_payload=fallbackLogPayload,
                     )
                 if didComplete is True:
                     break

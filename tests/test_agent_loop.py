@@ -24,9 +24,10 @@ class SequenceLlmClient:
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str | None = None,
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
-        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat)
+        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat, in_runId)
         if self._index < len(self._outputs):
             contentValue = self._outputs[self._index]
             self._index += 1

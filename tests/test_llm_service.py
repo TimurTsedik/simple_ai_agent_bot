@@ -168,3 +168,41 @@ def testLlmServiceSanitizesReasoningInRawLogs() -> None:
 
     assert "reasoning_details" not in rawResponseValue
     assert "internal chain of thought" not in rawResponseValue
+
+
+def testLlmServiceIncludesRunIdInLlmRawResponseWhenProvided() -> None:
+    with TemporaryDirectory() as tempDir:
+        logsDirPath = str(Path(tempDir))
+        fakeClient = FakeOpenRouterClient(
+            in_scenarios={
+                "primary": [
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": '{"type":"final","reason":"ok","final_answer":"done"}',
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+        service = LlmService(
+            in_openRouterClient=fakeClient,  # type: ignore[arg-type]
+            in_modelSettings=_makeModelSettings(),
+            in_loggingSettings=_makeLoggingSettings(in_logsDirPath=logsDirPath),
+        )
+
+        completion = service.complete(
+            in_modelName="primary",
+            in_promptText="test",
+            in_runId="d0a48142-6ef1-4423-ab08-6620b5fb053d",
+        )
+        _ = completion.content
+        runLogPath = Path(logsDirPath) / "run.jsonl"
+        lines = runLogPath.read_text(encoding="utf-8").splitlines()
+        lastEvent = json.loads(lines[-1])
+
+    assert lastEvent.get("eventType") == "llm_raw_response"
+    assert lastEvent.get("runId") == "d0a48142-6ef1-4423-ab08-6620b5fb053d"

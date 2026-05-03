@@ -57,6 +57,8 @@ class AgentLoop:
         in_memoryPrincipalId: str,
         in_allowToolCalls: bool = True,
         in_requiredFirstSuccessfulToolName: str = "",
+        *,
+        in_runId: str = "",
     ) -> AgentLoopResultModel:
         ret: AgentLoopResultModel
         startedAtMonotonicSeconds = monotonic()
@@ -123,6 +125,7 @@ class AgentLoop:
                     in_modelName=selectedModel,
                     in_promptText=promptText,
                     io_fallbackEvents=loopFallbackEvents,
+                    in_runId=in_runId,
                 )
                 selectedModel = llmResult.selectedModel
                 rawModelOutput = llmResult.content
@@ -147,6 +150,7 @@ class AgentLoop:
                         in_promptText=repairPromptText,
                         io_fallbackEvents=loopFallbackEvents,
                         in_timeoutSeconds=self._modelSettings.formatRepairRequestTimeoutSeconds,
+                        in_runId=in_runId,
                     )
                     selectedModel = repairLlmResult.selectedModel
                     repairRawOutputs.append(repairLlmResult.content)
@@ -673,13 +677,20 @@ class AgentLoop:
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str = "",
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
+        runIdForLlm: str | None
+        if str(in_runId).strip() != "":
+            runIdForLlm = str(in_runId).strip()
+        else:
+            runIdForLlm = None
         llmResult = self._llmClient.complete(
             in_modelName=in_modelName,
             in_promptText=in_promptText,
             in_timeoutSeconds=in_timeoutSeconds,
             in_useJsonObjectResponseFormat=in_useJsonObjectResponseFormat,
+            in_runId=runIdForLlm,
         )
         io_fallbackEvents.extend(list(llmResult.fallbackEvents))
         ret = llmResult

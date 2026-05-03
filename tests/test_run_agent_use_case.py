@@ -20,8 +20,9 @@ class FakeRoutingPlanResolver:
     def __init__(self, in_entity: RoutingResolutionEntity) -> None:
         self._entity = in_entity
 
-    def resolve(self, in_userMessage: str) -> RoutingResolutionEntity:
+    def resolve(self, in_userMessage: str, *, in_runId: str = "") -> RoutingResolutionEntity:
         _ = in_userMessage
+        _ = in_runId
         ret = self._entity
         return ret
 
@@ -85,12 +86,15 @@ class FakeAgentLoop:
         in_memoryPrincipalId: str,
         in_allowToolCalls: bool = True,
         in_requiredFirstSuccessfulToolName: str = "",
+        *,
+        in_runId: str = "",
     ) -> AgentLoopResultModel:
         _ = in_userMessage
         _ = in_skillsBlock
         self.lastMemoryBlock = in_memoryBlock
         _ = in_memoryPrincipalId
         _ = in_allowToolCalls
+        _ = in_runId
         self.lastRequiredFirstToolName = in_requiredFirstSuccessfulToolName
         ret = self._result
         return ret

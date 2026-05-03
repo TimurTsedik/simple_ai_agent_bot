@@ -10,9 +10,10 @@ class StaticLlmClient(LlmClientProtocol):
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str | None = None,
     ) -> LlmCompletionResultModel:
         ret: LlmCompletionResultModel
-        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat)
+        _ = (in_promptText, in_timeoutSeconds, in_useJsonObjectResponseFormat, in_runId)
         contentValue = (
             '{"type":"stop","reason":"stage2_stub","final_answer":"'
             "Остановка: LLM provider будет подключен на следующем этапе."

@@ -11,5 +11,6 @@ class LlmClientProtocol(Protocol):
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str | None = None,
     ) -> LlmCompletionResultModel:
         ...

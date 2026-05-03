@@ -42,6 +42,7 @@ class RunAgentUseCase:
         createdAt = getUtcNowIso()
         routingResolution = self._routingPlanResolver.resolve(
             in_userMessage=in_inputMessage,
+            in_runId=runId,
         )
         skillsBlockText = routingResolution.skillsBlock
         memoryModeValue: Literal["full", "long_term_only"]
@@ -60,6 +61,7 @@ class RunAgentUseCase:
             in_requiredFirstSuccessfulToolName=(
                 routingResolution.requiredFirstSuccessfulToolName
             ),
+            in_runId=runId,
         )
         toolCalls = [
             item.get("toolCall")

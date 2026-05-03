@@ -30,11 +30,13 @@ class StubLlmForRoutingTests:
         *,
         in_timeoutSeconds: int | None = None,
         in_useJsonObjectResponseFormat: bool = False,
+        in_runId: str | None = None,
     ) -> LlmCompletionResultModel:
         _ = in_modelName
         _ = in_promptText
         _ = in_timeoutSeconds
         _ = in_useJsonObjectResponseFormat
+        _ = in_runId
         ret = LlmCompletionResultModel(
             content=self._yamlResponse,
             selectedModel="stub",

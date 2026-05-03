@@ -35,7 +35,7 @@ class LlmRoutingPlanResolver:
         self._toolRegistry = in_toolRegistry
         self._modelSettings = in_modelSettings
 
-    def resolve(self, in_userMessage: str) -> RoutingResolutionEntity:
+    def resolve(self, in_userMessage: str, *, in_runId: str = "") -> RoutingResolutionEntity:
         ret: RoutingResolutionEntity
         knownSkillDefs = self._skillService.loadAllSkills()
         knownSkillIdsValue = {
@@ -61,6 +61,7 @@ class LlmRoutingPlanResolver:
             in_promptText=routingPromptTextValue,
             in_timeoutSeconds=int(self._modelSettings.requestTimeoutSeconds),
             in_useJsonObjectResponseFormat=False,
+            in_runId=in_runId if str(in_runId).strip() != "" else None,
         )
         parseOutcomeModel = self._routePlanParser.parseAndValidateCatalog(
             in_rawText=routingLlmOutcome.content,

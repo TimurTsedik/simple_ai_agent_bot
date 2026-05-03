@@ -220,6 +220,10 @@ def testToolsAndSkillsPagesRequireLogin(monkeypatch, tmp_path) -> None:
     assert schedulesConfigResponse.status_code == 303
     assert schedulesConfigResponse.headers.get("location") == "/login"
 
+    longTermResponse = client.get("/memory/long-term", follow_redirects=False)
+    assert longTermResponse.status_code == 303
+    assert longTermResponse.headers.get("location") == "/login"
+
     usersPageResponse = client.get("/users", follow_redirects=False)
     assert usersPageResponse.status_code == 303
     assert usersPageResponse.headers.get("location") == "/login"

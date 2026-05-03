@@ -3,7 +3,10 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.common.adminTenantConfigPaths import resolveAdminTenantToolsYamlPath
+from app.common.adminTenantConfigPaths import (
+    resolveAdminTenantSchedulesYamlPath,
+    resolveAdminTenantToolsYamlPath,
+)
 
 
 def _buildClient(in_monkeypatch, in_tmpPath: Path, in_adminWritesEnabled: bool) -> TestClient:
@@ -119,6 +122,14 @@ def testAdminWritesDisabledBlocksPosts(monkeypatch, tmp_path) -> None:
     )
     assert respTools.status_code == 403
 
+    respLongTerm = client.post("/memory/long-term", data={"content": "x"})
+    assert respLongTerm.status_code == 403
+
+    respSchedules = client.post(
+        "/config/schedules", data={"content": "scheduledTasks: []\n"}
+    )
+    assert respSchedules.status_code == 403
+
 
 def testAdminWritesEnabledAllowsSaving(monkeypatch, tmp_path) -> None:
     client = _buildClient(
@@ -150,3 +161,27 @@ def testAdminWritesEnabledAllowsSaving(monkeypatch, tmp_path) -> None:
     assert "emailReader:" in savedText
     assert "email:" in savedText
     assert "imapHost: imap.gmail.com" in savedText
+
+    respLongTerm = client.post(
+        "/memory/long-term",
+        data={"content": "edited-long-term-body"},
+    )
+    assert respLongTerm.status_code == 200
+    assert "Сохранено" in respLongTerm.text
+    longTermPath = (
+        tmp_path / "memory" / "sessions" / "telegramUser_16739703" / "long_term.md"
+    )
+    assert longTermPath.read_text(encoding="utf-8") == "edited-long-term-body"
+
+    respSchedules = client.post(
+        "/config/schedules",
+        data={"content": "scheduledTasks: []\n"},
+    )
+    assert respSchedules.status_code == 200
+    assert "Сохранено" in respSchedules.text
+    schedulesPath = resolveAdminTenantSchedulesYamlPath(
+        in_memoryRootPath=str(tmp_path / "memory"),
+        in_adminTelegramUserId=16739703,
+    )
+    assert schedulesPath.exists() is True
+    assert "scheduledTasks" in schedulesPath.read_text(encoding="utf-8")

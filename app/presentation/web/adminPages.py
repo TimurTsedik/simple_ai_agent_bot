@@ -174,24 +174,37 @@ def _renderNav() -> str:
     return ret
 
 
-def renderLongTermMemoryPage(
+def renderLongTermMemoryEditPage(
     in_path: str,
     in_contentText: str,
-    in_maxChars: int,
-    in_truncated: bool,
+    in_errorText: str,
+    in_adminWritesEnabled: bool,
 ) -> str:
     ret: str
-    truncatedNote = (
-        "<p class='warning'>Показан усечённый вывод (truncated).</p>"
-        if in_truncated is True
-        else ""
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_adminWritesEnabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
     )
+    errorBlock = (
+        f"<p class='danger'>{html.escape(in_errorText)}</p>" if in_errorText else ""
+    )
+    disabledAttr = "" if in_adminWritesEnabled is True else "disabled"
     content = (
         "<h1 class='title'>Long-term memory</h1>"
-        f"<p class='muted'>Файл: {html.escape(in_path)}</p>"
-        f"<p class='muted'>maxChars: {html.escape(str(in_maxChars))}</p>"
-        f"{truncatedNote}"
-        f"<pre>{html.escape(in_contentText)}</pre>"
+        f"<div class='row'>{badge}</div>"
+        f"<p class='muted'>Файл: <code>{html.escape(in_path)}</code> "
+        "(tenant администратора по <code>adminTelegramUserId</code>).</p>"
+        f"{errorBlock}"
+        "<form method='post'>"
+        f"<textarea name='content' rows='24' style='width:100%;padding:10px;border-radius:10px;border:1px solid #273252;background:#0e1529;color:#e8ecf6;' {disabledAttr}>"
+        f"{html.escape(in_contentText)}"
+        "</textarea>"
+        "<div class='row' style='margin-top:10px;'>"
+        f"<button class='btn' type='submit' {disabledAttr}>Сохранить</button>"
+        f"<a class='btn' href='/'>Назад</a>"
+        "</div>"
+        "</form>"
     )
     ret = _renderLayout(in_title="Long-term memory", in_content=content, in_showNav=True)
     return ret
@@ -979,16 +992,37 @@ def renderToolsConfigEditPage(
     return ret
 
 
-def renderSchedulesConfigViewPage(
+def renderSchedulesConfigEditPage(
     in_schedulesYamlText: str,
     in_schedulesPath: str,
+    in_errorText: str,
+    in_adminWritesEnabled: bool,
 ) -> str:
     ret: str
+    badge = (
+        "<span class='badge badge-ok'>writes enabled</span>"
+        if in_adminWritesEnabled is True
+        else "<span class='badge badge-warn'>read-only</span>"
+    )
+    errorBlock = (
+        f"<p class='danger'>{html.escape(in_errorText)}</p>" if in_errorText else ""
+    )
+    disabledAttr = "" if in_adminWritesEnabled is True else "disabled"
     content = (
         "<h1 class='title'>Scheduler settings (schedules.yaml)</h1>"
-        "<p class='muted'>Read-only preview текущего scheduler-конфига.</p>"
-        f"<p class='muted'>Path: {html.escape(in_schedulesPath)}</p>"
-        f"<pre>{html.escape(in_schedulesYamlText)}</pre>"
+        f"<div class='row'>{badge}</div>"
+        "<p class='muted'>Конфиг tenant (scheduledTasks, legacy jobs/reminders).</p>"
+        f"<p class='muted'>Path: <code>{html.escape(in_schedulesPath)}</code></p>"
+        f"{errorBlock}"
+        "<form method='post'>"
+        f"<textarea name='content' rows='24' style='width:100%;padding:10px;border-radius:10px;border:1px solid #273252;background:#0e1529;color:#e8ecf6;' {disabledAttr}>"
+        f"{html.escape(in_schedulesYamlText)}"
+        "</textarea>"
+        "<div class='row' style='margin-top:10px;'>"
+        f"<button class='btn' type='submit' {disabledAttr}>Сохранить</button>"
+        f"<a class='btn' href='/'>Назад</a>"
+        "</div>"
+        "</form>"
     )
     ret = _renderLayout(in_title="Schedules Config", in_content=content, in_showNav=True)
     return ret

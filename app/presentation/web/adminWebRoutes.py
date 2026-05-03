@@ -32,19 +32,22 @@ from app.presentation.web.adminPages import renderSkillEditPage
 from app.presentation.web.adminPages import renderSkillsPage
 from app.common.structuredLogger import writeJsonlEvent
 from app.common.adminTenantConfigPaths import (
+    resolveAdminTenantSessionDirectoryPath,
     resolveAdminTenantSchedulesYamlPath,
     resolveAdminTenantToolsYamlPath,
 )
-from app.common.memoryPrincipal import formatTelegramUserMemoryPrincipal
-from app.presentation.web.adminPages import renderLongTermMemoryPage
-from app.presentation.web.adminPages import renderSchedulesConfigViewPage
+from app.config.tenantSchedulesModels import (
+    TenantSchedulesFile,
+    normalizeLegacySchedulesDict,
+)
+from app.presentation.web.adminPages import renderLongTermMemoryEditPage
+from app.presentation.web.adminPages import renderSchedulesConfigEditPage
 from app.presentation.web.adminPages import renderToolsConfigEditPage
 from app.presentation.web.adminPages import renderTelegramUsersPage
 from app.presentation.web.adminPages import renderToolsPage
 from app.security.webSessionAuth import createSessionCookieValue
 from app.security.webSessionAuth import hashAdminToken
 from app.security.webSessionAuth import parseSessionCookieValue
-from app.tools.implementations.readMemoryFileTool import ReadMemoryFileTool
 
 
 def _normalizeWebRunsScope(in_rawScope: str) -> str:
@@ -66,10 +69,6 @@ def registerAdminWebRoutes(
     getGitStatusUseCase = in_container.getGitStatusUseCase
     getGitDiffUseCase = in_container.getGitDiffUseCase
     dashboardSnapshotService = in_container.dashboardSnapshotService
-    readMemoryFileTool = ReadMemoryFileTool(
-        in_memoryRootPath=settings.memory.memoryRootPath,
-        in_allowedReadOnlyPaths=settings.security.allowedReadOnlyPaths,
-    )
 
     if hasattr(in_app.state, "adminLoginBruteforceState") is False:
         in_app.state.adminLoginBruteforceState = {}
@@ -207,6 +206,30 @@ def registerAdminWebRoutes(
         else:
             yamlText = ""
         ret = (yamlText, str(schedulesPath))
+        return ret
+
+    def resolveAdminLongTermMemoryFilePath() -> Path:
+        ret: Path
+        ret = (
+            resolveAdminTenantSessionDirectoryPath(
+                in_memoryRootPath=settings.memory.memoryRootPath,
+                in_adminTelegramUserId=int(settings.adminTelegramUserId),
+            )
+            / settings.memory.longTermFileName
+        ).resolve()
+        return ret
+
+    def normalizeSchedulesYamlOrRaise(in_yamlText: str) -> str:
+        ret: str
+        loadedRaw = yaml.safe_load(in_yamlText)
+        if loadedRaw is None:
+            mergedDict = normalizeLegacySchedulesDict(in_data={})
+        elif isinstance(loadedRaw, dict):
+            mergedDict = normalizeLegacySchedulesDict(in_data=loadedRaw)
+        else:
+            raise ValidationError.from_exception_data("schedules_yaml", [])
+        TenantSchedulesFile.model_validate(mergedDict)
+        ret = yaml.safe_dump(mergedDict, allow_unicode=True, sort_keys=False)
         return ret
 
     def normalizeToolsYamlWithExistingOrRaise(in_yamlText: str) -> str:
@@ -408,29 +431,54 @@ def registerAdminWebRoutes(
         return ret
 
     @in_app.get("/memory/long-term", response_class=HTMLResponse)
-    def getLongTermMemoryPage(in_request: Request, maxChars: int = 50000):
+    def getLongTermMemoryPage(in_request: Request):
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
-        memoryRoot = Path(settings.memory.memoryRootPath).resolve()
-        principalId = formatTelegramUserMemoryPrincipal(
-            in_telegramUserId=settings.adminTelegramUserId,
-        )
-        sanitizedPrincipal = principalId.replace(":", "_")
-        longTermPath = (
-            memoryRoot / "sessions" / sanitizedPrincipal / settings.memory.longTermFileName
-        ).resolve()
-        result = readMemoryFileTool.execute(
-            in_args={"relativePath": str(longTermPath), "maxChars": int(maxChars)},
-            in_memoryPrincipalId=principalId,
-        )
-        contentText = str(result.get("content", "") or "")
-        pathText = str(result.get("path", "") or "")
-        truncated = len(contentText) >= int(maxChars)
-        ret = renderLongTermMemoryPage(
-            in_path=pathText,
+        longTermPath = resolveAdminLongTermMemoryFilePath()
+        if longTermPath.exists() is True:
+            contentText = longTermPath.read_text(encoding="utf-8")
+        else:
+            contentText = ""
+        ret = renderLongTermMemoryEditPage(
+            in_path=str(longTermPath),
             in_contentText=contentText,
-            in_maxChars=int(maxChars),
-            in_truncated=truncated,
+            in_errorText="",
+            in_adminWritesEnabled=settings.security.adminWritesEnabled,
+        )
+        return ret
+
+    @in_app.post("/memory/long-term", response_class=HTMLResponse)
+    def postLongTermMemoryPage(in_request: Request, content: str = Form(...)):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        ensureWritesEnabledOr403()
+        longTermPath = resolveAdminLongTermMemoryFilePath()
+        try:
+            atomicWriteTextFile(in_path=longTermPath, in_text=content)
+        except OSError as in_exc:
+            logger.error(
+                f"admin_long_term_save_failed path={longTermPath}: {in_exc}"
+            )
+            writeJsonlEvent(
+                in_loggingSettings=settings.logging,
+                in_eventType="admin_long_term_save_error",
+                in_payload={
+                    "path": str(longTermPath.resolve()),
+                    "error": repr(in_exc),
+                },
+            )
+            ret = renderLongTermMemoryEditPage(
+                in_path=str(longTermPath),
+                in_contentText=content,
+                in_errorText=f"Не удалось сохранить: {in_exc}",
+                in_adminWritesEnabled=settings.security.adminWritesEnabled,
+            )
+            return ret
+        ret = renderLongTermMemoryEditPage(
+            in_path=str(longTermPath),
+            in_contentText=content,
+            in_errorText="Сохранено.",
+            in_adminWritesEnabled=settings.security.adminWritesEnabled,
         )
         return ret
 
@@ -523,9 +571,33 @@ def registerAdminWebRoutes(
         if isWebAuthorized(in_request=in_request) is False:
             return RedirectResponse(url="/login", status_code=303)
         schedulesText, schedulesPathText = loadSchedulesYamlTextOrEmpty()
-        ret = renderSchedulesConfigViewPage(
+        ret = renderSchedulesConfigEditPage(
             in_schedulesYamlText=schedulesText,
             in_schedulesPath=schedulesPathText,
+            in_errorText="",
+            in_adminWritesEnabled=settings.security.adminWritesEnabled,
+        )
+        return ret
+
+    @in_app.post("/config/schedules", response_class=HTMLResponse)
+    def postSchedulesConfigPage(in_request: Request, content: str = Form(...)):
+        if isWebAuthorized(in_request=in_request) is False:
+            return RedirectResponse(url="/login", status_code=303)
+        ensureWritesEnabledOr403()
+        errorText = ""
+        contentToRender = content
+        schedulesPathResolved = resolveSchedulesConfigPath()
+        try:
+            normalizedContent = normalizeSchedulesYamlOrRaise(in_yamlText=content)
+            atomicWriteTextFile(in_path=schedulesPathResolved, in_text=normalizedContent)
+            contentToRender = normalizedContent
+        except (ValidationError, yaml.YAMLError, OSError) as in_exc:
+            errorText = str(in_exc)
+        ret = renderSchedulesConfigEditPage(
+            in_schedulesYamlText=contentToRender,
+            in_schedulesPath=str(schedulesPathResolved),
+            in_errorText=errorText or "Сохранено.",
+            in_adminWritesEnabled=settings.security.adminWritesEnabled,
         )
         return ret
 

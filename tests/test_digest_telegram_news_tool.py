@@ -337,3 +337,65 @@ def testDigestToolDiagnosticsShowsKeywordFiltering() -> None:
     assert diagnostics.get("totalParsedPosts") == 2
     assert diagnostics.get("filteredOutByKeywords") == 2
     assert diagnostics.get("returnedItemsCount") == 0
+
+
+def testDigestToolDoesNotMixTextWithPreviousPostInPrimaryPattern() -> None:
+    htmlPage = """
+    <div class="tgme_widget_message_wrap" data-post="mix_ch/100">
+      <time datetime="2026-04-29T10:00:00+00:00"></time>
+      <div class="tgme_widget_message_photo_wrap">photo only without text block</div>
+    </div>
+    <div class="tgme_widget_message_wrap" data-post="mix_ch/101">
+      <time datetime="2026-04-29T10:05:00+00:00"></time>
+      <div class="tgme_widget_message_text js-message_text">keyword from second post</div>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["mix_ch"],
+        getDefaultKeywords=lambda: ["keyword"],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "keywords": [],
+            "sinceUnixTs": 1,
+            "maxItems": 10,
+        },
+        in_memoryPrincipalId="telegramUser:1",
+    )
+
+    assert result["count"] == 1
+    assert result["items"][0]["summary"] == "keyword from second post"
+    assert result["items"][0]["link"] == "https://t.me/mix_ch/101"
+
+
+def testDigestToolDoesNotMixTextWithPreviousPostInFallbackPattern() -> None:
+    htmlPage = """
+    <div class="tgme_widget_message_wrap" data-post="mix_fb/200">
+      <div class="tgme_widget_message_photo_wrap">photo only without text block</div>
+      <time datetime="2026-04-29T11:00:00+00:00"></time>
+    </div>
+    <div class="tgme_widget_message_wrap" data-post="mix_fb/201">
+      <div class="tgme_widget_message_text js-message_text">fallback keyword in second post</div>
+      <time datetime="2026-04-29T11:05:00+00:00"></time>
+    </div>
+    """
+    tool = DigestTelegramNewsTool(
+        getDigestChannelUsernames=lambda: ["mix_fb"],
+        getDefaultKeywords=lambda: ["fallback keyword"],
+        fetchHtmlCallable=lambda _in_url, _in_timeout: htmlPage,
+    )
+
+    result = tool.execute(
+        in_args={
+            "keywords": [],
+            "sinceUnixTs": 1,
+            "maxItems": 10,
+        },
+        in_memoryPrincipalId="telegramUser:1",
+    )
+
+    assert result["count"] == 1
+    assert result["items"][0]["summary"] == "fallback keyword in second post"
+    assert result["items"][0]["link"] == "https://t.me/mix_fb/201"

@@ -356,13 +356,15 @@ class DigestTelegramNewsTool:
             r'<div class="tgme_widget_message_text[^"]*"[^>]*>(?P<textHtml>[\s\S]*?)</div>',
             re.MULTILINE,
         )
-        for match in messagePattern.finditer(in_pageHtml):
-            oneItem = self._postDictFromMatch(
-                in_channelName=in_channelName,
-                in_match=match,
-            )
-            if oneItem is not None:
-                parsedItems.append(oneItem)
+        postChunks = self._extractPostHtmlChunks(in_pageHtml=in_pageHtml)
+        for oneChunk in postChunks:
+            for match in messagePattern.finditer(oneChunk):
+                oneItem = self._postDictFromMatch(
+                    in_channelName=in_channelName,
+                    in_match=match,
+                )
+                if oneItem is not None:
+                    parsedItems.append(oneItem)
         ret = parsedItems
         return ret
 
@@ -378,28 +380,49 @@ class DigestTelegramNewsTool:
             r'<div class="tgme_widget_message_text[^"]*"[^>]*>(?P<textHtml>[\s\S]*?)</div>',
             re.MULTILINE,
         )
-        for match in loosePattern.finditer(in_pageHtml):
-            postPath = match.group("postPath")
-            textHtml = match.group("textHtml")
-            postDateUnixTs = self._extractUnixFromPostPathOrHtml(
-                in_postPath=postPath,
-                in_fullHtml=in_pageHtml,
-            )
-            if postDateUnixTs is None:
-                postDateUnixTs = 0
-            plainText = self._htmlToPlainText(in_htmlText=textHtml)
-            if not plainText:
-                continue
-            messageId = postPath.split("/")[-1]
-            parsedItems.append(
-                {
-                    "message_id": int(messageId) if messageId.isdigit() else messageId,
-                    "date": postDateUnixTs,
-                    "text": plainText,
-                    "chat": {"username": in_channelName},
-                }
-            )
+        postChunks = self._extractPostHtmlChunks(in_pageHtml=in_pageHtml)
+        for oneChunk in postChunks:
+            for match in loosePattern.finditer(oneChunk):
+                postPath = match.group("postPath")
+                textHtml = match.group("textHtml")
+                postDateUnixTs = self._extractUnixFromPostPathOrHtml(
+                    in_postPath=postPath,
+                    in_fullHtml=oneChunk,
+                )
+                if postDateUnixTs is None:
+                    postDateUnixTs = 0
+                plainText = self._htmlToPlainText(in_htmlText=textHtml)
+                if not plainText:
+                    continue
+                messageId = postPath.split("/")[-1]
+                parsedItems.append(
+                    {
+                        "message_id": int(messageId) if messageId.isdigit() else messageId,
+                        "date": postDateUnixTs,
+                        "text": plainText,
+                        "chat": {"username": in_channelName},
+                    }
+                )
         ret = parsedItems
+        return ret
+
+    def _extractPostHtmlChunks(self, in_pageHtml: str) -> list[str]:
+        ret: list[str]
+        chunks: list[str] = []
+        matchIterator = list(re.finditer(r'data-post="[^"]+"', in_pageHtml))
+        if len(matchIterator) == 0:
+            ret = [in_pageHtml]
+            return ret
+        indexValue = 0
+        while indexValue < len(matchIterator):
+            startOffset = matchIterator[indexValue].start()
+            if indexValue + 1 < len(matchIterator):
+                endOffset = matchIterator[indexValue + 1].start()
+            else:
+                endOffset = len(in_pageHtml)
+            chunks.append(in_pageHtml[startOffset:endOffset])
+            indexValue += 1
+        ret = chunks
         return ret
 
     def _postDictFromMatch(

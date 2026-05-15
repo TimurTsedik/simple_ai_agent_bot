@@ -45,6 +45,7 @@ from app.runtime.outputParser import OutputParser
 from app.runtime.promptBuilder import PromptBuilder
 from app.runtime.routePlanParser import RoutePlanParser
 from app.runtime.toolExecutionCoordinator import ToolExecutionCoordinator
+from app.scheduler.schedulerDigestTelegramSuppress import shouldSuppressSchedulerDigestTelegram
 from app.scheduler.schedulerRunner import SchedulerRunner
 from app.integrations.speech.fasterWhisperTranscriber import FasterWhisperTranscriber
 from app.skills.services.skillSelectorRules import SkillSelectorRules
@@ -218,6 +219,25 @@ def buildApplicationContainer(in_configPath: str) -> ApplicationContainer:
         in_finalAnswer: str,
         in_ownerMemoryPrincipalId: str,
     ) -> None:
+        runRecord = runRepository.getRunById(in_runId=str(in_runId or ""))
+        shouldSuppressFlag, suppressDiagnostics = shouldSuppressSchedulerDigestTelegram(
+            in_jobId=in_jobId,
+            in_runRecord=runRecord,
+        )
+        if shouldSuppressFlag is True:
+            logPayload: dict[str, object] = {
+                "jobId": in_jobId,
+                "sessionId": in_sessionId,
+                "runId": in_runId,
+            }
+            if isinstance(suppressDiagnostics, dict):
+                logPayload.update(suppressDiagnostics)
+            writeJsonlEvent(
+                in_loggingSettings=settings.logging,
+                in_eventType="scheduler_result_suppressed_empty_digest",
+                in_payload=logPayload,
+            )
+            return
         formattedText = formatSchedulerTelegramMessage(
             in_jobId=in_jobId,
             in_sessionId=in_sessionId,
